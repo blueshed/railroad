@@ -75,7 +75,7 @@ export function createElement(
         } else {
           el.className = value;
         }
-      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc") {
+      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
         if (value instanceof Signal) {
           trackDispose(effect(() => { (el as any)[key] = value.get(); }));
         } else {
@@ -136,7 +136,9 @@ export function text(fn: () => string): Node {
 }
 
 // === when() — conditional rendering ===
-// Swaps DOM nodes when signal/computed value changes truthiness.
+// Swaps DOM nodes only when truthiness transitions (falsy↔truthy).
+// Value changes within the same branch (e.g. "a" → "b") do NOT re-render.
+// Components inside each branch should use signals to react to value changes.
 //   when(isLoggedIn, () => <Dashboard />, () => <Login />)
 
 export function when(
@@ -147,11 +149,17 @@ export function when(
   const anchor = document.createComment("when");
   let current: Node | null = null;
   let currentDispose: Dispose | null = null;
+  let wasTruthy: boolean | undefined = undefined;
 
   const sig = typeof condition === "function" ? computed(condition) : condition;
 
   function swap() {
     const val = sig.get();
+    const isTruthy = !!val;
+
+    // Only swap when truthiness actually changes
+    if (isTruthy === wasTruthy) return;
+    wasTruthy = isTruthy;
 
     if (currentDispose) currentDispose();
     if (current && anchor.parentNode) {
@@ -159,7 +167,7 @@ export function when(
     }
 
     pushDisposeScope();
-    current = val ? truthy() : (falsy ? falsy() : null);
+    current = isTruthy ? truthy() : (falsy ? falsy() : null);
     currentDispose = popDisposeScope();
 
     if (current && anchor.parentNode) {
