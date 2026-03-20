@@ -1,0 +1,34 @@
+{
+  "name": "@blueshed/railroad",
+  "version": "0.1.0",
+  "description": "Signals, JSX, and routes — a micro UI framework for Bun",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./signals": "./signals.ts",
+    "./jsx": "./jsx.ts",
+    "./routes": "./routes.ts",
+    "./shared": "./shared.ts"
+  },
+  "files": [
+    "*.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blueshed/railroad"
+  },
+  "keywords": ["signals", "jsx", "router", "bun", "ui", "framework"]
+}
