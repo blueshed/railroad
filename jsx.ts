@@ -75,6 +75,12 @@ export function createElement(
         } else {
           el.className = value;
         }
+      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected") {
+        if (value instanceof Signal) {
+          trackDispose(effect(() => { (el as any)[key] = value.get(); }));
+        } else {
+          (el as any)[key] = value;
+        }
       } else if (key === "style" && typeof value === "object" && !(value instanceof Signal)) {
         Object.assign(el.style, value);
       } else if (key.startsWith("on")) {
