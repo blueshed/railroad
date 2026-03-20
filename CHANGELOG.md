@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+### Added
+
+- **Automatic JSX runtime** — `jsx-runtime.ts` and `jsx-dev-runtime.ts` enable `"jsx": "react-jsx"` with `"jsxImportSource": "@blueshed/railroad"`, so consumers can write JSX without importing `createElement`.
+- **Claude Code skill** — ships in `.claude/skills/railroad/` with API reference, patterns, and anti-patterns for correct railroad code generation.
+
 ## 0.1.1
 
 ### Fixed

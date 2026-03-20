@@ -12,7 +12,47 @@ bun add @blueshed/railroad
 
 ## Quick Start
 
+### Automatic runtime (recommended)
+
+No JSX imports needed — the compiler inserts them for you.
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@blueshed/railroad"
+  }
+}
+```
+
 ```tsx
+// app.tsx
+import { signal, routes } from "@blueshed/railroad";
+
+const count = signal(0);
+
+function Home() {
+  return (
+    <div>
+      <h1>Hello World</h1>
+      <button onclick={() => count.update(n => n + 1)}>
+        Count: {count}
+      </button>
+    </div>
+  );
+}
+
+routes(document.getElementById("app")!, {
+  "/": () => <Home />,
+});
+```
+
+### Classic runtime
+
+If you prefer explicit imports:
+
+```json
 // tsconfig.json
 {
   "compilerOptions": {
@@ -44,6 +84,8 @@ routes(document.getElementById("app")!, {
   "/": () => <Home />,
 });
 ```
+
+### Server
 
 ```ts
 // server.ts
@@ -160,6 +202,20 @@ const store = inject(STORE);
 - **Routes swap the DOM** — hash-based, dispose-scoped, Bun.serve-style tables
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
+
+## Claude Code Skill
+
+This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Claude can reference these docs to understand the API, patterns, and anti-patterns — so it generates correct railroad code out of the box.
+
+Copy the skill into your project or user config to make it available:
+
+```sh
+# Project level — just for this repo:
+cp -r node_modules/@blueshed/railroad/.claude/skills/railroad .claude/skills/
+
+# User level — available in all your projects:
+cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
+```
 
 ## License
 
