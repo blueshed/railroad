@@ -75,7 +75,7 @@ export function createElement(
         } else {
           el.className = value;
         }
-      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected") {
+      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc") {
         if (value instanceof Signal) {
           trackDispose(effect(() => { (el as any)[key] = value.get(); }));
         } else {
