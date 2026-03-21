@@ -39,8 +39,11 @@ function trackDispose(d: Dispose): void {
 
 // === Fragment ===
 
-export function Fragment(_props: any, ...children: any[]): DocumentFragment {
+export function Fragment(props: any): DocumentFragment {
   const frag = document.createDocumentFragment();
+  const children = props?.children
+    ? (Array.isArray(props.children) ? props.children : [props.children])
+    : [];
   appendChildren(frag, children);
   return frag;
 }

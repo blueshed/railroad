@@ -103,6 +103,16 @@ Use `class` or `className` — both work. Signals are supported:
 <div class={activeClass}>reactive</div>  {/* activeClass is a Signal<string> */}
 ```
 
+For derived/conditional class values, use `computed()`:
+
+```tsx
+import { computed } from "@blueshed/railroad";
+
+<button class={computed(() => `btn ${active.get() ? "active" : ""}`)}>
+```
+
+**Do NOT use `text()` for attributes** — `text()` creates a text DOM node, not a string. Use `computed()` for any reactive attribute value (class, style, data-*, etc.).
+
 ### Style
 
 Pass a plain object (not a signal) to set inline styles:
@@ -270,4 +280,29 @@ const dispose = popDisposeScope();
 dispose();
 ```
 
-This is an advanced pattern — most code relies on the router or `when()` to handle scoping.
+This is **required** when an effect creates JSX that may contain child effects, event handlers, or WebSocket listeners. Every effect that clears a container and appends new JSX **must** use this pattern:
+
+```tsx
+let childDispose: (() => void) | null = null;
+
+effect(() => {
+  const data = mySignal.get();
+  if (childDispose) { childDispose(); childDispose = null; }
+  container.innerHTML = "";
+  pushDisposeScope();
+  container.appendChild(<ChildComponent data={data} /> as Node);
+  childDispose = popDisposeScope();
+  return () => { if (childDispose) { childDispose(); childDispose = null; } };
+});
+```
+
+### Why the cleanup return matters
+
+The effect handles two lifecycle events:
+
+1. **Re-run** — when a tracked signal changes, the effect re-runs. The `if (childDispose)` call at the top cleans up the previous child scope before creating a new one.
+2. **Dispose** — when the effect itself is stopped (parent scope torn down, route change, `when()` swap), the cleanup function returned from the effect disposes the child scope. **Without this return, child effects leak when the parent is removed.**
+
+### Common mistake
+
+The most frequent porting bug is forgetting dispose scopes in effects that rebuild DOM. Any effect that does `container.innerHTML = ""; container.appendChild(<SomeJSX /> as Node)` needs this pattern. Static JSX with no signals, effects, or event listeners inside does not need it, but when in doubt, wrap it.

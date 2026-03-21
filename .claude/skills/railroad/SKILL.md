@@ -79,5 +79,8 @@ Detailed usage for each concern is in the sibling files. Read them before genera
 3. **Components run once.** A component function is called once and returns a DOM node. Reactivity comes from signals, not from re-calling the component.
 4. **No JSX without setup.** In classic mode, every `.tsx` file needs `import { createElement } from "@blueshed/railroad"`. In automatic mode (`react-jsx` + `jsxImportSource`), no import is needed — the compiler handles it. Check tsconfig to know which mode.
 5. **Do not call `.get()` in JSX children.** Pass the signal directly: `<p>{count}</p>`, not `<p>{count.get()}</p>`. The latter creates a static text node that never updates.
-6. **Do not create signals inside components** unless you want fresh state on every mount. Module-level signals are shared state; component-level signals are local/ephemeral.
-7. **Do not forget `batch()`** when setting multiple signals that feed the same effect — without it, the effect runs once per set.
+6. **Do not use `text()` for attributes.** `text()` creates a DOM text node — use `computed()` for reactive attribute values: `class={computed(() => active.get() ? "on" : "off")}`.
+7. **Do not create signals inside components** unless you want fresh state on every mount. Module-level signals are shared state; component-level signals are local/ephemeral.
+8. **Do not forget `batch()`** when setting multiple signals that feed the same effect — without it, the effect runs once per set.
+9. **Do not rebuild JSX in effects without dispose scopes.** Any effect that does `container.innerHTML = ""; container.appendChild(<JSX/>)` **must** use the full dispose scope pattern — see `jsx.md` Dispose Scopes section. Both the re-run cleanup (`if (childDispose) childDispose()` at top) AND the effect cleanup return (`return () => { ... }`) are required. Without the return, child effects leak when the parent is torn down.
+10. **Do not use `transition-all` in CSS** for elements near layout boundaries (cards, panels). Use specific properties like `transition-colors` or `transition-[width,border-color]` to avoid animating layout properties unintentionally.
