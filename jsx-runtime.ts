@@ -25,3 +25,11 @@ export function jsx(
 }
 
 export { jsx as jsxs };
+
+// Re-export JSX namespace so TypeScript react-jsx mode finds the types
+export namespace JSX {
+  export type Element = globalThis.Node;
+  export interface IntrinsicElements {
+    [tag: string]: any;
+  }
+}
