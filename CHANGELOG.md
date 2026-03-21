@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- **`Fragment` now reads `props.children`** — `createElement` passes children as `props.children` when calling function components, but `Fragment` only read rest params (which were empty). This broke all `<>...</>` usage via the automatic JSX runtime.
+
+### Docs
+
+- Added anti-patterns: `text()` for attributes (#6), missing dispose scopes (#9), `transition-all` CSS (#10).
+- Added `computed()` for reactive attributes example and full dispose scope pattern to `jsx.md`.
+
 ## 0.1.3
 
 ### Fixed
