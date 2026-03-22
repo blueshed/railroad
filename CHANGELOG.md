@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7
+
+### Added
+
+- **Logger** — `createLogger(tag)` returns a tagged logger with `info`, `warn`, `error`, `debug` methods. Level-gated via `setLogLevel()` or `LOG_LEVEL` env var. Includes `loggedRequest(tag, handler)` for wrapping route handlers with access logging and timing.
+
+### Removed
+
+- **`log.ts`** — consolidated into `logger.ts`.
+
 ## 0.1.6
 
 ### Added

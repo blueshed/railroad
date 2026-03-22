@@ -13,3 +13,6 @@ export { routes, route, navigate, matchRoute } from "./routes";
 
 export { key, provide, inject } from "./shared";
 export type { Key } from "./shared";
+
+export { createLogger, setLogLevel, getLogLevel, loggedRequest } from "./logger";
+export type { LogLevel } from "./logger";
