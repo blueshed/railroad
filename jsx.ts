@@ -2,13 +2,19 @@
  * JSX Runtime — real DOM elements backed by signals
  *
  * createElement(tag, props, ...children)
- *   - tag: string → creates HTML element
+ *   - tag: string → creates HTML element (or SVG element inside <svg>)
  *   - tag: function → calls component function(props)
  *   - props: attributes, event handlers (onclick etc), ref
  *   - children: string, number, Node, Signal<T>, arrays, null/undefined
  *
  * When a Signal is used as a child, an effect auto-updates the text node.
  * When a Signal is used as a prop value, an effect auto-updates the attribute.
+ *
+ * SVG support:
+ *   <svg> is created with the SVG namespace. Any HTML children appended to
+ *   an SVG-namespaced parent are automatically adopted into the SVG namespace.
+ *   This handles the JSX bottom-up evaluation order transparently — you can
+ *   write <svg><g><circle /></g></svg> and it just works.
  *
  * Reactive helpers:
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
@@ -18,6 +24,11 @@
 
 import { Signal, effect, computed } from "./signals";
 import type { Dispose } from "./signals";
+
+// === SVG namespace ===
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const storedProps = new WeakMap<Element, Record<string, any>>();
 
 // === Dispose scope management ===
 
@@ -48,6 +59,48 @@ export function Fragment(props: any): DocumentFragment {
   return frag;
 }
 
+// === Props application ===
+
+function applyProps(el: Element, props: Record<string, any>): void {
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "ref") {
+      if (typeof value === "function") value(el);
+    } else if (key === "innerHTML") {
+      if (value instanceof Signal) {
+        trackDispose(effect(() => { el.innerHTML = value.get(); }));
+      } else {
+        el.innerHTML = value;
+      }
+    } else if (key === "className" || key === "class") {
+      if (value instanceof Signal) {
+        trackDispose(effect(() => { el.setAttribute("class", value.get()); }));
+      } else {
+        el.setAttribute("class", value);
+      }
+    } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
+      if (value instanceof Signal) {
+        trackDispose(effect(() => { (el as any)[key] = value.get(); }));
+      } else {
+        (el as any)[key] = value;
+      }
+    } else if (key === "style" && typeof value === "object" && !(value instanceof Signal)) {
+      Object.assign((el as any).style, value);
+    } else if (key.startsWith("on")) {
+      el.addEventListener(key.slice(2).toLowerCase(), value);
+    } else {
+      if (value instanceof Signal) {
+        trackDispose(effect(() => {
+          const v = value.get();
+          if (v === false || v == null) el.removeAttribute(key);
+          else el.setAttribute(key, String(v));
+        }));
+      } else if (value !== false && value != null) {
+        el.setAttribute(key, String(value));
+      }
+    }
+  }
+}
+
 // === createElement ===
 
 export function createElement(
@@ -60,55 +113,60 @@ export function createElement(
     return tag(componentProps);
   }
 
-  const el = document.createElement(tag);
+  // SVG root element is always created with the SVG namespace.
+  // Child SVG elements are adopted in appendChildren when appended
+  // to an SVG-namespaced parent.
+  const el = tag === "svg"
+    ? document.createElementNS(SVG_NS, tag)
+    : document.createElement(tag);
 
   if (props) {
-    for (const [key, value] of Object.entries(props)) {
-      if (key === "ref") {
-        if (typeof value === "function") value(el);
-      } else if (key === "innerHTML") {
-        if (value instanceof Signal) {
-          trackDispose(effect(() => { el.innerHTML = value.get(); }));
-        } else {
-          el.innerHTML = value;
-        }
-      } else if (key === "className" || key === "class") {
-        if (value instanceof Signal) {
-          trackDispose(effect(() => { el.className = value.get(); }));
-        } else {
-          el.className = value;
-        }
-      } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
-        if (value instanceof Signal) {
-          trackDispose(effect(() => { (el as any)[key] = value.get(); }));
-        } else {
-          (el as any)[key] = value;
-        }
-      } else if (key === "style" && typeof value === "object" && !(value instanceof Signal)) {
-        Object.assign(el.style, value);
-      } else if (key.startsWith("on")) {
-        el.addEventListener(key.slice(2).toLowerCase(), value);
-      } else {
-        if (value instanceof Signal) {
-          trackDispose(effect(() => {
-            const v = value.get();
-            if (v === false || v == null) el.removeAttribute(key);
-            else el.setAttribute(key, String(v));
-          }));
-        } else if (value !== false && value != null) {
-          el.setAttribute(key, String(value));
-        }
-      }
-    }
+    storedProps.set(el, props);
+    applyProps(el, props);
   }
 
   appendChildren(el, children);
   return el;
 }
 
+// === SVG adoption ===
+
+/**
+ * Recursively adopt an HTML element into the SVG namespace.
+ * Creates a new SVG element, re-applies stored props (or copies
+ * attributes), and recursively adopts all children.
+ */
+function adoptSvg(node: Node): Node {
+  if (node instanceof Text || node instanceof Comment) return node;
+  if (!(node instanceof Element) || node.namespaceURI === SVG_NS) return node;
+
+  const svgEl = document.createElementNS(SVG_NS, node.localName);
+  const props = storedProps.get(node);
+
+  if (props) {
+    storedProps.set(svgEl, props);
+    applyProps(svgEl, props);
+  } else {
+    // No stored props — copy attributes directly
+    for (const attr of [...node.attributes]) {
+      svgEl.setAttribute(attr.name, attr.value);
+    }
+  }
+
+  // Adopt children recursively
+  while (node.firstChild) {
+    svgEl.appendChild(adoptSvg(node.removeChild(node.firstChild)));
+  }
+
+  return svgEl;
+}
+
 // === Child rendering ===
 
 function appendChildren(parent: Node, children: any[]): void {
+  const isSvgParent = parent instanceof Element &&
+    parent.namespaceURI === SVG_NS;
+
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === true) continue;
 
@@ -119,7 +177,14 @@ function appendChildren(parent: Node, children: any[]): void {
       }));
       parent.appendChild(text);
     } else if (child instanceof Node) {
-      parent.appendChild(child);
+      // Adopt HTML elements into SVG namespace when parent is SVG
+      if (isSvgParent &&
+          child instanceof Element &&
+          child.namespaceURI !== SVG_NS) {
+        parent.appendChild(adoptSvg(child));
+      } else {
+        parent.appendChild(child);
+      }
     } else {
       parent.appendChild(document.createTextNode(String(child)));
     }

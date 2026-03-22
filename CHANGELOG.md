@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.6
+
+### Added
+
+- **SVG support** — `<svg>` elements are created with the SVG namespace. Child elements appended to an SVG-namespaced parent are automatically adopted into the SVG namespace, handling JSX's bottom-up evaluation order transparently. Write `<svg><g><circle /></g></svg>` and it just works.
+- **`applyProps()` extracted** — shared prop application for both initial element creation and SVG adoption, ensuring signals and event handlers survive namespace adoption.
+
+### Fixed
+
+- **`className`/`class` now uses `setAttribute`** instead of `.className` property, which is required for SVG elements.
+
+## 0.1.5
+
+### Fixed
+
+- **Export JSX namespace from `jsx-runtime`** — TypeScript's `react-jsx` mode requires the JSX namespace to be exported from the runtime module for type checking to work.
+
 ## 0.1.4
 
 ### Fixed
