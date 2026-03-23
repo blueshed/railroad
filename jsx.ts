@@ -149,7 +149,7 @@ function adoptSvg(node: Node): Node {
   } else {
     // No stored props — copy attributes directly
     for (let i = 0; i < node.attributes.length; i++) {
-      const attr = node.attributes[i];
+      const attr = node.attributes[i]!;
       svgEl.setAttribute(attr.name, attr.value);
     }
   }

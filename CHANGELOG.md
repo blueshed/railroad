@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9
+
+### Fixed
+
+- **Another strict-mode fix** — non-null assertion on `NamedNodeMap` index access in SVG attribute copying.
+
 ## 0.1.8
 
 ### Added
