@@ -7,7 +7,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
-    "skipLibCheck": true,
+    "skipLibCheck": false,
     "noEmit": true
   }
 }

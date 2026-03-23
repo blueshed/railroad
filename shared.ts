@@ -26,3 +26,7 @@ export function inject<T>(k: Key<T>): T {
   if (v === undefined) throw new Error(`No provider for ${k.description}`);
   return v as T;
 }
+
+export function tryInject<T>(k: Key<T>): T | undefined {
+  return registry.get(k) as T | undefined;
+}

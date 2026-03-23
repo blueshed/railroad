@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8
+
+### Added
+
+- **`tryInject()`** — non-throwing variant of `inject()` that returns `undefined` when no provider exists.
+
+### Fixed
+
+- **TypeScript strict-mode compatibility** — fixed `NamedNodeMap` spread in SVG adoption (use index loop), added non-null assertions for array access in `list()`. Disabled `skipLibCheck` so we catch consumer-facing type errors.
+
 ## 0.1.7
 
 ### Added

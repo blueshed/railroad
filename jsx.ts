@@ -148,7 +148,8 @@ function adoptSvg(node: Node): Node {
     applyProps(svgEl, props);
   } else {
     // No stored props — copy attributes directly
-    for (const attr of [...node.attributes]) {
+    for (let i = 0; i < node.attributes.length; i++) {
+      const attr = node.attributes[i];
       svgEl.setAttribute(attr.name, attr.value);
     }
   }
@@ -312,13 +313,13 @@ export function list<T>(
     // Add or reorder entries
     let insertBefore: Node = anchor;
     for (let i = newKeys.length - 1; i >= 0; i--) {
-      const key = newKeys[i];
+      const key = newKeys[i]!;
       let entry = entries.get(key);
 
       if (!entry) {
         // New item — create
         pushDisposeScope();
-        const node = render(arr[i], i);
+        const node = render(arr[i]!, i);
         const dispose = popDisposeScope();
         entry = { node, dispose };
         entries.set(key, entry);
