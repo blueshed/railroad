@@ -116,6 +116,14 @@ count.set(1);        // logs "count is 1"
 count.update(n => n + 1); // logs "count is 2"
 count.peek();        // read without tracking
 
+// In-place mutation (auto-clones, always notifies):
+const todos = signal([{ id: 1, text: "Buy milk" }]);
+todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));
+
+// Shallow merge for object signals:
+const filter = signal({ color: "red", size: 10 });
+filter.patch({ color: "blue" }); // { color: "blue", size: 10 }
+
 batch(() => {
   count.set(10);
   count.set(20);     // effect runs once, not twice
@@ -157,11 +165,15 @@ function Greeting() {
 #### `list(items, keyFn?, render)` — keyed list rendering
 
 ```tsx
+// Keyed — render receives Signal<T> and Signal<number>:
 {list(
   todos,
-  (t) => t.id,  // optional key function
-  (t, i) => <li>{t.name}</li>,
+  (t) => t.id,
+  (todo, idx) => <li>{text(() => todo.get().name)}</li>,
 )}
+
+// Non-keyed (index-based, raw values):
+{list(items, (item, i) => <li>{item}</li>)}
 ```
 
 ### Routes
@@ -203,17 +215,17 @@ const store = inject(STORE);
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
 
-## Claude Code Skill
+## Claude Code
 
-This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Claude can reference these docs to understand the API, patterns, and anti-patterns — so it generates correct railroad code out of the box.
-
-Copy the skill into your project or user config to make it available:
+This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Copy it into your project so Claude generates correct railroad code — including API usage, patterns, and anti-patterns:
 
 ```sh
-# Project level — just for this repo:
 cp -r node_modules/@blueshed/railroad/.claude/skills/railroad .claude/skills/
+```
 
-# User level — available in all your projects:
+Or install it user-wide (available in all projects):
+
+```sh
 cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
 ```
 

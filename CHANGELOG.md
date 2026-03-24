@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- **`signal.mutate(fn)`** — `structuredClone` the value, mutate in place, notify. Eliminates forgotten-clone bugs when modifying objects, arrays, Sets, or Maps.
+- **`signal.patch(partial)`** — shallow merge for object signals. `s.patch({ color: "blue" })` instead of `s.set({ ...s.peek(), color: "blue" })`.
+- **`list()` keyed item signals** — the keyed overload now passes `Signal<T>` and `Signal<number>` to the render function. When an item's value changes, the signal updates in place — no node recreation. **(Breaking: keyed render callbacks must use `item.get()` instead of `item` directly.)**
+
+### Docs
+
+- Updated README, skill docs (signals.md, jsx.md, SKILL.md), and source comments for all three features.
+
 ## 0.1.9
 
 ### Fixed

@@ -229,18 +229,34 @@ import { when } from "@blueshed/railroad";
 Renders a reactive list with DOM diffing by key.
 
 ```tsx
-import { list } from "@blueshed/railroad";
+import { list, text } from "@blueshed/railroad";
 
 const todos = signal([
   { id: 1, text: "Buy milk" },
   { id: 2, text: "Walk dog" },
 ]);
+```
 
-// With key function (recommended for stable items):
-{list(todos, (t) => t.id, (t, i) => <li>{t.text}</li>)}
+### Keyed form (recommended)
 
-// Without key function (uses index — fine for simple cases):
-{list(todos, (t, i) => <li>{t}</li>)}
+The render function receives **`Signal<T>`** and **`Signal<number>`** — not raw values. When the array updates and an existing key's value changes, the item signal is updated in place, so effects inside the rendered DOM react automatically without recreating the node.
+
+```tsx
+{list(todos, (t) => t.id, (todo, idx) =>
+  <li class={computed(() => todo.get().done ? "done" : "")}>
+    {text(() => todo.get().text)}
+  </li>
+)}
+```
+
+Use `.get()` inside `text()`, `computed()`, or `effect()` to subscribe to item changes. Use `.peek()` for one-off reads.
+
+### Non-keyed form (index-based, raw values)
+
+The render function receives the raw item value and index number. Items are recreated when the array changes.
+
+```tsx
+{list(todos, (t, i) => <li>{t.text}</li>)}
 ```
 
 ### How It Works
@@ -248,6 +264,7 @@ const todos = signal([
 - New items: rendered and inserted.
 - Removed items: disposed and removed from DOM.
 - Reordered items: moved in the DOM (not re-created).
+- **Keyed: changed items** update the existing item `Signal`, triggering reactive updates inside the node.
 - Each item gets its own dispose scope.
 
 ## `Fragment` — Grouping Without a Wrapper

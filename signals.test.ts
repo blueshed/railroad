@@ -27,6 +27,40 @@ describe("signal", () => {
     expect(runs).toBe(1); // should not re-run
   });
 
+  test("mutate clones and notifies", () => {
+    const s = signal({ count: 0, items: [1, 2] });
+    let runs = 0;
+    effect(() => { s.get(); runs++; });
+    expect(runs).toBe(1);
+    s.mutate((v) => { v.count = 5; v.items.push(3); });
+    expect(runs).toBe(2);
+    expect(s.get()).toEqual({ count: 5, items: [1, 2, 3] });
+  });
+
+  test("mutate does not alias original", () => {
+    const original = { x: 1 };
+    const s = signal(original);
+    s.mutate((v) => { v.x = 99; });
+    expect(original.x).toBe(1); // original untouched
+    expect(s.get().x).toBe(99);
+  });
+
+  test("patch merges shallow fields", () => {
+    const s = signal({ name: "a", color: "red", size: 10 });
+    s.patch({ color: "blue" });
+    expect(s.get()).toEqual({ name: "a", color: "blue", size: 10 });
+  });
+
+  test("patch notifies subscribers", () => {
+    const s = signal({ x: 1, y: 2 });
+    let runs = 0;
+    effect(() => { s.get(); runs++; });
+    expect(runs).toBe(1);
+    s.patch({ y: 99 });
+    expect(runs).toBe(2);
+    expect(s.get()).toEqual({ x: 1, y: 99 });
+  });
+
   test("does not notify if value unchanged", () => {
     const s = signal(1);
     let runs = 0;

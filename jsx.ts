@@ -18,11 +18,12 @@
  *
  * Reactive helpers:
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
- *   list(signal, render)          — reactive list, diffs by index
+ *   list(signal, keyFn, render)   — keyed reactive list, render receives Signal<T>
+ *   list(signal, render)          — index-based reactive list, render receives raw T
  *   text(fn)                      — reactive text from computed expression
  */
 
-import { Signal, effect, computed } from "./signals";
+import { Signal, signal, effect, computed } from "./signals";
 import type { Dispose } from "./signals";
 
 // === SVG namespace ===
@@ -262,21 +263,25 @@ export function when(
 
 // === list() — keyed reactive list rendering ===
 // Diffs by key to preserve DOM nodes across updates.
-//   list(items, (item) => item.id, (item, index) => <li>{item.name}</li>)
-// Or without key function (falls back to index):
+//
+// Keyed form — render receives Signal<T> and Signal<number> so item
+// updates flow into existing DOM without re-creating nodes:
+//   list(items, (t) => t.id, (item, index) => <li>{text(() => item.get().name)}</li>)
+//
+// Non-keyed form (index-based, raw values):
 //   list(items, (item, index) => <li>{item}</li>)
 
 export function list<T>(
   items: Signal<T[]>,
   keyFnOrRender: ((item: T) => string | number) | ((item: T, index: number) => Node),
-  maybeRender?: (item: T, index: number) => Node,
+  maybeRender?: (item: Signal<T>, index: Signal<number>) => Node,
 ): Node {
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
-  const render = hasKeyFn ? maybeRender! : keyFnOrRender as (item: T, index: number) => Node;
 
+  type Entry = { node: Node; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
   const anchor = document.createComment("list");
-  let entries: Map<string | number, { node: Node; dispose: Dispose }> = new Map();
+  let entries: Map<string | number, Entry> = new Map();
   let order: (string | number)[] = [];
 
   function removeEntry(key: string | number) {
@@ -319,10 +324,23 @@ export function list<T>(
       if (!entry) {
         // New item — create
         pushDisposeScope();
-        const node = render(arr[i]!, i);
-        const dispose = popDisposeScope();
-        entry = { node, dispose };
+        let node: Node;
+        if (hasKeyFn) {
+          const itemSig = signal(arr[i]!);
+          const indexSig = signal(i);
+          node = maybeRender!(itemSig, indexSig);
+          const dispose = popDisposeScope();
+          entry = { node, dispose, item: itemSig, index: indexSig };
+        } else {
+          node = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+          const dispose = popDisposeScope();
+          entry = { node, dispose };
+        }
         entries.set(key, entry);
+      } else if (hasKeyFn) {
+        // Existing keyed item — push new value into its signal
+        entry.item!.set(arr[i]!);
+        entry.index!.set(i);
       }
 
       // Move or insert into correct position

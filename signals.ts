@@ -13,6 +13,8 @@
  *   .get()                  — read value (tracks dependency when inside effect/computed)
  *   .set(value)             — write value (notifies listeners if changed via Object.is)
  *   .update(fn)             — set via transform: s.update(v => v + 1)
+ *   .mutate(fn)             — structuredClone, mutate in place, notify: s.mutate(v => v.items.push(x))
+ *   .patch(partial)         — shallow merge for object signals: s.patch({ name: "new" })
  *   .peek()                 — read value without tracking
  *
  * Dependency tracking:
@@ -62,6 +64,17 @@ export class Signal<T> {
 
   update(fn: (current: T) => T): void {
     this.set(fn(this.value));
+  }
+
+  mutate(fn: (current: T) => void): void {
+    const copy = structuredClone(this.value);
+    fn(copy);
+    this.value = copy;
+    this.notify();
+  }
+
+  patch(partial: Partial<T & Record<string, unknown>>): void {
+    this.set({ ...this.value, ...partial } as T);
   }
 
   peek(): T {

@@ -67,7 +67,7 @@ import { key, provide, inject } from "@blueshed/railroad/shared";
 
 Detailed usage for each concern is in the sibling files. Read them before generating railroad code:
 
-- `signals.md` — reactive state: signal, computed, effect, batch, dispose
+- `signals.md` — reactive state: signal, computed, effect, batch, dispose, mutate, patch
 - `jsx.md` — DOM creation: createElement, Fragment, text, when, list, props, events, refs
 - `routes.md` — hash-based client router: routes, navigate, route, matchRoute
 - `shared.md` — typed dependency injection: key, provide, inject

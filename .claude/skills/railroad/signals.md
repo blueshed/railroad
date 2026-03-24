@@ -17,7 +17,9 @@ const items = signal<string[]>([]); // Signal<string[]>
 ```ts
 count.get()              // read (tracks dependency inside effect/computed)
 count.set(5)             // write (notifies listeners if value changed)
-count.update(n => n + 1) // transform and write
+count.update(n => n + 1) // transform and write (caller must return a new value)
+count.mutate(v => ...)   // clone, mutate in place, notify (see below)
+count.patch({ key: v })  // shallow merge for object signals (see below)
 count.peek()             // read WITHOUT tracking — use for one-off reads outside effects
 ```
 
@@ -38,6 +40,40 @@ todos.set(todos.peek()); // Object.is says same reference, listeners NOT notifie
 // RIGHT — new array:
 todos.update(arr => [...arr, { id: 2, text: "Walk dog" }]);
 ```
+
+### `mutate(fn)` — In-Place Mutation
+
+`mutate()` clones the current value with `structuredClone`, passes the clone to your function for in-place mutation, then notifies listeners. Use it when you want to modify objects or arrays naturally without manually creating a new reference.
+
+```ts
+const todos = signal([{ id: 1, text: "Buy milk" }]);
+
+// Append:
+todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));
+
+// Modify nested property:
+const doc = signal({ title: "Draft", meta: { tags: ["a"] } });
+doc.mutate(d => d.meta.tags.push("b"));
+
+// Toggle in a Set:
+const selected = signal(new Set([1, 2, 3]));
+selected.mutate(s => s.has(4) ? s.delete(4) : s.add(4));
+```
+
+`mutate()` always notifies listeners (the clone guarantees a new reference). Use `update()` when you can return a new value cheaply; use `mutate()` when in-place mutation is more natural.
+
+### `patch(partial)` — Shallow Merge
+
+`patch()` does a shallow merge for object signals — equivalent to `set({ ...current, ...partial })`:
+
+```ts
+const filter = signal({ color: "red", size: 10, active: true });
+
+filter.patch({ color: "blue" });           // { color: "blue", size: 10, active: true }
+filter.patch({ size: 20, active: false }); // { color: "blue", size: 20, active: false }
+```
+
+Like `set()`, `patch()` uses `Object.is` — since the spread always creates a new reference, listeners are always notified.
 
 ## Computed Signals
 
