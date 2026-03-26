@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+### Fixed
+
+- **npm publish workflow** — use `setup-node` with `registry-url` only (no explicit node version, no token env) for correct OIDC trusted publishing.
+
 ## 0.2.3
 
 ### Fixed
