@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+
+- **GitHub Actions workflow** — publishes to npm automatically when a GitHub release is created. Runs tests and type check before publishing.
+
+### Fixed
+
+- **npm package contents** — excluded test files and local Claude settings from the published tarball.
+
 ## 0.2.0
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Signals, JSX, and routes — a micro UI framework for Bun",
   "type": "module",
   "main": "index.ts",
@@ -16,9 +16,10 @@
   },
   "files": [
     "*.ts",
+    "!*.test.ts",
     "README.md",
     "LICENSE",
-    ".claude"
+    ".claude/skills"
   ],
   "scripts": {
     "check": "bunx tsc --noEmit",
