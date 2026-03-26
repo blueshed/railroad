@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+### Fixed
+
+- **npm publish workflow** — removed `actions/setup-node` registry config that was overriding OIDC auth with an empty token.
+
 ## 0.2.2
 
 ### Changed
