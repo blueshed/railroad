@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+### Changed
+
+- **npm publish via OIDC** — switched from `NPM_TOKEN` secret to trusted publishing with OpenID Connect. No token rotation needed.
+
 ## 0.2.1
 
 ### Added
