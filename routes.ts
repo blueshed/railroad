@@ -7,12 +7,15 @@
  *   navigate(path)          — set location.hash programmatically
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
- * Handlers receive a Signal<params> and return a Node. The router manages
- * cleanup automatically. When params change within the same pattern
- * (e.g. /users/1 → /users/2), the signal updates — no teardown/rebuild.
+ * Handlers receive (params, params$) and return a Node.
+ *   params  — plain object for destructuring: ({ id }) => ...
+ *   params$ — Signal that updates when params change within the same pattern
+ *
+ * The router manages cleanup automatically. When params change within the
+ * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
  *   routes(app, {
  *     "/":          () => <Home />,
- *     "/site/:id":  (params) => <SiteDetail params={params} />,
+ *     "/site/:id":  ({ id }, params$) => <SiteDetail id={id} params$={params$} />,
  *   });
  */
 
@@ -75,7 +78,10 @@ export function navigate(path: string): void {
   location.hash = path;
 }
 
-type RouteHandler = (params: Signal<Record<string, string>>) => Node;
+type RouteHandler = (
+  params: Record<string, string>,
+  params$: Signal<Record<string, string>>,
+) => Node;
 
 export function routes(
   target: HTMLElement,
@@ -97,7 +103,7 @@ export function routes(
   function run(handler: RouteHandler, params: Record<string, string>) {
     activeParams = signal(params);
     pushDisposeScope();
-    const node = handler(activeParams);
+    const node = handler(params, activeParams);
     activeDispose = popDisposeScope();
     target.appendChild(node);
   }

@@ -178,16 +178,19 @@ function Greeting() {
 
 ### Routes
 
-Hash-based client router with automatic dispose scoping. Handlers receive a `Signal<params>` — when params change within the same pattern (e.g. `/users/1` → `/users/2`), the signal updates without teardown.
+Hash-based client router with automatic dispose scoping. Handlers receive `(params, params$)` — destructure the first for convenience, watch the second for reactive param changes.
 
 ```tsx
 import { routes, navigate, effect, text } from "@blueshed/railroad";
 
 const dispose = routes(app, {
   "/":           () => <Home />,
-  "/users/:id":  (params) => {
-    effect(() => fetchUser(params.get().id));
-    return <h1>{text(() => `User ${params.get().id}`)}</h1>;
+  // Simple — destructure params as before:
+  "/about":      () => <About />,
+  // Reactive — watch params$ for same-pattern navigation (/users/1 → /users/2):
+  "/users/:id":  ({ id }, params$) => {
+    effect(() => fetchUser(params$.get().id));
+    return <h1>{text(() => `User ${params$.get().id}`)}</h1>;
   },
   "*":           () => <NotFound />,
 });

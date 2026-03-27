@@ -63,7 +63,7 @@ navigate(path): void                  // set location.hash
 matchRoute(pattern, path): params | null
 ```
 
-Handlers receive `Signal<Record<string, string>>`. Same-pattern navigation (e.g. `/users/1` → `/users/2`) updates the params signal — no teardown, components react via effects.
+Handlers receive `(params, params$)` — plain object + Signal. Destructure the first, watch the second for same-pattern param changes (e.g. `/users/1` → `/users/2`).
 
 ### Shared (`shared.ts`)
 
