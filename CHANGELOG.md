@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.7
+
+### Fixed
+
+- **npm publish workflow** — use granular access token via `NPM_TOKEN` secret with provenance signing.
+
 ## 0.2.6
 
 ### Fixed
