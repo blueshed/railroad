@@ -14,20 +14,32 @@
  *   });
  */
 
-import { Signal, computed, effect } from "./signals";
+import { Signal, computed, effect, pushDisposeScope, popDisposeScope } from "./signals";
 import type { Dispose } from "./signals";
-import { pushDisposeScope, popDisposeScope } from "./jsx";
 
 let hashSignal: Signal<string> | null = null;
+let hashListenerCount = 0;
+let hashListener: (() => void) | null = null;
 
 function getHash(): Signal<string> {
   if (!hashSignal) {
     hashSignal = new Signal(location.hash.slice(1) || "/");
-    window.addEventListener("hashchange", () => {
+    hashListener = () => {
       hashSignal!.set(location.hash.slice(1) || "/");
-    });
+    };
+    window.addEventListener("hashchange", hashListener);
   }
+  hashListenerCount++;
   return hashSignal;
+}
+
+function releaseHash(): void {
+  hashListenerCount--;
+  if (hashListenerCount === 0 && hashListener) {
+    window.removeEventListener("hashchange", hashListener);
+    hashListener = null;
+    hashSignal = null;
+  }
 }
 
 export function matchRoute(
@@ -85,7 +97,7 @@ export function routes(
     target.appendChild(node);
   }
 
-  return effect(() => {
+  const disposeEffect = effect(() => {
     const path = hash.get();
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
@@ -107,4 +119,10 @@ export function routes(
     }
     teardown();
   });
+
+  return () => {
+    disposeEffect();
+    teardown();
+    releaseHash();
+  };
 }

@@ -23,31 +23,15 @@
  *   text(fn)                      — reactive text from computed expression
  */
 
-import { Signal, signal, effect, computed } from "./signals";
+import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose } from "./signals";
+
+export { pushDisposeScope, popDisposeScope };
 
 // === SVG namespace ===
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const storedProps = new WeakMap<Element, Record<string, any>>();
-
-// === Dispose scope management ===
-
-const disposeStack: Dispose[][] = [];
-
-export function pushDisposeScope(): void {
-  disposeStack.push([]);
-}
-
-export function popDisposeScope(): Dispose {
-  const disposers = disposeStack.pop() || [];
-  return () => disposers.forEach((d) => d());
-}
-
-function trackDispose(d: Dispose): void {
-  const scope = disposeStack[disposeStack.length - 1];
-  if (scope) scope.push(d);
-}
 
 // === Fragment ===
 
@@ -84,8 +68,10 @@ function applyProps(el: Element, props: Record<string, any>): void {
       } else {
         (el as any)[key] = value;
       }
-    } else if (key === "style" && typeof value === "object" && !(value instanceof Signal)) {
-      Object.assign((el as any).style, value);
+    } else if (key === "style" && value instanceof Signal) {
+      trackDispose(effect(() => { Object.assign((el as HTMLElement).style, value.get()); }));
+    } else if (key === "style" && typeof value === "object") {
+      Object.assign((el as HTMLElement).style, value);
     } else if (key.startsWith("on")) {
       el.addEventListener(key.slice(2).toLowerCase(), value);
     } else {
