@@ -235,6 +235,38 @@ const handler = loggedRequest("[api]", myHandler);
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
 
+## Progressive Adoption
+
+Each module is independent — use as much or as little as you need.
+
+```
+signals.ts  ← no deps         Use signals anywhere: server, CLI, worker
+shared.ts   ← no deps         Add typed DI when you need shared state
+logger.ts   ← no deps         Add logging to your Bun server
+jsx.ts      ← signals         Add reactive DOM when you need a UI
+routes.ts   ← signals         Add client-side routing when you need pages
+```
+
+**Level 1 — Reactive state only** (no DOM, no tsconfig changes)
+
+```ts
+import { signal, computed, effect } from "@blueshed/railroad/signals";
+```
+
+**Level 2 — Add JSX** (needs `tsconfig.json` JSX settings)
+
+```ts
+import { signal, createElement, when, list } from "@blueshed/railroad";
+```
+
+**Level 3 — Full app** (signals + JSX + routing + DI + logging)
+
+```ts
+import { signal, routes, inject, createLogger } from "@blueshed/railroad";
+```
+
+Every import path (`/signals`, `/shared`, `/logger`, `/jsx`, `/routes`) works standalone. The barrel export (`@blueshed/railroad`) re-exports everything.
+
 ## Claude Code
 
 This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Copy it into your project so Claude generates correct railroad code — including API usage, patterns, and anti-patterns:
