@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+### Fixed
+
+- **npm publish workflow** — pin Node 22 to get npm 10.9+ required for OIDC trusted publishing. Remove token env var.
+
 ## 0.2.4
 
 ### Fixed
