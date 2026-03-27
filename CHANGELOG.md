@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **Async route handlers** — route handlers can now return `Promise<Node>`. The router awaits the result before appending to the DOM, enabling `async` components that `await` data before rendering. Stale results are discarded if the user navigates away during the await.
+
 ## 0.3.0
 
 ### Added

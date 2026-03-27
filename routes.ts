@@ -7,7 +7,7 @@
  *   navigate(path)          — set location.hash programmatically
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
- * Handlers receive (params, params$) and return a Node.
+ * Handlers receive (params, params$) and return a Node (sync or async).
  *   params  — plain object for destructuring: ({ id }) => ...
  *   params$ — Signal that updates when params change within the same pattern
  *
@@ -16,6 +16,7 @@
  *   routes(app, {
  *     "/":          () => <Home />,
  *     "/site/:id":  ({ id }, params$) => <SiteDetail id={id} params$={params$} />,
+ *     "/status":    async () => { const s = await api.get(); return <Status data={s} />; },
  *   });
  */
 
@@ -81,7 +82,7 @@ export function navigate(path: string): void {
 type RouteHandler = (
   params: Record<string, string>,
   params$: Signal<Record<string, string>>,
-) => Node;
+) => Node | Promise<Node>;
 
 export function routes(
   target: HTMLElement,
@@ -91,8 +92,15 @@ export function routes(
   let activePattern: string | null = null;
   let activeParams: Signal<Record<string, string>> | null = null;
   let activeDispose: Dispose | null = null;
+  let runId = 0;
+  let asyncPending = false;
 
   function teardown() {
+    runId++;
+    if (asyncPending) {
+      popDisposeScope()();
+      asyncPending = false;
+    }
     if (activeDispose) activeDispose();
     activeDispose = null;
     activePattern = null;
@@ -101,11 +109,23 @@ export function routes(
   }
 
   function run(handler: RouteHandler, params: Record<string, string>) {
+    const myRunId = ++runId;
     activeParams = signal(params);
     pushDisposeScope();
-    const node = handler(params, activeParams);
-    activeDispose = popDisposeScope();
-    target.appendChild(node);
+    const result = handler(params, activeParams);
+
+    if (result instanceof Promise) {
+      asyncPending = true;
+      result.then((node) => {
+        if (myRunId !== runId) return; // navigated away during await
+        asyncPending = false;
+        activeDispose = popDisposeScope();
+        target.appendChild(node);
+      });
+    } else {
+      activeDispose = popDisposeScope();
+      target.appendChild(result);
+    }
   }
 
   const disposeEffect = effect(() => {
