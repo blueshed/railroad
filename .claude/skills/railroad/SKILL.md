@@ -63,7 +63,7 @@ navigate(path): void                  // set location.hash
 matchRoute(pattern, path): params | null
 ```
 
-Same-pattern navigation (e.g. `/users/1` to `/users/2`) does **not** re-render — use `route()` signal for param changes.
+Handlers receive `Signal<Record<string, string>>`. Same-pattern navigation (e.g. `/users/1` → `/users/2`) updates the params signal — no teardown, components react via effects.
 
 ### Shared (`shared.ts`)
 

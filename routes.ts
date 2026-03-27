@@ -7,14 +7,16 @@
  *   navigate(path)          — set location.hash programmatically
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
- * Handlers return a Node to render. The router manages cleanup automatically.
+ * Handlers receive a Signal<params> and return a Node. The router manages
+ * cleanup automatically. When params change within the same pattern
+ * (e.g. /users/1 → /users/2), the signal updates — no teardown/rebuild.
  *   routes(app, {
  *     "/":          () => <Home />,
- *     "/site/:id":  ({ id }) => <SiteDetail id={id} />,
+ *     "/site/:id":  (params) => <SiteDetail params={params} />,
  *   });
  */
 
-import { Signal, computed, effect, pushDisposeScope, popDisposeScope } from "./signals";
+import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope } from "./signals";
 import type { Dispose } from "./signals";
 
 let hashSignal: Signal<string> | null = null;
@@ -73,7 +75,7 @@ export function navigate(path: string): void {
   location.hash = path;
 }
 
-type RouteHandler = (params: Record<string, string>) => Node;
+type RouteHandler = (params: Signal<Record<string, string>>) => Node;
 
 export function routes(
   target: HTMLElement,
@@ -81,18 +83,21 @@ export function routes(
 ): Dispose {
   const hash = getHash();
   let activePattern: string | null = null;
+  let activeParams: Signal<Record<string, string>> | null = null;
   let activeDispose: Dispose | null = null;
 
   function teardown() {
     if (activeDispose) activeDispose();
     activeDispose = null;
     activePattern = null;
+    activeParams = null;
     target.replaceChildren();
   }
 
   function run(handler: RouteHandler, params: Record<string, string>) {
+    activeParams = signal(params);
     pushDisposeScope();
-    const node = handler(params);
+    const node = handler(activeParams);
     activeDispose = popDisposeScope();
     target.appendChild(node);
   }
@@ -102,7 +107,11 @@ export function routes(
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
       if (params) {
-        if (pattern === activePattern) return;
+        if (pattern === activePattern) {
+          // Same pattern, different params — update the signal
+          activeParams!.set(params);
+          return;
+        }
         teardown();
         activePattern = pattern;
         run(handler, params);
