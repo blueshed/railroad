@@ -1,6 +1,6 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Signals, JSX, and routes — a micro UI framework for Bun",
   "type": "module",
   "main": "index.ts",

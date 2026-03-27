@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8
+
+### Fixed
+
+- **npm publish workflow** — Node 24 (npm 11.5+) with `NODE_AUTH_TOKEN=""` for proper OIDC trusted publishing.
+
 ## 0.2.7
 
 ### Fixed
