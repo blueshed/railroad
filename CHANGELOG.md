@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **Reactive route params** — route handlers now receive `(params, params$)`. The second argument is a `Signal` that updates when params change within the same pattern (e.g. `/users/1` → `/users/2`). Fully backwards compatible — ignore the second arg if you don't need it.
+- **Reactive style signals** — `style={someSignal}` now works for reactive inline styles alongside static style objects.
+- **Progressive adoption docs** — README now shows the dependency graph and three adoption levels (signals only → JSX → full app).
+
+### Fixed
+
+- **Computed disposal** — `computed()` now tracks its internal effect in the active dispose scope, preventing memory leaks when computed signals are created inside components.
+- **Effect depth guard** — fixed off-by-one in infinite loop detection (`>` → `>=`).
+- **Logger error handling** — proper type narrowing for non-Error throws, guarded `new URL()` against malformed URLs.
+- **Route cleanup** — `hashchange` listener is now reference-counted and removed when the last router disposes.
+
+### Changed
+
+- **Dispose scopes moved to `signals.ts`** — `pushDisposeScope`, `popDisposeScope`, and `trackDispose` now live in `signals.ts` (re-exported from `jsx.ts` for compatibility). This allows `computed()` to participate in dispose scopes.
+- **Consolidated skill docs** — five skill files (~900 lines) replaced by a single compact `SKILL.md` (~75 lines) that references source files.
+
 ## 0.2.8
 
 ### Fixed

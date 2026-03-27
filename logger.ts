@@ -69,6 +69,14 @@ export function createLogger(tag: string) {
 type Handler = (req: Request) => Response | Promise<Response>;
 
 /** Wrap a route handler with access logging. */
+function safePathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
 export function loggedRequest(tag: string, handler: Handler): Handler {
   const log = createLogger(tag);
   return async (req: Request) => {
@@ -77,13 +85,14 @@ export function loggedRequest(tag: string, handler: Handler): Handler {
       const res = await handler(req);
       const ms = (performance.now() - start).toFixed(1);
       log.info(
-        `${req.method} ${new URL(req.url).pathname} → ${res.status} (${ms}ms)`,
+        `${req.method} ${safePathname(req.url)} → ${res.status} (${ms}ms)`,
       );
       return res;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const ms = (performance.now() - start).toFixed(1);
+      const msg = err instanceof Error ? err.message : String(err);
       log.error(
-        `${req.method} ${new URL(req.url).pathname} threw (${ms}ms): ${err.message}`,
+        `${req.method} ${safePathname(req.url)} threw (${ms}ms): ${msg}`,
       );
       throw err;
     }

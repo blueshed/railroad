@@ -7,27 +7,44 @@
  *   navigate(path)          — set location.hash programmatically
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
- * Handlers return a Node to render. The router manages cleanup automatically.
+ * Handlers receive (params, params$) and return a Node.
+ *   params  — plain object for destructuring: ({ id }) => ...
+ *   params$ — Signal that updates when params change within the same pattern
+ *
+ * The router manages cleanup automatically. When params change within the
+ * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
  *   routes(app, {
  *     "/":          () => <Home />,
- *     "/site/:id":  ({ id }) => <SiteDetail id={id} />,
+ *     "/site/:id":  ({ id }, params$) => <SiteDetail id={id} params$={params$} />,
  *   });
  */
 
-import { Signal, computed, effect } from "./signals";
+import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope } from "./signals";
 import type { Dispose } from "./signals";
-import { pushDisposeScope, popDisposeScope } from "./jsx";
 
 let hashSignal: Signal<string> | null = null;
+let hashListenerCount = 0;
+let hashListener: (() => void) | null = null;
 
 function getHash(): Signal<string> {
   if (!hashSignal) {
     hashSignal = new Signal(location.hash.slice(1) || "/");
-    window.addEventListener("hashchange", () => {
+    hashListener = () => {
       hashSignal!.set(location.hash.slice(1) || "/");
-    });
+    };
+    window.addEventListener("hashchange", hashListener);
   }
+  hashListenerCount++;
   return hashSignal;
+}
+
+function releaseHash(): void {
+  hashListenerCount--;
+  if (hashListenerCount === 0 && hashListener) {
+    window.removeEventListener("hashchange", hashListener);
+    hashListener = null;
+    hashSignal = null;
+  }
 }
 
 export function matchRoute(
@@ -61,7 +78,10 @@ export function navigate(path: string): void {
   location.hash = path;
 }
 
-type RouteHandler = (params: Record<string, string>) => Node;
+type RouteHandler = (
+  params: Record<string, string>,
+  params$: Signal<Record<string, string>>,
+) => Node;
 
 export function routes(
   target: HTMLElement,
@@ -69,28 +89,35 @@ export function routes(
 ): Dispose {
   const hash = getHash();
   let activePattern: string | null = null;
+  let activeParams: Signal<Record<string, string>> | null = null;
   let activeDispose: Dispose | null = null;
 
   function teardown() {
     if (activeDispose) activeDispose();
     activeDispose = null;
     activePattern = null;
+    activeParams = null;
     target.replaceChildren();
   }
 
   function run(handler: RouteHandler, params: Record<string, string>) {
+    activeParams = signal(params);
     pushDisposeScope();
-    const node = handler(params);
+    const node = handler(params, activeParams);
     activeDispose = popDisposeScope();
     target.appendChild(node);
   }
 
-  return effect(() => {
+  const disposeEffect = effect(() => {
     const path = hash.get();
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
       if (params) {
-        if (pattern === activePattern) return;
+        if (pattern === activePattern) {
+          // Same pattern, different params — update the signal
+          activeParams!.set(params);
+          return;
+        }
         teardown();
         activePattern = pattern;
         run(handler, params);
@@ -107,4 +134,10 @@ export function routes(
     }
     teardown();
   });
+
+  return () => {
+    disposeEffect();
+    teardown();
+    releaseHash();
+  };
 }

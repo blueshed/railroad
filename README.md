@@ -2,7 +2,7 @@
 
 Signals, JSX, and routes — a micro UI framework for Bun.
 
-~400 lines. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
+~900 lines. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
 
 ## Install
 
@@ -178,14 +178,20 @@ function Greeting() {
 
 ### Routes
 
-Hash-based client router with automatic dispose scoping.
+Hash-based client router with automatic dispose scoping. Handlers receive `(params, params$)` — destructure the first for convenience, watch the second for reactive param changes.
 
 ```tsx
-import { routes, navigate } from "@blueshed/railroad";
+import { routes, navigate, effect, text } from "@blueshed/railroad";
 
 const dispose = routes(app, {
   "/":           () => <Home />,
-  "/users/:id":  ({ id }) => <User id={id} />,
+  // Simple — destructure params as before:
+  "/about":      () => <About />,
+  // Reactive — watch params$ for same-pattern navigation (/users/1 → /users/2):
+  "/users/:id":  ({ id }, params$) => {
+    effect(() => fetchUser(params$.get().id));
+    return <h1>{text(() => `User ${params$.get().id}`)}</h1>;
+  },
   "*":           () => <NotFound />,
 });
 
@@ -204,6 +210,26 @@ provide(STORE, createStore());
 
 // anywhere:
 const store = inject(STORE);
+
+// Non-throwing variant:
+const maybeStore = tryInject(STORE); // T | undefined
+```
+
+### Logger
+
+Colored, timestamped, level-gated console output.
+
+```ts
+import { createLogger, setLogLevel, loggedRequest } from "@blueshed/railroad";
+
+const log = createLogger("[server]");
+log.info("listening on :3000");
+log.debug("tick");             // only shown when level is "debug"
+
+setLogLevel("debug");          // show everything
+
+// Wrap a route handler with access logging:
+const handler = loggedRequest("[api]", myHandler);
 ```
 
 ## Design
@@ -214,6 +240,38 @@ const store = inject(STORE);
 - **Routes swap the DOM** — hash-based, dispose-scoped, Bun.serve-style tables
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
+
+## Progressive Adoption
+
+Each module is independent — use as much or as little as you need.
+
+```
+signals.ts  ← no deps         Use signals anywhere: server, CLI, worker
+shared.ts   ← no deps         Add typed DI when you need shared state
+logger.ts   ← no deps         Add logging to your Bun server
+jsx.ts      ← signals         Add reactive DOM when you need a UI
+routes.ts   ← signals         Add client-side routing when you need pages
+```
+
+**Level 1 — Reactive state only** (no DOM, no tsconfig changes)
+
+```ts
+import { signal, computed, effect } from "@blueshed/railroad/signals";
+```
+
+**Level 2 — Add JSX** (needs `tsconfig.json` JSX settings)
+
+```ts
+import { signal, createElement, when, list } from "@blueshed/railroad";
+```
+
+**Level 3 — Full app** (signals + JSX + routing + DI + logging)
+
+```ts
+import { signal, routes, inject, createLogger } from "@blueshed/railroad";
+```
+
+Every import path (`/signals`, `/shared`, `/logger`, `/jsx`, `/routes`) works standalone. The barrel export (`@blueshed/railroad`) re-exports everything.
 
 ## Claude Code
 

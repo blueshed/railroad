@@ -88,7 +88,7 @@ export class Signal<T> {
     }
     effectDepth++;
     try {
-      if (effectDepth > MAX_EFFECT_DEPTH) {
+      if (effectDepth >= MAX_EFFECT_DEPTH) {
         throw new Error(
           "Maximum effect depth exceeded — possible infinite loop",
         );
@@ -142,11 +142,32 @@ export function effect(fn: () => void | (() => void)): () => void {
   };
 }
 
+// === Dispose type & scope management ===
+
+export type Dispose = () => void;
+
+const disposeStack: Dispose[][] = [];
+
+export function pushDisposeScope(): void {
+  disposeStack.push([]);
+}
+
+export function popDisposeScope(): Dispose {
+  const disposers = disposeStack.pop() || [];
+  return () => disposers.forEach((d) => d());
+}
+
+export function trackDispose(d: Dispose): void {
+  const scope = disposeStack[disposeStack.length - 1];
+  if (scope) scope.push(d);
+}
+
 // === computed() ===
 
 export function computed<T>(fn: () => T): Signal<T> {
   const s = new Signal<T>(fn());
-  effect(() => s.set(fn()));
+  const dispose = effect(() => s.set(fn()));
+  trackDispose(dispose);
   return s;
 }
 
@@ -180,7 +201,3 @@ export function batch(fn: () => void): void {
 export function signal<T>(initialValue: T): Signal<T> {
   return new Signal(initialValue);
 }
-
-// === Dispose type ===
-
-export type Dispose = () => void;
