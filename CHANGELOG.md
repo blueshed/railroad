@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+### Fixed
+
+- **npm publish workflow** — strip token placeholder from `.npmrc` so npm falls through to OIDC auth.
+
 ## 0.2.5
 
 ### Fixed
