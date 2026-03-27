@@ -2,7 +2,7 @@
 
 Signals, JSX, and routes — a micro UI framework for Bun.
 
-~400 lines. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
+~900 lines. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
 
 ## Install
 
@@ -204,6 +204,26 @@ provide(STORE, createStore());
 
 // anywhere:
 const store = inject(STORE);
+
+// Non-throwing variant:
+const maybeStore = tryInject(STORE); // T | undefined
+```
+
+### Logger
+
+Colored, timestamped, level-gated console output.
+
+```ts
+import { createLogger, setLogLevel, loggedRequest } from "@blueshed/railroad";
+
+const log = createLogger("[server]");
+log.info("listening on :3000");
+log.debug("tick");             // only shown when level is "debug"
+
+setLogLevel("debug");          // show everything
+
+// Wrap a route handler with access logging:
+const handler = loggedRequest("[api]", myHandler);
 ```
 
 ## Design
