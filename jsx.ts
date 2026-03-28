@@ -327,6 +327,16 @@ export function list<T>(
         // Existing keyed item — push new value into its signal
         entry.item!.set(arr[i]!);
         entry.index!.set(i);
+      } else {
+        // Index-based — dispose old, recreate with new item
+        const oldNode = entry.node;
+        entry.dispose();
+        pushDisposeScope();
+        const node = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+        const dispose = popDisposeScope();
+        entry = { node, dispose };
+        entries.set(key, entry);
+        if (oldNode.parentNode) oldNode.parentNode.replaceChild(node, oldNode);
       }
 
       // Move or insert into correct position
