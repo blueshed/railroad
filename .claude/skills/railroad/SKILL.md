@@ -89,3 +89,6 @@ loggedRequest(tag, handler): Handler // wrap route handler with access logging
 3. **No `text()` for attributes.** `text()` creates a DOM node. Use `computed()` for reactive attributes.
 4. **No JSX in effects without dispose scopes.** Any effect that rebuilds DOM must use `pushDisposeScope`/`popDisposeScope` and return a cleanup function. See `jsx.ts` source for the pattern.
 5. **No `transition-all` in CSS** near layout boundaries. Use specific properties.
+6. **No bare nested `when()`.** `when()` returns a fragment — nesting fragments inside another `when()` breaks dispose scope tracking. Always wrap an inner `when()` in a real element: `<div>{when(...)}</div>`.
+7. **No shared DOM nodes across `when()` branches.** Nodes must be created fresh inside each branch function. A node created outside and reused across branches will be torn out of the DOM when the other branch activates.
+8. **Guard against null inside `when()` branches.** Signal cascade order is not guaranteed — an inner `when()` can fire before the outer `when()` swaps it away. Always null-check even inside a branch that "shouldn't" be reached (e.g. `text(() => item.get()?.name ?? "")`).

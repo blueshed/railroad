@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+### Docs
+
+- **Skill anti-patterns** — added rules for nested `when()` (wrap in real element), shared DOM nodes across branches (create fresh), and null guards inside branches (signal cascade order is not guaranteed).
+
 ## 0.3.2
 
 ### Fixed
