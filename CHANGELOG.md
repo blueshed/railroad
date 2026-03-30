@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+
+- **`computed()` inside `list()` leak** — `computed()` created inside a `list()` render function was leaking subscriptions to the outer list effect's listener, causing infinite synchronous re-entry. Initial evaluation now suspends outer tracking by saving/restoring `currentListener` and `currentDeps`.
+
 ## 0.3.3
 
 ### Docs

@@ -165,7 +165,19 @@ export function trackDispose(d: Dispose): void {
 // === computed() ===
 
 export function computed<T>(fn: () => T): Signal<T> {
-  const s = new Signal<T>(fn());
+  // Suspend outer tracking during initial evaluation so computed()
+  // inside list() render functions doesn't leak subscriptions to the
+  // list effect's listener — which causes infinite sync re-entry.
+  const prevListener = currentListener;
+  const prevDeps = currentDeps;
+  currentListener = null;
+  currentDeps = null;
+  let initial: T;
+  try { initial = fn(); } finally {
+    currentListener = prevListener;
+    currentDeps = prevDeps;
+  }
+  const s = new Signal<T>(initial);
   const dispose = effect(() => s.set(fn()));
   trackDispose(dispose);
   return s;
