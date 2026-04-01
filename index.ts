@@ -5,8 +5,7 @@ export type { Dispose } from "./signals";
 
 export {
   createElement, Fragment,
-  text, when, list,
-  pushDisposeScope, popDisposeScope,
+  when, list,
 } from "./jsx";
 
 export { routes, route, navigate, matchRoute } from "./routes";

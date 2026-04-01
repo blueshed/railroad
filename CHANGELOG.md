@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Function children** — `{() => count.get() > 5 ? "High" : "Low"}` as JSX children auto-tracks dependencies and updates the text node. Replaces `text()`.
+- **`Signal.map(fn)`** — derive a new signal: `count.map(n => n * 2)`. Clean pattern for reactive attributes and list items.
+- **Component auto-scoping** — `createElement` wraps function components in a dispose scope automatically. Effects and computeds inside components clean up when the parent scope tears down. No manual `pushDisposeScope`/`popDisposeScope` needed.
+- **Effect auto-tracking** — `effect()` and `computed()` register their dispose in the current scope automatically. No manual `trackDispose()` needed inside components.
+- **Wildcard route patterns** — `matchRoute("/sites/*", "/sites/42/settings")` matches, capturing the rest as `params["*"]`. Enables nested routing with persistent layouts.
+- **Nested routing** — use `/*` to keep a layout mounted while `route()` signals drive sub-views. Both `routes()` and `route()` auto-track in the parent dispose scope for clean teardown.
+
+### Fixed
+
+- **`when()` nesting** — `when()` inside `when()` now works without wrapper elements. Branches that return fragments (from nested `when`/`list`) are tracked as node arrays instead of a single reference.
+- **`list()` fragment handling** — same fix as `when()` — list items returning fragments are handled correctly.
+- **`route()` hash listener leak** — `route()` now tracks `releaseHash()` in the dispose scope, fixing a pre-existing ref-count leak.
+
+### Removed
+
+- **`text()`** — removed from public API. Use function children `{() => expr}` instead.
+- **`pushDisposeScope` / `popDisposeScope`** — removed from public API. Components auto-scope, framework owns cleanup internally.
+
+### Changed
+
+- **Anti-patterns reduced from 8 to 4** — function children, auto-scoping, and fragment-safe `when`/`list` eliminate the need for most documented gotchas.
+
 ## 0.3.4
 
 ### Fixed

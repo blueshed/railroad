@@ -37,7 +37,7 @@ function Home() {
     <div>
       <h1>Hello World</h1>
       <button onclick={() => count.update(n => n + 1)}>
-        Count: {count}
+        {() => `Count: ${count.get()}`}
       </button>
     </div>
   );
@@ -74,7 +74,7 @@ function Home() {
     <div>
       <h1>Hello World</h1>
       <button onclick={() => count.update(n => n + 1)}>
-        Count: {count}
+        {() => `Count: ${count.get()}`}
       </button>
     </div>
   );
@@ -107,6 +107,7 @@ import { signal, computed, effect, batch } from "@blueshed/railroad";
 
 const count = signal(0);
 const doubled = computed(() => count.get() * 2);
+const label = count.map(n => `Count: ${n}`);  // derive a signal
 
 const dispose = effect(() => {
   console.log(`count is ${count.get()}`);
@@ -134,10 +135,10 @@ dispose();           // stop listening
 
 ### JSX
 
-Components are functions that return DOM nodes. Signals in children and props auto-update.
+Components are functions that run **once** and return DOM nodes. Reactivity comes from signals, not re-rendering.
 
 ```tsx
-import { createElement, text, when, list, signal } from "@blueshed/railroad";
+import { signal, when, list } from "@blueshed/railroad";
 
 const name = signal("World");
 
@@ -146,10 +147,18 @@ function Greeting() {
 }
 ```
 
-#### `text(fn)` — reactive computed text
+#### Reactive expressions — function children
 
 ```tsx
-<span>{text(() => count.get() > 5 ? "High" : "Low")}</span>
+<span>{() => count.get() > 5 ? "High" : "Low"}</span>
+<p>{() => `${first.get()} ${last.get()}`}</p>
+```
+
+#### Reactive attributes — `computed()` or `.map()`
+
+```tsx
+<div class={visible.map(v => v ? "show" : "hide")}>...</div>
+<input disabled={count.map(n => n > 10)} />
 ```
 
 #### `when(condition, truthy, falsy?)` — conditional rendering
@@ -162,15 +171,17 @@ function Greeting() {
 )}
 ```
 
+Nestable — `when()` inside `when()` works without wrapper elements.
+
 #### `list(items, keyFn?, render)` — keyed list rendering
 
 ```tsx
 // Keyed — render receives Signal<T> and Signal<number>:
-{list(
-  todos,
-  (t) => t.id,
-  (todo, idx) => <li>{text(() => todo.get().name)}</li>,
-)}
+{list(todos, t => t.id, (todo$, idx$) => (
+  <li class={idx$.map(i => i % 2 ? "odd" : "even")}>
+    {todo$.map(t => t.name)}
+  </li>
+))}
 
 // Non-keyed (index-based, raw values):
 {list(items, (item, i) => <li>{item}</li>)}
@@ -178,25 +189,50 @@ function Greeting() {
 
 ### Routes
 
-Hash-based client router with automatic dispose scoping. Handlers receive `(params, params$)` — destructure the first for convenience, watch the second for reactive param changes.
+Hash-based client router. Handlers receive `(params, params$)` — destructure the first for convenience, watch the second for reactive param changes.
 
 ```tsx
-import { routes, navigate, effect, text } from "@blueshed/railroad";
+import { routes, navigate, route, when, effect } from "@blueshed/railroad";
 
-const dispose = routes(app, {
+routes(app, {
   "/":           () => <Home />,
-  // Simple — destructure params as before:
   "/about":      () => <About />,
-  // Reactive — watch params$ for same-pattern navigation (/users/1 → /users/2):
   "/users/:id":  ({ id }, params$) => {
     effect(() => fetchUser(params$.get().id));
-    return <h1>{text(() => `User ${params$.get().id}`)}</h1>;
+    return <h1>{params$.map(p => `User ${p.id}`)}</h1>;
   },
   "*":           () => <NotFound />,
 });
 
 navigate("/users/42");
 ```
+
+#### Nested routes
+
+Use wildcard patterns to keep a layout mounted while sub-views swap:
+
+```tsx
+routes(app, {
+  "/":          () => <Home />,
+  "/sites/*":   () => <SitesLayout />,
+});
+
+function SitesLayout() {
+  const detail = route<{ id: string }>("/sites/:id");
+
+  return (
+    <div>
+      <SitesNav />
+      {when(() => detail.get(),
+        () => <SiteDetail params$={detail} />,
+        () => <SitesList />,
+      )}
+    </div>
+  );
+}
+```
+
+Navigate `/sites` → `/sites/42` → `/sites/99`: `SitesLayout` stays mounted, only the inner content swaps. Navigate away from `/sites/*`: layout tears down cleanly.
 
 ### Shared
 
@@ -235,9 +271,9 @@ const handler = loggedRequest("[api]", myHandler);
 ## Design
 
 - **Signals hold state** — reactive primitives with automatic dependency tracking
-- **Effects update the DOM** — run when dependencies change, return cleanup
+- **Effects update the DOM** — run when dependencies change, auto-cleanup in scope
 - **JSX creates the DOM** — real elements, not virtual. Signal-aware props and children
-- **Routes swap the DOM** — hash-based, dispose-scoped, Bun.serve-style tables
+- **Routes swap the DOM** — hash-based, auto-scoped, nestable via wildcards
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
 
@@ -275,7 +311,7 @@ Every import path (`/signals`, `/shared`, `/logger`, `/jsx`, `/routes`) works st
 
 ## Claude Code
 
-This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Copy it into your project so Claude generates correct railroad code — including API usage, patterns, and anti-patterns:
+This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Copy it into your project so Claude generates correct railroad code:
 
 ```sh
 cp -r node_modules/@blueshed/railroad/.claude/skills/railroad .claude/skills/

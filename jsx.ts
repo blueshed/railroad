@@ -5,10 +5,15 @@
  *   - tag: string → creates HTML element (or SVG element inside <svg>)
  *   - tag: function → calls component function(props)
  *   - props: attributes, event handlers (onclick etc), ref
- *   - children: string, number, Node, Signal<T>, arrays, null/undefined
+ *   - children: string, number, Node, Signal<T>, () => any, arrays, null/undefined
  *
  * When a Signal is used as a child, an effect auto-updates the text node.
+ * When a function is used as a child, it auto-tracks dependencies:
+ *   <span>{() => count.get() > 5 ? "High" : "Low"}</span>
  * When a Signal is used as a prop value, an effect auto-updates the attribute.
+ *
+ * Components are auto-scoped — effects/computeds inside are disposed when
+ * the parent scope (route, when, list) tears down. No manual dispose needed.
  *
  * SVG support:
  *   <svg> is created with the SVG namespace. Any HTML children appended to
@@ -20,13 +25,12 @@
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
  *   list(signal, keyFn, render)   — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
- *   text(fn)                      — reactive text from computed expression
  */
 
 import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose } from "./signals";
 
-export { pushDisposeScope, popDisposeScope };
+// pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
 
 // === SVG namespace ===
 
@@ -52,35 +56,35 @@ function applyProps(el: Element, props: Record<string, any>): void {
       if (typeof value === "function") value(el);
     } else if (key === "innerHTML") {
       if (value instanceof Signal) {
-        trackDispose(effect(() => { el.innerHTML = value.get(); }));
+        effect(() => { el.innerHTML = value.get(); });
       } else {
         el.innerHTML = value;
       }
     } else if (key === "className" || key === "class") {
       if (value instanceof Signal) {
-        trackDispose(effect(() => { el.setAttribute("class", value.get()); }));
+        effect(() => { el.setAttribute("class", value.get()); });
       } else {
         el.setAttribute("class", value);
       }
     } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
       if (value instanceof Signal) {
-        trackDispose(effect(() => { (el as any)[key] = value.get(); }));
+        effect(() => { (el as any)[key] = value.get(); });
       } else {
         (el as any)[key] = value;
       }
     } else if (key === "style" && value instanceof Signal) {
-      trackDispose(effect(() => { Object.assign((el as HTMLElement).style, value.get()); }));
+      effect(() => { Object.assign((el as HTMLElement).style, value.get()); });
     } else if (key === "style" && typeof value === "object") {
       Object.assign((el as HTMLElement).style, value);
     } else if (key.startsWith("on")) {
       el.addEventListener(key.slice(2).toLowerCase(), value);
     } else {
       if (value instanceof Signal) {
-        trackDispose(effect(() => {
+        effect(() => {
           const v = value.get();
           if (v === false || v == null) el.removeAttribute(key);
           else el.setAttribute(key, String(v));
-        }));
+        });
       } else if (value !== false && value != null) {
         el.setAttribute(key, String(value));
       }
@@ -96,8 +100,12 @@ export function createElement(
   ...children: any[]
 ): Node {
   if (typeof tag === "function") {
+    pushDisposeScope();
     const componentProps = { ...props, children };
-    return tag(componentProps);
+    const node = tag(componentProps);
+    const dispose = popDisposeScope();
+    trackDispose(dispose);
+    return node;
   }
 
   // SVG root element is always created with the SVG namespace.
@@ -160,10 +168,17 @@ function appendChildren(parent: Node, children: any[]): void {
 
     if (child instanceof Signal) {
       const text = document.createTextNode(String(child.peek()));
-      trackDispose(effect(() => {
+      effect(() => {
         text.textContent = String(child.get());
-      }));
+      });
       parent.appendChild(text);
+    } else if (typeof child === "function") {
+      const fn = child as () => any;
+      const textNode = document.createTextNode("");
+      effect(() => {
+        textNode.textContent = String(fn() ?? "");
+      });
+      parent.appendChild(textNode);
     } else if (child instanceof Node) {
       // Adopt HTML elements into SVG namespace when parent is SVG
       if (isSvgParent &&
@@ -179,17 +194,6 @@ function appendChildren(parent: Node, children: any[]): void {
   }
 }
 
-// === text() — reactive computed text node ===
-// Use for expressions: text(() => count.get() > 5 ? "High" : "Low")
-
-export function text(fn: () => string): Node {
-  const value = computed(fn);
-  const node = document.createTextNode(value.peek());
-  trackDispose(effect(() => {
-    node.textContent = value.get();
-  }));
-  return node;
-}
 
 // === when() — conditional rendering ===
 // Swaps DOM nodes only when truthiness transitions (falsy↔truthy).
@@ -203,7 +207,7 @@ export function when(
   falsy?: () => Node,
 ): Node {
   const anchor = document.createComment("when");
-  let current: Node | null = null;
+  let currentNodes: Node[] = [];
   let currentDispose: Dispose | null = null;
   let wasTruthy: boolean | undefined = undefined;
 
@@ -218,32 +222,33 @@ export function when(
     wasTruthy = isTruthy;
 
     if (currentDispose) currentDispose();
-    if (current && anchor.parentNode) {
-      anchor.parentNode.removeChild(current);
-    }
+    for (const n of currentNodes) n.parentNode?.removeChild(n);
+    currentNodes = [];
 
     pushDisposeScope();
-    current = isTruthy ? truthy() : (falsy ? falsy() : null);
+    const result = isTruthy ? truthy() : (falsy ? falsy() : null);
     currentDispose = popDisposeScope();
 
-    if (current && anchor.parentNode) {
-      anchor.parentNode.insertBefore(current, anchor.nextSibling);
+    if (result && anchor.parentNode) {
+      // Capture actual child nodes before fragment is emptied by insertBefore
+      currentNodes = result instanceof DocumentFragment
+        ? [...result.childNodes]
+        : [result];
+      anchor.parentNode.insertBefore(result, anchor.nextSibling);
     }
   }
 
-  trackDispose(effect(() => {
+  effect(() => {
     sig.get(); // track
     if (!anchor.parentNode) {
       queueMicrotask(swap);
     } else {
       swap();
     }
-  }));
+  });
 
-  // Return a fragment: anchor + initial content
   const frag = document.createDocumentFragment();
   frag.appendChild(anchor);
-  if (current) frag.appendChild(current);
   return frag;
 }
 
@@ -252,10 +257,16 @@ export function when(
 //
 // Keyed form — render receives Signal<T> and Signal<number> so item
 // updates flow into existing DOM without re-creating nodes:
-//   list(items, (t) => t.id, (item, index) => <li>{text(() => item.get().name)}</li>)
+//   list(items, (t) => t.id, (item$) => <li>{item$.map(t => t.name)}</li>)
 //
 // Non-keyed form (index-based, raw values):
 //   list(items, (item, index) => <li>{item}</li>)
+
+function collectNodes(result: Node): Node[] {
+  return result instanceof DocumentFragment
+    ? [...result.childNodes]
+    : [result];
+}
 
 export function list<T>(
   items: Signal<T[]>,
@@ -265,7 +276,7 @@ export function list<T>(
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
 
-  type Entry = { node: Node; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
+  type Entry = { nodes: Node[]; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
   const anchor = document.createComment("list");
   let entries: Map<string | number, Entry> = new Map();
   let order: (string | number)[] = [];
@@ -274,7 +285,7 @@ export function list<T>(
     const entry = entries.get(key);
     if (entry) {
       entry.dispose();
-      entry.node.parentNode?.removeChild(entry.node);
+      for (const n of entry.nodes) n.parentNode?.removeChild(n);
       entries.delete(key);
     }
   }
@@ -282,7 +293,7 @@ export function list<T>(
   function clearAll() {
     for (const [, entry] of entries) {
       entry.dispose();
-      entry.node.parentNode?.removeChild(entry.node);
+      for (const n of entry.nodes) n.parentNode?.removeChild(n);
     }
     entries = new Map();
     order = [];
@@ -310,17 +321,17 @@ export function list<T>(
       if (!entry) {
         // New item — create
         pushDisposeScope();
-        let node: Node;
+        let result: Node;
         if (hasKeyFn) {
           const itemSig = signal(arr[i]!);
           const indexSig = signal(i);
-          node = maybeRender!(itemSig, indexSig);
+          result = maybeRender!(itemSig, indexSig);
           const dispose = popDisposeScope();
-          entry = { node, dispose, item: itemSig, index: indexSig };
+          entry = { nodes: collectNodes(result), dispose, item: itemSig, index: indexSig };
         } else {
-          node = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+          result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
           const dispose = popDisposeScope();
-          entry = { node, dispose };
+          entry = { nodes: collectNodes(result), dispose };
         }
         entries.set(key, entry);
       } else if (hasKeyFn) {
@@ -329,34 +340,43 @@ export function list<T>(
         entry.index!.set(i);
       } else {
         // Index-based — dispose old, recreate with new item
-        const oldNode = entry.node;
+        const oldNodes = entry.nodes;
         entry.dispose();
         pushDisposeScope();
-        const node = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+        const result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
         const dispose = popDisposeScope();
-        entry = { node, dispose };
+        const nodes = collectNodes(result);
+        entry = { nodes, dispose };
         entries.set(key, entry);
-        if (oldNode.parentNode) oldNode.parentNode.replaceChild(node, oldNode);
+        const ref = oldNodes[oldNodes.length - 1]?.nextSibling ?? null;
+        const oldParent = oldNodes[0]?.parentNode;
+        for (const n of oldNodes) n.parentNode?.removeChild(n);
+        if (oldParent) {
+          for (const n of nodes) oldParent.insertBefore(n, ref);
+        }
       }
 
       // Move or insert into correct position
-      if (entry.node.nextSibling !== insertBefore) {
-        parent.insertBefore(entry.node, insertBefore);
+      const lastNode = entry.nodes[entry.nodes.length - 1];
+      if (lastNode?.nextSibling !== insertBefore) {
+        for (const n of entry.nodes) {
+          parent.insertBefore(n, insertBefore);
+        }
       }
-      insertBefore = entry.node;
+      insertBefore = entry.nodes[0] ?? insertBefore;
     }
 
     order = newKeys;
   }
 
-  trackDispose(effect(() => {
+  effect(() => {
     items.get(); // track
     if (!anchor.parentNode) {
       queueMicrotask(sync);
     } else {
       sync();
     }
-  }));
+  });
 
   trackDispose(() => clearAll());
 

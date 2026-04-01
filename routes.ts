@@ -7,20 +7,31 @@
  *   navigate(path)          — set location.hash programmatically
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
+ * Patterns:
+ *   "/users/:id"     — named params, exact segment match
+ *   "/sites/*"       — wildcard, matches /sites and /sites/any/depth
+ *   "/sites/:id/*"   — params + wildcard, rest captured as params["*"]
+ *
  * Handlers receive (params, params$) and return a Node (sync or async).
  *   params  — plain object for destructuring: ({ id }) => ...
  *   params$ — Signal that updates when params change within the same pattern
  *
  * The router manages cleanup automatically. When params change within the
  * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
+ *
+ * Nested routes — use wildcard to keep a layout mounted:
  *   routes(app, {
  *     "/":          () => <Home />,
- *     "/site/:id":  ({ id }, params$) => <SiteDetail id={id} params$={params$} />,
- *     "/status":    async () => { const s = await api.get(); return <Status data={s} />; },
+ *     "/sites/*":   () => <SitesLayout />,
  *   });
+ *   // Inside SitesLayout, use route() for sub-navigation:
+ *   const detail = route("/sites/:id");
+ *
+ * Both routes() and route() auto-track in the parent dispose scope,
+ * so nested routing cleans up when the parent scope tears down.
  */
 
-import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope } from "./signals";
+import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose } from "./signals";
 
 let hashSignal: Signal<string> | null = null;
@@ -54,10 +65,22 @@ export function matchRoute(
 ): Record<string, string> | null {
   const pp = pattern.split("/");
   const hp = path.split("/");
-  if (pp.length !== hp.length) return null;
+  const isWild = pp.length > 0 && pp[pp.length - 1] === "*";
+
+  if (isWild) {
+    if (hp.length < pp.length - 1) return null;
+  } else {
+    if (pp.length !== hp.length) return null;
+  }
+
   const params: Record<string, string> = {};
   for (let i = 0; i < pp.length; i++) {
-    if (pp[i]!.startsWith(":")) {
+    if (pp[i] === "*") {
+      params["*"] = hp.slice(i).map(s => {
+        try { return decodeURIComponent(s); } catch { return s; }
+      }).join("/");
+      return params;
+    } else if (pp[i]!.startsWith(":")) {
       try {
         params[pp[i]!.slice(1)] = decodeURIComponent(hp[i]!);
       } catch {
@@ -72,6 +95,7 @@ export function route<
   T extends Record<string, string> = Record<string, string>,
 >(pattern: string): Signal<T | null> {
   const hash = getHash();
+  trackDispose(() => releaseHash());
   return computed(() => matchRoute(pattern, hash.get()) as T | null);
 }
 
@@ -144,20 +168,14 @@ export function routes(
         return;
       }
     }
-    if (table["*"]) {
-      if (activePattern !== "*") {
-        teardown();
-        activePattern = "*";
-        run(table["*"], {});
-      }
-      return;
-    }
     teardown();
   });
 
-  return () => {
+  const dispose = () => {
     disposeEffect();
     teardown();
     releaseHash();
   };
+  trackDispose(dispose);
+  return dispose;
 }

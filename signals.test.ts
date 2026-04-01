@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { signal, computed, effect, batch, Signal } from "./signals";
+import { signal, computed, effect, batch, Signal, pushDisposeScope, popDisposeScope } from "./signals";
 
 describe("signal", () => {
   test("get and set", () => {
@@ -193,6 +193,66 @@ describe("batch", () => {
   });
 });
 
+describe("Signal.map", () => {
+  test("derives a new signal", () => {
+    const s = signal({ name: "Alice", age: 30 });
+    const name = s.map((v) => v.name);
+    expect(name.get()).toBe("Alice");
+  });
+
+  test("updates when source changes", () => {
+    const s = signal({ name: "Alice", age: 30 });
+    const name = s.map((v) => v.name);
+    s.patch({ name: "Bob" });
+    expect(name.get()).toBe("Bob");
+  });
+
+  test("chains", () => {
+    const s = signal(3);
+    const doubled = s.map((n) => n * 2);
+    const label = doubled.map((n) => `Value: ${n}`);
+    expect(label.get()).toBe("Value: 6");
+    s.set(5);
+    expect(label.get()).toBe("Value: 10");
+  });
+});
+
+describe("effect auto-tracking", () => {
+  test("effects are auto-disposed with scope", () => {
+    const s = signal(0);
+    let runs = 0;
+
+    pushDisposeScope();
+    effect(() => { s.get(); runs++; });
+    const dispose = popDisposeScope();
+
+    expect(runs).toBe(1);
+    s.set(1);
+    expect(runs).toBe(2);
+
+    dispose(); // should clean up the effect
+    s.set(2);
+    expect(runs).toBe(2); // no more runs
+  });
+
+  test("computed auto-disposes with scope", () => {
+    const s = signal(1);
+
+    pushDisposeScope();
+    const doubled = computed(() => s.get() * 2);
+    const dispose = popDisposeScope();
+
+    expect(doubled.get()).toBe(2);
+    s.set(5);
+    expect(doubled.get()).toBe(10);
+
+    dispose();
+    s.set(10);
+    // After dispose, computed's internal effect is stopped
+    expect(doubled.get()).toBe(10);
+  });
+});
+
 // Import matchRoute at top level for route tests
 import { matchRoute } from "./routes";
 
@@ -220,5 +280,34 @@ describe("matchRoute", () => {
   test("decodes URI components", () => {
     expect(matchRoute("/search/:q", "/search/hello%20world"))
       .toEqual({ q: "hello world" });
+  });
+
+  test("wildcard matches rest of path", () => {
+    expect(matchRoute("/sites/*", "/sites/42/settings"))
+      .toEqual({ "*": "42/settings" });
+  });
+
+  test("wildcard matches empty rest", () => {
+    expect(matchRoute("/sites/*", "/sites"))
+      .toEqual({ "*": "" });
+  });
+
+  test("wildcard matches single segment", () => {
+    expect(matchRoute("/sites/*", "/sites/42"))
+      .toEqual({ "*": "42" });
+  });
+
+  test("wildcard with params", () => {
+    expect(matchRoute("/sites/:id/*", "/sites/42/settings/advanced"))
+      .toEqual({ id: "42", "*": "settings/advanced" });
+  });
+
+  test("wildcard does not match wrong prefix", () => {
+    expect(matchRoute("/sites/*", "/other/stuff")).toBeNull();
+  });
+
+  test("catch-all wildcard", () => {
+    expect(matchRoute("/*", "/anything/here"))
+      .toEqual({ "*": "anything/here" });
   });
 });

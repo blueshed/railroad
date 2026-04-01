@@ -16,6 +16,7 @@
  *   .mutate(fn)             — structuredClone, mutate in place, notify: s.mutate(v => v.items.push(x))
  *   .patch(partial)         — shallow merge for object signals: s.patch({ name: "new" })
  *   .peek()                 — read value without tracking
+ *   .map(fn)                — derive a new signal: s.map(v => v.name)
  *
  * Dependency tracking:
  *   Effects automatically track which signals are read during execution.
@@ -24,7 +25,8 @@
  *
  * Dispose pattern:
  *   effect() can return a cleanup function, called before each re-run and on dispose.
- *   Components should collect dispose functions and return a combined Dispose.
+ *   effect() and computed() auto-track in the current dispose scope —
+ *   no manual trackDispose() needed inside components.
  */
 
 type Listener = () => void;
@@ -81,6 +83,10 @@ export class Signal<T> {
     return this.value;
   }
 
+  map<U>(fn: (value: T) => U): Signal<U> {
+    return computed(() => fn(this.get()));
+  }
+
   private notify(): void {
     if (batchDepth > 0) {
       for (const listener of this.listeners) pendingEffects.add(listener);
@@ -133,13 +139,16 @@ export function effect(fn: () => void | (() => void)): () => void {
     deps = nextDeps;
   };
 
-  execute();
-
-  return () => {
+  const dispose = () => {
     if (cleanup) cleanup();
     for (const dep of deps) dep.unsubscribe(execute);
     deps.clear();
   };
+
+  trackDispose(dispose);
+  execute();
+
+  return dispose;
 }
 
 // === Dispose type & scope management ===
@@ -178,8 +187,7 @@ export function computed<T>(fn: () => T): Signal<T> {
     currentDeps = prevDeps;
   }
   const s = new Signal<T>(initial);
-  const dispose = effect(() => s.set(fn()));
-  trackDispose(dispose);
+  effect(() => s.set(fn()));
   return s;
 }
 
