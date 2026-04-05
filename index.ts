@@ -1,4 +1,4 @@
-// Railroad — Signals, JSX, and Routes
+// Railroad — Signals, JSX, Routes, and Delta-doc
 
 export { Signal, signal, computed, effect, batch } from "./signals";
 export type { Dispose } from "./signals";
@@ -15,3 +15,6 @@ export type { Key } from "./shared";
 
 export { createLogger, setLogLevel, getLogLevel, loggedRequest } from "./logger";
 export type { LogLevel } from "./logger";
+
+export { applyOps } from "./delta";
+export type { DeltaOp } from "./delta";

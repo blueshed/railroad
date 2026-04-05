@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- **Delta-doc** — JSON document patching primitive for real-time sync. Three new modules:
+  - `@blueshed/railroad/delta` — shared `DeltaOp` type and `applyOps()` function. Pure, zero dependencies, usable on both server and client.
+  - `@blueshed/railroad/delta-server` — `createWs()` (shared WebSocket server with action routing and Bun pub/sub), `registerDoc()` (persist a typed JSON document, sync via delta ops), `registerMethod()` (stateless RPC handler).
+  - `@blueshed/railroad/delta-client` — `connectWs()` (reconnecting WebSocket with request/response), `openDoc()` (open a doc as a reactive signal), `call()` (invoke RPC methods). Includes auto-reconnect with exponential backoff.
+- **`DeltaOp` and `applyOps`** re-exported from the main `@blueshed/railroad` barrel for convenience.
+
 ## 0.4.0
 
 ### Added

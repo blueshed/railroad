@@ -1,12 +1,12 @@
 ---
 name: railroad
-description: "Railroad — micro reactive UI framework for Bun. Use when writing JSX components with signals, routes, when(), list(), or importing @blueshed/railroad."
+description: "Railroad — micro reactive UI framework for Bun. Use when writing JSX components with signals, routes, when(), list(), delta-doc, or importing @blueshed/railroad."
 ---
 
 Micro reactive UI framework for Bun. ~900 lines, zero dependencies, real DOM.
 
 **Read the source files for full API detail** — each has a JSDoc header:
-`signals.ts` · `jsx.ts` · `routes.ts` · `shared.ts` · `logger.ts`
+`signals.ts` · `jsx.ts` · `routes.ts` · `shared.ts` · `logger.ts` · `delta.ts` · `delta-server.ts` · `delta-client.ts`
 
 ## Setup
 
@@ -51,6 +51,45 @@ function SitesLayout() {
   return when(() => detail.get(), () => <SiteDetail />, () => <SitesList />);
 }
 ```
+
+## Delta-doc
+
+Real-time JSON document sync over WebSocket. Server persists to files, client gets reactive signals.
+
+**Read source for full API:** `delta.ts` · `delta-server.ts` · `delta-client.ts`
+
+```ts
+// Server — register docs and methods
+import { createWs, registerDoc, registerMethod } from "@blueshed/railroad/delta-server";
+
+const ws = createWs();
+await registerDoc<Message>(ws, "message", { file: "./data/message.json", empty: { message: "" } });
+registerMethod(ws, "status", () => ({ bun: Bun.version }));
+
+const server = Bun.serve({ routes: { "/ws": ws.upgrade }, websocket: ws.websocket });
+ws.setServer(server);
+```
+
+```tsx
+// Client — open docs as reactive signals
+import { provide } from "@blueshed/railroad";
+import { connectWs, WS, openDoc, call } from "@blueshed/railroad/delta-client";
+
+provide(WS, connectWs("/ws"));
+
+const message = openDoc<Message>("message");
+effect(() => console.log(message.data.get()));
+message.send([{ op: "replace", path: "/message", value: "hello" }]);
+
+const status = await call<Status>("status");
+```
+
+**Delta ops** use JSON Pointer paths:
+- `{ op: "replace", path: "/field", value: "new" }` — set
+- `{ op: "add", path: "/items/-", value: item }` — append to array
+- `{ op: "remove", path: "/items/0" }` — delete by index
+
+Multiple ops in one `send()` are atomic.
 
 ## Anti-Patterns
 
