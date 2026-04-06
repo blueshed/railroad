@@ -83,12 +83,11 @@ export function connectWs(
   opts?: { clientId?: string },
 ): WsClient {
   const log = createLogger("[ws]");
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const query = opts?.clientId ? `?clientId=${opts.clientId}` : "";
+  const url = new URL(wsPath, location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  if (opts?.clientId) url.searchParams.set("clientId", opts.clientId);
   const connected = signal(false);
-  const ws = reconnectingWebSocket(
-    `${proto}//${location.host}${wsPath}${query}`,
-  );
+  const ws = reconnectingWebSocket(url.href);
   const pending = new Map<
     number,
     { resolve: (v: any) => void; reject: (e: any) => void }

@@ -15,12 +15,12 @@
  *   const handler = loggedRequest("[api]", myHandler);  // wrap a route with access logging
  */
 
-export type LogLevel = "error" | "warn" | "info" | "debug";
+export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 
-const LEVELS: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 };
+const LEVELS: Record<LogLevel, number> = { silent: -1, error: 0, warn: 1, info: 2, debug: 3 };
 
 let current: LogLevel =
-  (typeof process !== "undefined" && process.env?.LOG_LEVEL as LogLevel) || "info";
+  (globalThis.Bun?.env?.LOG_LEVEL as LogLevel) ?? "info";
 
 export function setLogLevel(level: LogLevel) {
   current = level;
@@ -41,7 +41,7 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
-const color: Record<LogLevel, (s: string) => string> = {
+const color: Record<string, (s: string) => string> = {
   error: red,
   warn: yellow,
   info: gray,
@@ -61,7 +61,7 @@ export function createLogger(tag: string) {
   return {
     info: (msg: string) => { if (shouldLog("info")) console.log(fmt("info", tag, msg)); },
     warn: (msg: string) => { if (shouldLog("warn")) console.warn(fmt("warn", tag, msg)); },
-    error: (msg: string) => { console.error(fmt("error", tag, msg)); },
+    error: (msg: string) => { if (shouldLog("error")) console.error(fmt("error", tag, msg)); },
     debug: (msg: string) => { if (shouldLog("debug")) console.log(fmt("debug", tag, msg)); },
   };
 }

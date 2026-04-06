@@ -254,6 +254,12 @@ const maybeStore = tryInject(STORE); // T | undefined
 ### Logger
 
 Colored, timestamped, level-gated console output.
+Set the level via `.env` (Bun loads it automatically):
+
+```sh
+# .env
+LOG_LEVEL=debug    # debug | info | warn | error | silent
+```
 
 ```ts
 import { createLogger, setLogLevel, loggedRequest } from "@blueshed/railroad";
@@ -262,7 +268,7 @@ const log = createLogger("[server]");
 log.info("listening on :3000");
 log.debug("tick");             // only shown when level is "debug"
 
-setLogLevel("debug");          // show everything
+setLogLevel("debug");          // override at runtime
 
 // Wrap a route handler with access logging:
 const handler = loggedRequest("[api]", myHandler);

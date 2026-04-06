@@ -13,7 +13,10 @@
  *   await registerDoc<Message>(ws, "message", { file: "./message.json", empty: { message: "" } });
  *   registerMethod(ws, "status", () => ({ bun: Bun.version }));
  *
- *   const server = Bun.serve({ routes: { "/ws": ws.upgrade }, websocket: ws.websocket });
+ *   const server = Bun.serve({
+ *     routes: { [ws.path]: ws.upgrade, ...myRoutes },
+ *     websocket: ws.websocket,
+ *   });
  *   ws.setServer(server);
  */
 import { createLogger } from "./logger";
@@ -30,6 +33,7 @@ export type ActionHandler = (
 ) => any | Promise<any>;
 
 export interface WsServer {
+  path: string;
   on(action: string, handler: ActionHandler): void;
   publish(channel: string, data: any): void;
   sendTo(clientId: string, data: any): void;
@@ -61,14 +65,30 @@ export interface DocOptions<T> {
 // WebSocket server
 // ---------------------------------------------------------------------------
 
+export interface WsOptions {
+  path?: string;
+  idleTimeout?: number;
+  sendPings?: boolean;
+}
+
 /** Create a shared WebSocket server with action routing and Bun pub/sub. */
-export function createWs(): WsServer {
+export function createWs(opts?: WsOptions): WsServer {
   const log = createLogger("[ws]");
   const actions = new Map<string, ActionHandler[]>();
   const clients = new Map<string, any>();
   let serverRef: any;
 
+  const path = opts?.path ?? "/ws";
+
+  function upgrade(req: Request, server: any) {
+    const clientId = new URL(req.url).searchParams.get("clientId") ?? crypto.randomUUID();
+    if (server.upgrade(req, { data: { clientId } })) return undefined;
+    return new Response("WebSocket upgrade failed", { status: 400 });
+  }
+
   return {
+    path,
+
     on(action: string, handler: ActionHandler) {
       if (!actions.has(action)) actions.set(action, []);
       actions.get(action)!.push(handler);
@@ -87,16 +107,11 @@ export function createWs(): WsServer {
       serverRef = s;
     },
 
-    upgrade: (req: Request, server: any) => {
-      const url = new URL(req.url, "http://localhost");
-      const clientId = url.searchParams.get("clientId") ?? crypto.randomUUID();
-      if (server.upgrade(req, { data: { clientId } })) return;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    },
+    upgrade,
 
     websocket: {
-      idleTimeout: 60,
-      sendPings: true,
+      idleTimeout: opts?.idleTimeout ?? 60,
+      sendPings: opts?.sendPings ?? true,
       publishToSelf: true,
       open(ws: any) {
         const clientId = ws.data?.clientId;

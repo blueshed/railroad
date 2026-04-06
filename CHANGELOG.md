@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **Configurable WebSocket options** — `createWs()` accepts `WsOptions` with `path`, `idleTimeout`, and `sendPings`. Defaults: `"/ws"`, `60`, `true`.
+- **`"silent"` log level** — suppresses all output including errors. Set via `setLogLevel("silent")` or `LOG_LEVEL=silent` in `.env`.
+- **Test coverage** — 90 tests across 5 files covering `delta`, `delta-server`, `signals`, `shared`, and `logger`. `bun test --coverage` reports 87% overall.
+
+### Changed
+
+- **`createWs()` exposes `upgrade` not `routes`** — the consumer owns `Bun.serve()` and wires the upgrade handler into their own routes: `{ [ws.path]: ws.upgrade, ...myRoutes }`.
+- **`log.error()` respects log level** — previously always logged regardless of level. Now gated like other levels, enabling silent mode for tests.
+- **Logger reads `Bun.env`** — replaced `process.env` Node-ism with `globalThis.Bun?.env?.LOG_LEVEL`.
+- **Client URL construction** — `connectWs()` uses `new URL()` to resolve the WebSocket path instead of manual string concatenation.
+- **Server upgrade URL parsing** — removed unnecessary `"http://localhost"` base from `new URL(req.url)`.
+
+### Docs
+
+- **`.env` setup** — README now documents `LOG_LEVEL` environment variable and available levels (`debug | info | warn | error | silent`).
+
 ## 0.5.0
 
 ### Added
