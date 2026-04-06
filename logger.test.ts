@@ -127,7 +127,7 @@ describe("loggedRequest", () => {
     expect(handler(new Request("http://localhost/fail"))).rejects.toThrow("boom");
     await Bun.sleep(10);
     expect(errorSpy).toHaveBeenCalledTimes(1);
-    const output = errorSpy.mock.calls[0][0];
+    const output = errorSpy.mock.calls[0]![0];
     expect(output).toContain("boom");
     expect(output).toContain("/fail");
     errorSpy.mockRestore();

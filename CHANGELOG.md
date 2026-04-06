@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+### Changed
+
+- **Strict `noUncheckedIndexedAccess`** — tsconfig now enables `noUncheckedIndexedAccess: true` so consumers with strict settings don't hit type errors that railroad's own checks miss.
+
 ## 0.6.0
 
 ### Added

@@ -53,7 +53,8 @@ function timestamp() {
 }
 
 function fmt(level: LogLevel, tag: string, msg: string) {
-  return `${gray(timestamp())} ${color[level](level.toUpperCase().padEnd(5))} ${tag} ${msg}`;
+  const colorFn = color[level] ?? gray;
+  return `${gray(timestamp())} ${colorFn(level.toUpperCase().padEnd(5))} ${tag} ${msg}`;
 }
 
 /** Create a tagged logger instance. */

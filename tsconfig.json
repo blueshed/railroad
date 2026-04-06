@@ -4,6 +4,7 @@
     "jsxFactory": "createElement",
     "jsxFragmentFactory": "Fragment",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
