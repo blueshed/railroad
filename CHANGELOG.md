@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2
+
+### Added
+
+- **`delta-sqlite` module** — SQLite relational backend for delta-doc. Declare schemas with typed columns, parent/child relationships, cascade deletes, and temporal versioning. Define doc lenses that load a root row plus its included collections. Same client API as the JSON file backend — swap `registerDoc` for `registerDocs` on the server.
+- **166 tests** — full test coverage for `delta-sqlite` (schema DDL, CRUD ops, nested collections, cascade deletes, temporal queries, scope filters).
+
+### Docs
+
+- **README** — added delta-doc and delta-sqlite usage sections with server/client examples, schema declaration reference, and doc lens configuration.
+
 ## 0.6.1
 
 ### Changed

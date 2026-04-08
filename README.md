@@ -274,6 +274,133 @@ setLogLevel("debug");          // override at runtime
 const handler = loggedRequest("[api]", myHandler);
 ```
 
+### Delta-Doc
+
+Real-time document sync over WebSocket. The server holds a document; clients open it as a reactive signal and send JSON Pointer ops to mutate it.
+
+#### JSON file backend
+
+```ts
+// server.ts
+import { createWs, registerDoc, registerMethod } from "@blueshed/railroad/delta-server";
+
+const ws = createWs();
+
+await registerDoc(ws, "message", {
+  file: "./message.json",
+  empty: { message: "", items: [] },
+});
+
+registerMethod(ws, "status", () => ({ uptime: process.uptime() }));
+
+const server = Bun.serve({
+  routes: { "/": homepage, "/ws": ws.upgrade },
+  websocket: ws.websocket,
+});
+ws.setServer(server);
+```
+
+```ts
+// client.ts
+import { connectWs, openDoc, call } from "@blueshed/railroad/delta-client";
+import { provide } from "@blueshed/railroad";
+import { WS } from "@blueshed/railroad/delta-client";
+
+provide(WS, connectWs("/ws"));
+
+const doc = openDoc<Message>("message");
+
+// Reactive — updates automatically when any client changes the doc
+effect(() => console.log(doc.data.get()));
+
+// Mutate via JSON Pointer ops (RFC 6901)
+doc.send([
+  { op: "replace", path: "/message", value: "hello" },
+  { op: "add", path: "/items/-", value: { id: 1, text: "first" } },
+]);
+
+// Stateless RPC
+const status = await call<Status>("status");
+```
+
+#### SQLite relational backend
+
+Same client API — swap the server backend from a JSON file to SQLite temporal tables.
+
+```ts
+// schema.ts
+import { defineSchema, defineDoc } from "@blueshed/railroad/delta-sqlite";
+
+const schema = defineSchema({
+  projects: {
+    columns: { name: "text", status: "text" },
+  },
+  tasks: {
+    parent: { collection: "projects", fk: "project_id" },
+    columns: {
+      title: "text",
+      done: "boolean",
+      priority: "integer?",
+    },
+  },
+  comments: {
+    parent: { collection: "tasks", fk: "task_id" },
+    columns: { body: "text", author: "text?" },
+  },
+});
+
+const projectDoc = defineDoc("project:", {
+  root: "projects",
+  include: ["tasks", "comments"],
+});
+```
+
+```ts
+// server.ts
+import { createWs, registerMethod } from "@blueshed/railroad/delta-server";
+import { createTables, registerDocs } from "@blueshed/railroad/delta-sqlite";
+import { Database } from "bun:sqlite";
+
+const db = new Database("app.db", { create: true });
+const ws = createWs();
+
+createTables(db, schema);
+registerDocs(ws, db, schema, [projectDoc]);
+
+const server = Bun.serve({
+  routes: { "/": homepage, "/ws": ws.upgrade },
+  websocket: ws.websocket,
+});
+ws.setServer(server);
+```
+
+```ts
+// client.ts — identical to JSON backend
+const project = openDoc<ProjectDoc>("project:abc-123");
+
+project.send([
+  { op: "add", path: "/tasks/uuid-1", value: { title: "Ship it", done: false } },
+  { op: "replace", path: "/tasks/uuid-1/done", value: true },
+  { op: "remove", path: "/tasks/uuid-1" },
+]);
+```
+
+The schema declares:
+
+- **Tables** — columns, types (`text`, `integer`, `real`, `boolean`, `json`), nullability (`"text?"`), defaults
+- **Relationships** — `parent` creates FK columns; the FK graph drives loading and cascade deletes
+- **Cascade references** — `cascadeOn` triggers deletes across FK boundaries (e.g. removing a user cascades to their assignments)
+- **Temporal versioning** — every row tracks `valid_from`/`valid_to` for time-travel queries. Set `temporal: false` to opt out
+
+Documents are lenses into the schema:
+
+- **`prefix`** — maps `openDoc("project:abc")` to the right handler
+- **`root`** — the root table; its PK is the doc ID
+- **`include`** — which collections to load and sync
+- **`scope`** — optional row-level filter (e.g. `{ user_id: ":docId" }` for per-user docs)
+
+Multiple doc types share one `createWs()`. The same table can appear in different docs — changes propagate to all subscribed lenses.
+
 ## Design
 
 - **Signals hold state** — reactive primitives with automatic dependency tracking
@@ -288,11 +415,15 @@ No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Ju
 Each module is independent — use as much or as little as you need.
 
 ```
-signals.ts  ← no deps         Use signals anywhere: server, CLI, worker
-shared.ts   ← no deps         Add typed DI when you need shared state
-logger.ts   ← no deps         Add logging to your Bun server
-jsx.ts      ← signals         Add reactive DOM when you need a UI
-routes.ts   ← signals         Add client-side routing when you need pages
+signals.ts       ← no deps         Use signals anywhere: server, CLI, worker
+shared.ts        ← no deps         Add typed DI when you need shared state
+logger.ts        ← no deps         Add logging to your Bun server
+jsx.ts           ← signals         Add reactive DOM when you need a UI
+routes.ts        ← signals         Add client-side routing when you need pages
+delta.ts         ← no deps         JSON Pointer ops (shared by client + server)
+delta-client.ts  ← signals, shared Real-time doc sync for the browser
+delta-server.ts  ← logger          WebSocket protocol + doc/method registration
+delta-sqlite.ts  ← delta-server    SQLite relational backend for delta-doc
 ```
 
 **Level 1 — Reactive state only** (no DOM, no tsconfig changes)

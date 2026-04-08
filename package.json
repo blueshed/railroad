@@ -1,6 +1,6 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Signals, JSX, routes, and delta-doc — a micro UI framework for Bun",
   "type": "module",
   "main": "index.ts",
@@ -14,6 +14,7 @@
     "./delta": "./delta.ts",
     "./delta-server": "./delta-server.ts",
     "./delta-client": "./delta-client.ts",
+    "./delta-sqlite": "./delta-sqlite.ts",
     "./jsx-runtime": "./jsx-runtime.ts",
     "./jsx-dev-runtime": "./jsx-dev-runtime.ts"
   },
