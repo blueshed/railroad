@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+### Docs
+
+- **README** — rebranded from "micro UI framework" to "micro full-stack framework." Added "Why Railroad?" positioning section comparing against SolidJS + Yjs composition. Updated line count to ~1,700 (actual code, excluding comments/blanks). Added delta-doc to the Design bullet list.
+- **SKILL.md** — updated description, line count, and delta-doc section to reflect full-stack scope and SQLite backend.
+- **futures.md** — replaced vague conflict resolution options with a concrete three-level plan: version stamping + conflict notification (next), path-aware auto-merge (future), custom merge strategies (future). Added "Why not CRDTs?" rationale.
+
 ## 0.6.2
 
 ### Added

@@ -1,8 +1,8 @@
 # Railroad
 
-Signals, JSX, and routes — a micro UI framework for Bun.
+Signals, JSX, routes, and real-time sync — a micro full-stack framework for Bun.
 
-~900 lines. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
+~1,700 lines of code. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
 
 ## Install
 
@@ -276,7 +276,7 @@ const handler = loggedRequest("[api]", myHandler);
 
 ### Delta-Doc
 
-Real-time document sync over WebSocket. The server holds a document; clients open it as a reactive signal and send JSON Pointer ops to mutate it.
+Real-time document sync over WebSocket. The server holds a document; clients open it as a reactive signal and send JSON Pointer ops to mutate it. Server-authoritative — no CRDTs, no external sync service, no glue code.
 
 #### JSON file backend
 
@@ -407,8 +407,17 @@ Multiple doc types share one `createWs()`. The same table can appear in differen
 - **Effects update the DOM** — run when dependencies change, auto-cleanup in scope
 - **JSX creates the DOM** — real elements, not virtual. Signal-aware props and children
 - **Routes swap the DOM** — hash-based, auto-scoped, nestable via wildcards
+- **Delta-doc syncs state** — one line to open a shared reactive document over WebSocket
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
+
+## Why Railroad?
+
+To build a real-time collaborative app with existing tools, you need SolidJS (~7 kB) + a router (~3 kB) + a WebSocket library (~2 kB) + Yjs (~27 kB) + glue code — four packages, ~39 kB, and three mental models of "what is state."
+
+Railroad unifies reactive UI and real-time sync into a single package. `openDoc<T>("name")` returns a reactive signal that auto-syncs over WebSocket. No glue, no CRDT complexity, no external sync service.
+
+The tradeoff is explicit: railroad is server-authoritative (not peer-to-peer), uses last-write-wins (not CRDTs), and targets Bun (not Node). This is the right fit for dashboards, admin panels, config tools, planning apps, chat, and IoT displays — apps where a single source of truth is correct.
 
 ## Progressive Adoption
 

@@ -1,12 +1,12 @@
 ---
 name: railroad
-description: "Railroad — micro reactive UI framework for Bun. Use when writing JSX components with signals, routes, when(), list(), delta-doc, or importing @blueshed/railroad."
+description: "Railroad — micro full-stack framework for Bun. Use when writing JSX components with signals, routes, when(), list(), delta-doc, or importing @blueshed/railroad."
 ---
 
-Micro reactive UI framework for Bun. ~900 lines, zero dependencies, real DOM.
+Micro full-stack framework for Bun. ~1,700 lines of code, zero dependencies, real DOM.
 
 **Read the source files for full API detail** — each has a JSDoc header:
-`signals.ts` · `jsx.ts` · `routes.ts` · `shared.ts` · `logger.ts` · `delta.ts` · `delta-server.ts` · `delta-client.ts`
+`signals.ts` · `jsx.ts` · `routes.ts` · `shared.ts` · `logger.ts` · `delta.ts` · `delta-server.ts` · `delta-client.ts` · `delta-sqlite.ts`
 
 ## Setup
 
@@ -54,9 +54,9 @@ function SitesLayout() {
 
 ## Delta-doc
 
-Real-time JSON document sync over WebSocket. Server persists to files, client gets reactive signals.
+Real-time JSON document sync over WebSocket. Server-authoritative, last-write-wins. Server persists to JSON files or SQLite temporal tables; client gets reactive signals.
 
-**Read source for full API:** `delta.ts` · `delta-server.ts` · `delta-client.ts`
+**Read source for full API:** `delta.ts` · `delta-server.ts` · `delta-client.ts` · `delta-sqlite.ts`
 
 ```ts
 // Server — register docs and methods
