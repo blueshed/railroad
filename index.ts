@@ -15,6 +15,3 @@ export type { Key } from "./shared";
 
 export { createLogger, setLogLevel, getLogLevel, loggedRequest } from "./logger";
 export type { LogLevel } from "./logger";
-
-export { applyOps } from "./delta";
-export type { DeltaOp } from "./delta";

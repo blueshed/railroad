@@ -1,8 +1,8 @@
 # Railroad
 
-Signals, JSX, routes, and real-time sync — a micro full-stack framework for Bun.
+Client-side reactivity for Bun — signals, JSX, routes — plus a typed DI container and a logger that also work server-side. Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) when you want real-time document sync.
 
-~1,700 lines of code. Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
+Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
 
 ## Install
 
@@ -274,132 +274,27 @@ setLogLevel("debug");          // override at runtime
 const handler = loggedRequest("[api]", myHandler);
 ```
 
-### Delta-Doc
+### Doc sync — use `@blueshed/delta`
 
-Real-time document sync over WebSocket. The server holds a document; clients open it as a reactive signal and send JSON Pointer ops to mutate it. Server-authoritative — no CRDTs, no external sync service, no glue code.
+Real-time document sync used to live here; it's now its own package: [**@blueshed/delta**](https://www.npmjs.com/package/@blueshed/delta). The delta client imports railroad's signals internally, so `openDoc("name")` returns a reactive signal that drops straight into a railroad JSX tree. Three backends — JSON file, SQLite, and Postgres — behind the same `openDoc` client API.
 
-#### JSON file backend
-
-```ts
-// server.ts
-import { createWs, registerDoc, registerMethod } from "@blueshed/railroad/delta-server";
-
+```tsx
+// Server (minimal, JSON file backend)
+import { createWs, registerDoc } from "@blueshed/delta/server";
 const ws = createWs();
+await registerDoc(ws, "message", { file: "./message.json", empty: { message: "" } });
+Bun.serve({ routes: { "/": homepage, "/ws": ws.upgrade }, websocket: ws.websocket });
 
-await registerDoc(ws, "message", {
-  file: "./message.json",
-  empty: { message: "", items: [] },
-});
-
-registerMethod(ws, "status", () => ({ uptime: process.uptime() }));
-
-const server = Bun.serve({
-  routes: { "/": homepage, "/ws": ws.upgrade },
-  websocket: ws.websocket,
-});
-ws.setServer(server);
-```
-
-```ts
-// client.ts
-import { connectWs, openDoc, call } from "@blueshed/railroad/delta-client";
+// Client
 import { provide } from "@blueshed/railroad";
-import { WS } from "@blueshed/railroad/delta-client";
-
+import { connectWs, WS, openDoc } from "@blueshed/delta/client";
 provide(WS, connectWs("/ws"));
-
 const doc = openDoc<Message>("message");
-
-// Reactive — updates automatically when any client changes the doc
-effect(() => console.log(doc.data.get()));
-
-// Mutate via JSON Pointer ops (RFC 6901)
-doc.send([
-  { op: "replace", path: "/message", value: "hello" },
-  { op: "add", path: "/items/-", value: { id: 1, text: "first" } },
-]);
-
-// Stateless RPC
-const status = await call<Status>("status");
+// {() => doc.data.get()?.message}   ← auto-reactive inside JSX
+doc.send([{ op: "replace", path: "/message", value: "hello" }]);
 ```
 
-#### SQLite relational backend
-
-Same client API — swap the server backend from a JSON file to SQLite temporal tables.
-
-```ts
-// schema.ts
-import { defineSchema, defineDoc } from "@blueshed/railroad/delta-sqlite";
-
-const schema = defineSchema({
-  projects: {
-    columns: { name: "text", status: "text" },
-  },
-  tasks: {
-    parent: { collection: "projects", fk: "project_id" },
-    columns: {
-      title: "text",
-      done: "boolean",
-      priority: "integer?",
-    },
-  },
-  comments: {
-    parent: { collection: "tasks", fk: "task_id" },
-    columns: { body: "text", author: "text?" },
-  },
-});
-
-const projectDoc = defineDoc("project:", {
-  root: "projects",
-  include: ["tasks", "comments"],
-});
-```
-
-```ts
-// server.ts
-import { createWs, registerMethod } from "@blueshed/railroad/delta-server";
-import { createTables, registerDocs } from "@blueshed/railroad/delta-sqlite";
-import { Database } from "bun:sqlite";
-
-const db = new Database("app.db", { create: true });
-const ws = createWs();
-
-createTables(db, schema);
-registerDocs(ws, db, schema, [projectDoc]);
-
-const server = Bun.serve({
-  routes: { "/": homepage, "/ws": ws.upgrade },
-  websocket: ws.websocket,
-});
-ws.setServer(server);
-```
-
-```ts
-// client.ts — identical to JSON backend
-const project = openDoc<ProjectDoc>("project:abc-123");
-
-project.send([
-  { op: "add", path: "/tasks/uuid-1", value: { title: "Ship it", done: false } },
-  { op: "replace", path: "/tasks/uuid-1/done", value: true },
-  { op: "remove", path: "/tasks/uuid-1" },
-]);
-```
-
-The schema declares:
-
-- **Tables** — columns, types (`text`, `integer`, `real`, `boolean`, `json`), nullability (`"text?"`), defaults
-- **Relationships** — `parent` creates FK columns; the FK graph drives loading and cascade deletes
-- **Cascade references** — `cascadeOn` triggers deletes across FK boundaries (e.g. removing a user cascades to their assignments)
-- **Temporal versioning** — every row tracks `valid_from`/`valid_to` for time-travel queries. Set `temporal: false` to opt out
-
-Documents are lenses into the schema:
-
-- **`prefix`** — maps `openDoc("project:abc")` to the right handler
-- **`root`** — the root table; its PK is the doc ID
-- **`include`** — which collections to load and sync
-- **`scope`** — optional row-level filter (e.g. `{ user_id: ":docId" }` for per-user docs)
-
-Multiple doc types share one `createWs()`. The same table can appear in different docs — changes propagate to all subscribed lenses.
+For SQLite (temporal tables) and Postgres (RLS + LISTEN/NOTIFY fan-out) backends, see the `@blueshed/delta` README and the `delta-doc` skill that ships with it.
 
 ## Design
 
@@ -407,17 +302,16 @@ Multiple doc types share one `createWs()`. The same table can appear in differen
 - **Effects update the DOM** — run when dependencies change, auto-cleanup in scope
 - **JSX creates the DOM** — real elements, not virtual. Signal-aware props and children
 - **Routes swap the DOM** — hash-based, auto-scoped, nestable via wildcards
-- **Delta-doc syncs state** — one line to open a shared reactive document over WebSocket
 
 No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
 
+Need real-time doc sync? Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) — its client is railroad-native (`openDoc` returns a signal you can drop straight into JSX).
+
 ## Why Railroad?
 
-To build a real-time collaborative app with existing tools, you need SolidJS (~7 kB) + a router (~3 kB) + a WebSocket library (~2 kB) + Yjs (~27 kB) + glue code — four packages, ~39 kB, and three mental models of "what is state."
+SolidJS-style reactivity, a router, and a DI container in ~1,700 lines of Bun-native TypeScript with zero dependencies. Real DOM, not virtual. No hook rules, no lifecycle methods, no context providers.
 
-Railroad unifies reactive UI and real-time sync into a single package. `openDoc<T>("name")` returns a reactive signal that auto-syncs over WebSocket. No glue, no CRDT complexity, no external sync service.
-
-The tradeoff is explicit: railroad is server-authoritative (not peer-to-peer), uses last-write-wins (not CRDTs), and targets Bun (not Node). This is the right fit for dashboards, admin panels, config tools, planning apps, chat, and IoT displays — apps where a single source of truth is correct.
+The tradeoff is explicit: railroad is Bun-only and browser-leaning. For apps that also need real-time document sync over WebSocket — dashboards, admin panels, planning tools, chat — add `@blueshed/delta`; its client is built on railroad's own signals.
 
 ## Progressive Adoption
 
@@ -429,11 +323,9 @@ shared.ts        ← no deps         Add typed DI when you need shared state
 logger.ts        ← no deps         Add logging to your Bun server
 jsx.ts           ← signals         Add reactive DOM when you need a UI
 routes.ts        ← signals         Add client-side routing when you need pages
-delta.ts         ← no deps         JSON Pointer ops (shared by client + server)
-delta-client.ts  ← signals, shared Real-time doc sync for the browser
-delta-server.ts  ← logger          WebSocket protocol + doc/method registration
-delta-sqlite.ts  ← delta-server    SQLite relational backend for delta-doc
 ```
+
+For real-time doc sync over WebSocket, add [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). It builds on railroad's signals — `openDoc("name")` returns a reactive `Doc<T>` you can drop straight into JSX.
 
 **Level 1 — Reactive state only** (no DOM, no tsconfig changes)
 

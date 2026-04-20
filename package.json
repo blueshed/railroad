@@ -1,7 +1,7 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.6.3",
-  "description": "Signals, JSX, routes, and real-time sync — a micro full-stack framework for Bun",
+  "version": "0.7.0",
+  "description": "Client-side reactivity for Bun — signals, JSX, routes — plus a typed DI container and logger that run on either side. Pair with @blueshed/delta for doc sync.",
   "type": "module",
   "main": "index.ts",
   "types": "index.ts",
@@ -11,10 +11,6 @@
     "./jsx": "./jsx.ts",
     "./routes": "./routes.ts",
     "./shared": "./shared.ts",
-    "./delta": "./delta.ts",
-    "./delta-server": "./delta-server.ts",
-    "./delta-client": "./delta-client.ts",
-    "./delta-sqlite": "./delta-sqlite.ts",
     "./jsx-runtime": "./jsx-runtime.ts",
     "./jsx-dev-runtime": "./jsx-dev-runtime.ts"
   },
@@ -30,7 +26,7 @@
     "test": "bun test"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.11",
+    "@types/bun": "^1.3.12",
     "typescript": "^5.9.3"
   },
   "author": "Peter Bunyan <peter@blueshed.co.uk> (https://blueshed.co.uk)",
@@ -40,5 +36,5 @@
     "type": "git",
     "url": "https://github.com/blueshed/railroad"
   },
-  "keywords": ["signals", "jsx", "router", "delta-doc", "bun", "ui", "framework"]
+  "keywords": ["signals", "jsx", "router", "bun", "ui", "framework"]
 }

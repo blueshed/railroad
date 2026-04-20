@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0
+
+### Removed (breaking)
+
+- **`./delta`, `./delta-client`, `./delta-server`, `./delta-sqlite` subpath exports** are gone, along with the root-level `applyOps` / `DeltaOp` re-exports. Real-time document sync now lives in the sibling package [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta), extracted from railroad's 0.6.x delta-* modules and since extended with a Postgres backend, auth integration, temporal reads, DOM-ops helper, and a ~200-test suite. Railroad was the proving ground; delta is the finished product.
+- Migration for existing users:
+  - `@blueshed/railroad/delta` → `@blueshed/delta/core`
+  - `@blueshed/railroad/delta-client` → `@blueshed/delta/client`
+  - `@blueshed/railroad/delta-server` → `@blueshed/delta/server`
+  - `@blueshed/railroad/delta-sqlite` → `@blueshed/delta/sqlite`
+  The public API is a superset — no symbol names change.
+
+### Changed
+
+- **Scope and taglines rewritten.** No longer a "micro full-stack framework" — with delta extracted, railroad is client-side reactivity (signals, JSX, routes) plus a typed DI container and a logger that happen to work on either side. Package description, README, and SKILL.md all refresh to reflect that. `@blueshed/delta`'s client imports railroad's signals, so `openDoc("name")` still drops straight into a railroad JSX tree — no glue changes required.
+- **`futures.md` removed** — the roadmap was all delta-doc / CRDT follow-ups (conflict resolution, path-aware merge), which belong with `@blueshed/delta` now. Nothing UI-framework-shaped was in there.
+
 ## 0.6.3
 
 ### Docs
