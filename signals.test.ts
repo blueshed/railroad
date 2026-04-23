@@ -74,6 +74,74 @@ describe("signal", () => {
   });
 });
 
+describe("Signal.touch", () => {
+  test("fires listeners without replacing the value", () => {
+    const s = signal({ x: 0 });
+    let runs = 0;
+    let seen = 0;
+    effect(() => { seen = s.get().x; runs++; });
+    expect(runs).toBe(1);
+    expect(seen).toBe(0);
+
+    // Mutate in place — set(sameRef) would be a no-op, touch() forces re-run.
+    s.peek().x = 1;
+    s.touch();
+
+    expect(runs).toBe(2);
+    expect(seen).toBe(1);
+  });
+
+  test("preserves reference identity", () => {
+    const s = signal({ items: [] as number[] });
+    const before = s.peek();
+    s.peek().items.push(1);
+    s.touch();
+    expect(s.peek()).toBe(before);
+    expect(s.peek().items).toBe(before.items);
+  });
+
+  test("respects batch()", () => {
+    const s = signal({ x: 0 });
+    let runs = 0;
+    effect(() => { s.get(); runs++; });
+    expect(runs).toBe(1);
+
+    batch(() => {
+      s.touch();
+      s.touch();
+      s.touch();
+    });
+
+    expect(runs).toBe(2); // initial + one coalesced flush after batch exits
+  });
+
+  test("propagates through primitive-returning computeds", () => {
+    const s = signal({ items: [1, 2] });
+    const len = computed(() => s.get().items.length);
+    const seen: number[] = [];
+    effect(() => { seen.push(len.get()); });
+    expect(seen).toEqual([2]);
+
+    s.peek().items.push(3);
+    s.touch();
+    expect(seen).toEqual([2, 3]);
+  });
+
+  test("does NOT propagate through identity-returning computeds (by design)", () => {
+    // Locks in the Object.is bail-out: a computed that returns the same ref
+    // stops propagation. touch() is not a drop-in "wake everything up".
+    const s = signal({ items: [1, 2] });
+    const proxy = computed(() => s.get().items);
+    let runs = 0;
+    effect(() => { proxy.get(); runs++; });
+    expect(runs).toBe(1);
+
+    s.peek().items.push(3);
+    s.touch();
+    expect(runs).toBe(1);
+  });
+});
+
 describe("computed", () => {
   test("derives value", () => {
     const a = signal(2);

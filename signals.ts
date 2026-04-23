@@ -13,10 +13,11 @@
  *   .get()                  — read value (tracks dependency when inside effect/computed)
  *   .set(value)             — write value (notifies listeners if changed via Object.is)
  *   .update(fn)             — set via transform: s.update(v => v + 1)
- *   .mutate(fn)             — structuredClone, mutate in place, notify: s.mutate(v => v.items.push(x))
+ *   .mutate(fn)             — structuredClone, mutate in place, fire listeners: s.mutate(v => v.items.push(x))
  *   .patch(partial)         — shallow merge for object signals: s.patch({ name: "new" })
  *   .peek()                 — read value without tracking
  *   .map(fn)                — derive a new signal: s.map(v => v.name)
+ *   .touch()                — fire listeners without replacing the ref (escape hatch for in-place mutation)
  *
  * Dependency tracking:
  *   Effects automatically track which signals are read during execution.
@@ -60,7 +61,7 @@ export class Signal<T> {
   set(newValue: T): void {
     if (!Object.is(this.value, newValue)) {
       this.value = newValue;
-      this.notify();
+      this.touch();
     }
   }
 
@@ -72,7 +73,7 @@ export class Signal<T> {
     const copy = structuredClone(this.value);
     fn(copy);
     this.value = copy;
-    this.notify();
+    this.touch();
   }
 
   patch(partial: Partial<T & Record<string, unknown>>): void {
@@ -87,7 +88,27 @@ export class Signal<T> {
     return computed(() => fn(this.get()));
   }
 
-  private notify(): void {
+  /**
+   * Fire subscribers without replacing the value reference.
+   *
+   * Pair with in-place mutation when you want to skip the `structuredClone`
+   * cost of `.mutate(fn)` — for example, applying JSON-Patch ops to a large
+   * document. `.set(sameRef)` is a no-op under `Object.is`; `.touch()` is
+   * the escape hatch.
+   *
+   * Caveat — `Object.is` still gates computed propagation. Only effects
+   * and primitive-returning computeds downstream will re-run. A computed
+   * that returns the same reference (e.g. `computed(() => s.get().items)`)
+   * bails out under its own internal `set(sameRef)` guard, so `.touch()`
+   * will not propagate past it. That is by design, not a drop-in "wake
+   * everything up" button.
+   *
+   * Use `.peek()` (not `.get()`) for the in-place mutation step so you
+   * don't register an unintended dependency when called from an effect.
+   *
+   * Respects `batch()` — listeners are deferred until the batch exits.
+   */
+  touch(): void {
     if (batchDepth > 0) {
       for (const listener of this.listeners) pendingEffects.add(listener);
       return;

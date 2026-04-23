@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1
+
+### Added
+
+- **`Signal.touch()`** — public escape hatch to fire listeners without replacing the value reference. Pair with in-place mutation to skip the `structuredClone` cost of `.mutate(fn)` — intended for large documents where a single-field update shouldn't clone the whole tree, and for keeping child-ref identity stable across updates (closures that captured a row don't go stale). The `Object.is` guard still gates computed propagation: effects and primitive-returning computeds re-run, but a computed that returns the same reference bails out — by design.
+
+### Fixed
+
+- **`list()` and `when()` now adopt HTML-namespace children into SVG** — previously, `<circle>` rendered through `list(shapes, …)` inside an `<svg>` stayed in the HTML namespace and didn't render, even though `appendChildren` already handled this for static JSX. Adoption runs before the render result's child nodes are captured, so subsequent list reorders/removals and `when()` branch swaps operate on the adopted SVG nodes rather than stale HTML references.
+
+### Tests
+
+- **DOM test infra** — added `@happy-dom/global-registrator` as a dev dep and a `bunfig.toml` preload so `bun test` has a DOM available. Enables `jsx.test.tsx`, which covers the SVG adoption fix across keyed create, index-based recreate, reorder, remove, nested `<g>/<circle>`, and `createElementNS` pass-through paths. Suite grew from 46 to 64 passing tests.
+
 ## 0.7.0
 
 ### Removed (breaking)

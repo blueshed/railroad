@@ -157,6 +157,33 @@ function adoptSvg(node: Node): Node {
   return svgEl;
 }
 
+/**
+ * Adopt a render result into the SVG namespace if the target parent is SVG.
+ * Must run before the caller captures child-node references, because
+ * `adoptSvg` replaces elements with fresh SVG-namespace copies.
+ *
+ * DocumentFragments are mutated in place; single elements are returned
+ * swapped (caller must reassign).
+ */
+function adoptIntoSvg(result: Node, parent: Node | null): Node {
+  if (!(parent instanceof Element) || parent.namespaceURI !== SVG_NS) {
+    return result;
+  }
+  if (result instanceof DocumentFragment) {
+    const children = [...result.childNodes];
+    for (const child of children) {
+      if (child instanceof Element && child.namespaceURI !== SVG_NS) {
+        result.replaceChild(adoptSvg(child), child);
+      }
+    }
+    return result;
+  }
+  if (result instanceof Element && result.namespaceURI !== SVG_NS) {
+    return adoptSvg(result);
+  }
+  return result;
+}
+
 // === Child rendering ===
 
 function appendChildren(parent: Node, children: any[]): void {
@@ -230,11 +257,13 @@ export function when(
     currentDispose = popDisposeScope();
 
     if (result && anchor.parentNode) {
-      // Capture actual child nodes before fragment is emptied by insertBefore
-      currentNodes = result instanceof DocumentFragment
-        ? [...result.childNodes]
-        : [result];
-      anchor.parentNode.insertBefore(result, anchor.nextSibling);
+      // Adopt into SVG namespace before capturing node refs — adoptSvg
+      // returns fresh elements, so capture must happen post-adoption.
+      const adopted = adoptIntoSvg(result, anchor.parentNode);
+      currentNodes = adopted instanceof DocumentFragment
+        ? [...adopted.childNodes]
+        : [adopted];
+      anchor.parentNode.insertBefore(adopted, anchor.nextSibling);
     }
   }
 
@@ -326,10 +355,12 @@ export function list<T>(
           const itemSig = signal(arr[i]!);
           const indexSig = signal(i);
           result = maybeRender!(itemSig, indexSig);
+          result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
           entry = { nodes: collectNodes(result), dispose, item: itemSig, index: indexSig };
         } else {
           result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+          result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
           entry = { nodes: collectNodes(result), dispose };
         }
@@ -343,7 +374,8 @@ export function list<T>(
         const oldNodes = entry.nodes;
         entry.dispose();
         pushDisposeScope();
-        const result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+        let result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+        result = adoptIntoSvg(result, parent);
         const dispose = popDisposeScope();
         const nodes = collectNodes(result);
         entry = { nodes, dispose };
