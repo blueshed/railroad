@@ -1,33 +1,41 @@
 /**
- * Signals — Lightweight reactive primitives
+ * Signals — Push-based reactive primitives
  *
- * A standalone reactive system with no framework or DOM dependencies.
+ * Same family as Vue's `ref` / Solid's `createSignal` / Preact's signals:
+ * writes propagate eagerly to subscribers; computeds re-evaluate inside an
+ * internal effect. Designed to be small enough to fit in your head and
+ * predictable enough to write correctly without re-reading the source.
  *
  * Core API:
- *   signal<T>(value)        — create a mutable reactive value
- *   computed<T>(fn)         — derive a read-only signal from other signals
- *   effect(fn)              — run a side-effect whenever its dependencies change
- *   batch(fn)               — group multiple updates into a single flush
+ *   signal<T>(value, opts?)   — create a mutable reactive value
+ *   computed<T>(fn, opts?)    — derive a read-only signal from other signals
+ *   effect(fn)                — run a side-effect when its dependencies change
+ *   batch(fn)                 — group writes into a single flush
+ *   untrack(fn)               — read without registering a dependency
  *
  * Signal<T> methods:
- *   .get()                  — read value (tracks dependency when inside effect/computed)
- *   .set(value)             — write value (notifies listeners if changed via Object.is)
- *   .update(fn)             — set via transform: s.update(v => v + 1)
- *   .mutate(fn)             — structuredClone, mutate in place, fire listeners: s.mutate(v => v.items.push(x))
- *   .patch(partial)         — shallow merge for object signals: s.patch({ name: "new" })
- *   .peek()                 — read value without tracking
- *   .map(fn)                — derive a new signal: s.map(v => v.name)
- *   .touch()                — fire listeners without replacing the ref (escape hatch for in-place mutation)
+ *   .get()                    — read (tracks dependency when inside effect/computed)
+ *   .set(value)               — write (notifies if changed; configurable via `equals`)
+ *   .update(fn)               — set via transform: s.update(v => v + 1)
+ *   .mutate(fn)               — structuredClone, mutate in place, fire listeners
+ *   .patch(partial)           — shallow merge for object signals
+ *   .peek()                   — read without tracking
+ *   .map(fn)                  — derive a ReadonlySignal: s.map(v => v.name)
+ *   .touch()                  — fire listeners without replacing the ref
+ *                               (escape hatch for in-place mutation of large
+ *                               documents — used by realtime patch streams)
+ *
+ * ReadonlySignal<T>: { get, peek, map } — what computed() and .map() return.
  *
  * Dependency tracking:
- *   Effects automatically track which signals are read during execution.
- *   On re-run, stale subscriptions are removed and new ones added.
- *   effect() returns a dispose function that unsubscribes from all deps.
+ *   Effects auto-track which signals are read during execution. Stale
+ *   subscriptions are unsubscribed on re-run; effect() returns a dispose
+ *   function. effect() can return a cleanup, called before each re-run.
  *
  * Dispose pattern:
- *   effect() can return a cleanup function, called before each re-run and on dispose.
- *   effect() and computed() auto-track in the current dispose scope —
- *   no manual trackDispose() needed inside components.
+ *   effect() and computed() auto-track in the current dispose scope, so
+ *   nested effects inside components / route handlers / when() / list()
+ *   tear down with their parent. No manual trackDispose needed in app code.
  */
 
 type Listener = () => void;
@@ -42,14 +50,41 @@ const pendingEffects = new Set<Listener>();
 let effectDepth = 0;
 const MAX_EFFECT_DEPTH = 100;
 
+// === Signal options ===
+
+export interface SignalOptions<T> {
+  /**
+   * Equality function — controls when set() fires listeners.
+   * Default: Object.is. Borrowed from the TC39 Signals proposal.
+   */
+  equals?: (a: T, b: T) => boolean;
+}
+
+// === ReadonlySignal<T> ===
+
+/**
+ * Read-only view of a Signal. Returned by `computed()` and `Signal.map()`.
+ * Has no `.set()` — attempting to call it is a TS error. The runtime
+ * value is still a full Signal instance (so `instanceof Signal` works).
+ */
+export interface ReadonlySignal<T> {
+  get(): T;
+  peek(): T;
+  map<U>(fn: (value: T) => U, options?: SignalOptions<U>): ReadonlySignal<U>;
+}
+
 // === Signal<T> ===
 
-export class Signal<T> {
+export class Signal<T> implements ReadonlySignal<T> {
   private value: T;
   private listeners = new Set<Listener>();
+  // Stored as (a, b) => boolean (T-erased) to keep Signal<T> covariant —
+  // otherwise Signal<NonNullable<T>> couldn't widen to Signal<T>.
+  private equalsFn: (a: unknown, b: unknown) => boolean;
 
-  constructor(initialValue: T) {
+  constructor(initialValue: T, options?: SignalOptions<T>) {
     this.value = initialValue;
+    this.equalsFn = (options?.equals ?? Object.is) as (a: unknown, b: unknown) => boolean;
   }
 
   get(): T {
@@ -59,7 +94,7 @@ export class Signal<T> {
   }
 
   set(newValue: T): void {
-    if (!Object.is(this.value, newValue)) {
+    if (!this.equalsFn(this.value, newValue)) {
       this.value = newValue;
       this.touch();
     }
@@ -84,8 +119,8 @@ export class Signal<T> {
     return this.value;
   }
 
-  map<U>(fn: (value: T) => U): Signal<U> {
-    return computed(() => fn(this.get()));
+  map<U>(fn: (value: T) => U, options?: SignalOptions<U>): ReadonlySignal<U> {
+    return computed(() => fn(this.get()), options);
   }
 
   /**
@@ -183,7 +218,12 @@ export function pushDisposeScope(): void {
 }
 
 export function popDisposeScope(): Dispose {
-  const disposers = disposeStack.pop() || [];
+  const disposers = disposeStack.pop();
+  if (!disposers) {
+    throw new Error(
+      "popDisposeScope called with no active scope — push/pop imbalance",
+    );
+  }
   return () => disposers.forEach((d) => d());
 }
 
@@ -194,22 +234,40 @@ export function trackDispose(d: Dispose): void {
 
 // === computed() ===
 
-export function computed<T>(fn: () => T): Signal<T> {
-  // Suspend outer tracking during initial evaluation so computed()
-  // inside list() render functions doesn't leak subscriptions to the
-  // list effect's listener — which causes infinite sync re-entry.
+export function computed<T>(
+  fn: () => T,
+  options?: SignalOptions<T>,
+): ReadonlySignal<T> {
+  // The effect's first run replaces currentListener/currentDeps with its own,
+  // so fn() tracks for the inner effect, not any outer listener — no leak,
+  // and fn() is evaluated exactly once on creation.
+  let s!: Signal<T>;
+  effect(() => {
+    const v = fn();
+    if (s) s.set(v);
+    else s = new Signal<T>(v, options);
+  });
+  return s;
+}
+
+// === untrack() ===
+
+/**
+ * Run `fn` with dependency tracking disabled. Reads inside `fn` will not
+ * register the calling effect/computed as a subscriber. Borrowed from the
+ * TC39 Signals proposal (`Signal.subtle.untrack`).
+ */
+export function untrack<T>(fn: () => T): T {
   const prevListener = currentListener;
   const prevDeps = currentDeps;
   currentListener = null;
   currentDeps = null;
-  let initial: T;
-  try { initial = fn(); } finally {
+  try {
+    return fn();
+  } finally {
     currentListener = prevListener;
     currentDeps = prevDeps;
   }
-  const s = new Signal<T>(initial);
-  effect(() => s.set(fn()));
-  return s;
 }
 
 // === batch() ===
@@ -239,6 +297,6 @@ export function batch(fn: () => void): void {
 
 // === Convenience factory ===
 
-export function signal<T>(initialValue: T): Signal<T> {
-  return new Signal(initialValue);
+export function signal<T>(initialValue: T, options?: SignalOptions<T>): Signal<T> {
+  return new Signal(initialValue, options);
 }

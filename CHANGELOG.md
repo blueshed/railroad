@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.8.0
+
+### Re-positioned, not redesigned
+
+Railroad's earliest commit message described it as "based on the TC39 Signals proposal." The code never matched that claim — railroad has always been push-based, with `effect()` and `batch()` in core, in the same family as Vue's `ref`, Solid's `createSignal`, and Preact's signals. The TC39 proposal is pull-based and explicitly leaves effects out of core. They are different things.
+
+This release stops claiming TC39 alignment and re-pitches railroad honestly under the brief it actually serves: **the smallest correct reactive layer for Bun realtime apps**, designed to be small enough that an LLM can use it correctly without re-learning the framework.
+
+### Added — borrowed-from-RFC, useful on their own merits
+
+- **`ReadonlySignal<T>`** — interface returned by `computed()` and `Signal.map()`. `.set()` on a computed is now a TypeScript error. Runtime is unchanged (the underlying object is still a Signal).
+- **`SignalOptions { equals }`** — per-signal equality function on `signal()`, `computed()`, and the `Signal` constructor. Default is `Object.is`.
+- **`untrack(fn)`** — read without registering a dependency. Function-form complement to `.peek()`.
+
+### Fixed
+
+- **`routes()` no longer leaks dispose state on async first-render.** The outer dispose function was being registered into the route's own internal scope when the first handler returned a Promise, causing infinite recursion on teardown.
+- **`routes()` no longer kills the router on a synchronous handler error.** Errors are caught at the boundary, dispose stack stays balanced, error is logged via `console.error`.
+- **`routes()` async handler rejections** are similarly caught and logged rather than swallowing the rejection unsafely.
+- **`popDisposeScope()` throws on empty stack** instead of silently returning a no-op — surfaces push/pop imbalance immediately.
+- **`computed()` evaluates `fn()` exactly once on creation** (was twice). The new implementation creates the inner Signal during the effect's first run, eliminating the double evaluation that surprised callers using `Date.now()` / `Math.random()` inside `fn`.
+
+### Tests
+
+- **`routes.test.ts` (new)** — 15 happy-dom tests covering `routes()`, `route()`, `navigate()`, the async race, sync handler errors, `params$` reactivity within the same pattern, wildcard layouts, dispose semantics. The async-first-render bug above was caught by these tests.
+- **Reactive prop tests in `jsx.test.tsx`** — value, checked, disabled, class, generic attribute, style, innerHTML, function children, event handlers, ref callbacks. Plus a nested when-inside-list composition test.
+- **`tests/webview.test.ts` (new)** — Bun.WebView integration tests with a fixture app at `tests/fixtures/`. Five tests run the actual DOM in a real headless browser (WKWebView on macOS): home route + DI + reactive count, keyed list identity, hash navigation + params reactivity, SVG namespace, async route resolution. Catches what happy-dom misses.
+- **`signals.test.ts` additions** — equals option, untrack, computed-as-readonly TS contract.
+- Suite: 64 → **106 passing tests**.
+
+### Docs
+
+- **README rewritten** — leads with the actual brief ("smallest correct thing for the Bun-HTML-import-TSX workflow"), explicit about not being a TC39 implementation, explicit about what to use instead (Preact / Solid / signal-polyfill) when railroad isn't the right fit. Added a worked realtime example showing in-place patch application via `.touch()`.
+- **SKILL.md rewritten** — operational checklist of the five failure modes encountered in development (no `.get()` in JSX children, list keyed render gets a Signal, SVG only adopts inside `<svg>`, effects auto-dispose only inside parent scopes, realtime escape hatches for large documents). Added a "when not to use railroad" section.
+
 ## 0.7.1
 
 ### Added

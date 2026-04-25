@@ -1,7 +1,7 @@
 // Railroad — Signals, JSX, Routes, and Delta-doc
 
-export { Signal, signal, computed, effect, batch } from "./signals";
-export type { Dispose } from "./signals";
+export { Signal, signal, computed, effect, batch, untrack } from "./signals";
+export type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 export {
   createElement, Fragment,

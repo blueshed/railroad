@@ -28,7 +28,7 @@
  */
 
 import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
-import type { Dispose } from "./signals";
+import type { Dispose, ReadonlySignal } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
 
@@ -229,7 +229,7 @@ function appendChildren(parent: Node, children: any[]): void {
 //   when(isLoggedIn, () => <Dashboard />, () => <Login />)
 
 export function when(
-  condition: Signal<any> | (() => any),
+  condition: ReadonlySignal<any> | (() => any),
   truthy: () => Node,
   falsy?: () => Node,
 ): Node {
@@ -238,7 +238,9 @@ export function when(
   let currentDispose: Dispose | null = null;
   let wasTruthy: boolean | undefined = undefined;
 
-  const sig = typeof condition === "function" ? computed(condition) : condition;
+  const sig: ReadonlySignal<any> = typeof condition === "function"
+    ? computed(condition)
+    : condition;
 
   function swap() {
     const val = sig.get();
@@ -298,9 +300,9 @@ function collectNodes(result: Node): Node[] {
 }
 
 export function list<T>(
-  items: Signal<T[]>,
+  items: ReadonlySignal<T[]>,
   keyFnOrRender: ((item: T) => string | number) | ((item: T, index: number) => Node),
-  maybeRender?: (item: Signal<T>, index: Signal<number>) => Node,
+  maybeRender?: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
 ): Node {
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;

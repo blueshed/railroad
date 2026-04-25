@@ -32,7 +32,7 @@
  */
 
 import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
-import type { Dispose } from "./signals";
+import type { Dispose, ReadonlySignal } from "./signals";
 
 let hashSignal: Signal<string> | null = null;
 let hashListenerCount = 0;
@@ -93,7 +93,7 @@ export function matchRoute(
 
 export function route<
   T extends Record<string, string> = Record<string, string>,
->(pattern: string): Signal<T | null> {
+>(pattern: string): ReadonlySignal<T | null> {
   const hash = getHash();
   trackDispose(() => releaseHash());
   return computed(() => matchRoute(pattern, hash.get()) as T | null);
@@ -136,23 +136,54 @@ export function routes(
     const myRunId = ++runId;
     activeParams = signal(params);
     pushDisposeScope();
-    const result = handler(params, activeParams);
+    let result: Node | Promise<Node>;
+    try {
+      result = handler(params, activeParams);
+    } catch (err) {
+      // Synchronous throw — pop and dispose so the stack stays balanced.
+      popDisposeScope()();
+      activePattern = null;
+      activeParams = null;
+      throw err;
+    }
 
     if (result instanceof Promise) {
       asyncPending = true;
-      result.then((node) => {
-        if (myRunId !== runId) return; // navigated away during await
-        asyncPending = false;
-        activeDispose = popDisposeScope();
-        target.appendChild(node);
-      });
+      result.then(
+        (node) => {
+          if (myRunId !== runId) return; // navigated away during await
+          asyncPending = false;
+          activeDispose = popDisposeScope();
+          target.appendChild(node);
+        },
+        (err) => {
+          if (myRunId !== runId) return; // teardown already popped our scope
+          asyncPending = false;
+          popDisposeScope()();
+          activePattern = null;
+          activeParams = null;
+          console.error("[railroad/routes] async handler rejected:", err);
+        },
+      );
     } else {
       activeDispose = popDisposeScope();
       target.appendChild(result);
     }
   }
 
-  const disposeEffect = effect(() => {
+  // Register the outer dispose into the caller's scope BEFORE creating the
+  // effect — otherwise an async first-render leaves run()'s pushed scope on
+  // the stack, and trackDispose() would place dispose into the route's own
+  // internal scope, causing a self-disposal loop on teardown.
+  let disposeEffect: Dispose | null = null;
+  const dispose = () => {
+    if (disposeEffect) disposeEffect();
+    teardown();
+    releaseHash();
+  };
+  trackDispose(dispose);
+
+  disposeEffect = effect(() => {
     const path = hash.get();
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
@@ -164,18 +195,19 @@ export function routes(
         }
         teardown();
         activePattern = pattern;
-        run(handler, params);
+        try {
+          run(handler, params);
+        } catch (err) {
+          // Handler errors must not kill the router or leak the dep set on
+          // the hash signal. run()'s try/catch already balanced the dispose
+          // stack and reset state — surface the error so it's visible.
+          console.error("[railroad/routes] handler threw:", err);
+        }
         return;
       }
     }
     teardown();
   });
 
-  const dispose = () => {
-    disposeEffect();
-    teardown();
-    releaseHash();
-  };
-  trackDispose(dispose);
   return dispose;
 }

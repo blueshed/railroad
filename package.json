@@ -1,7 +1,7 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.7.1",
-  "description": "Client-side reactivity for Bun — signals, JSX, routes — plus a typed DI container and logger that run on either side. Pair with @blueshed/delta for doc sync.",
+  "version": "0.8.0",
+  "description": "The smallest reactive layer for Bun realtime apps — signals, JSX, hash router. Built so an LLM can use it correctly without re-learning. Pair with @blueshed/delta for WebSocket document sync.",
   "type": "module",
   "main": "index.ts",
   "types": "index.ts",

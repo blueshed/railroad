@@ -1,8 +1,20 @@
 # Railroad
 
-Client-side reactivity for Bun — signals, JSX, routes — plus a typed DI container and a logger that also work server-side. Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) when you want real-time document sync.
+Reactive UI for the Bun fullstack runtime. Signals, JSX, and a hash router that lean directly into Bun 1.3's HTML imports, HMR, and `Bun.build --compile`. Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) for WebSocket document sync.
 
-Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
+Zero runtime dependencies. Real DOM. ~1KLOC. Designed so an LLM (or you, six months from now) can use it correctly without re-reading documentation.
+
+## Why Bun + Railroad is the sweet spot
+
+Bun 1.3 ships the parts that frontend stacks normally need three packages and a config file to assemble:
+
+- **HTML imports in `Bun.serve`** ([1.2+](https://bun.com/blog/bun-v1.2)) — server reads `import index from "./index.html"`, walks `<script>` and `<link>` tags, transpiles TSX/JSX, bundles imports, processes CSS, hashes asset URLs. No `vite.config.ts`. No build step in development.
+- **First-class JSX/TSX** — `jsxImportSource: "@blueshed/railroad"` in `tsconfig.json` is the entire setup. Bun's transpiler and bundler both honour it; railroad ships matching `jsx-runtime` and `jsx-dev-runtime` modules so dev mode (`jsxDEV`) works too.
+- **HMR** ([1.3+](https://bun.com/blog/bun-v1.3)) — `Bun.serve({ development: { hmr: true } })` gives you `import.meta.hot` modelled on Vite's, including console mirroring (`development: { console: true }`).
+- **`bun build --compile`** ([1.3+](https://bun.com/blog/bun-v1.3)) — compile the entire HTML+TSX+server graph into a single static binary you can scp to a server. No Node, no install, no Docker layer.
+- **`Bun.WebView`** ([1.3.12+](https://bun.com/blog/bun-v1.3.12)) — real headless browser tests in the same `bun test` you already run for unit tests. WKWebView on macOS, Chrome via CDP elsewhere. Railroad uses it.
+
+Railroad fills exactly the slot Bun leaves open: a small, push-based reactive layer that binds signals to real DOM. No virtual DOM, no compiler, no SSR layer Bun doesn't have anyway. You get reactivity, JSX, and a router; you keep Bun's pipeline.
 
 ## Install
 
@@ -10,20 +22,30 @@ Zero dependencies. Real DOM. No virtual DOM, no compiler, no build step.
 bun add @blueshed/railroad
 ```
 
-## Quick Start
-
-### Automatic runtime (recommended)
-
-No JSX imports needed — the compiler inserts them for you.
+## A working app, end to end
 
 ```json
 // tsconfig.json
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "@blueshed/railroad"
+    "jsxImportSource": "@blueshed/railroad",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "strict": true
   }
 }
+```
+
+```html
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./app.tsx"></script>
+  </body>
+</html>
 ```
 
 ```tsx
@@ -37,55 +59,16 @@ function Home() {
     <div>
       <h1>Hello World</h1>
       <button onclick={() => count.update(n => n + 1)}>
-        {() => `Count: ${count.get()}`}
+        Count: {count}
       </button>
     </div>
   );
 }
 
-routes(document.getElementById("app")!, {
+routes(document.getElementById("root")!, {
   "/": () => <Home />,
 });
 ```
-
-### Classic runtime
-
-If you prefer explicit imports:
-
-```json
-// tsconfig.json
-{
-  "compilerOptions": {
-    "jsx": "react",
-    "jsxFactory": "createElement",
-    "jsxFragmentFactory": "Fragment"
-  }
-}
-```
-
-```tsx
-// app.tsx
-import { createElement, signal, routes } from "@blueshed/railroad";
-
-const count = signal(0);
-
-function Home() {
-  return (
-    <div>
-      <h1>Hello World</h1>
-      <button onclick={() => count.update(n => n + 1)}>
-        {() => `Count: ${count.get()}`}
-      </button>
-    </div>
-  );
-}
-
-routes(document.getElementById("app")!, {
-  "/": () => <Home />,
-});
-```
-
-### Server
 
 ```ts
 // server.ts
@@ -93,273 +76,261 @@ import home from "./index.html";
 
 Bun.serve({
   routes: { "/": home },
+  development: { hmr: true, console: true },
 });
 ```
 
-Resources and routes. Server and client. Same pattern.
+```sh
+bun server.ts                          # dev with HMR
+bun build ./index.html --production    # production assets
+bun build --compile server.ts          # one-binary deploy
+```
 
-## API
+That's the whole stack. No Vite, no webpack, no Rollup config, no `tsx-loader`, no `@vitejs/plugin-react`. The HMR works, the TSX compiles, sourcemaps are emitted, CSS bundles, and asset URLs are content-hashed — out of the box.
 
-### Signals
+## Signals
 
 ```ts
-import { signal, computed, effect, batch } from "@blueshed/railroad";
+import { signal, computed, effect, batch, untrack } from "@blueshed/railroad";
 
 const count = signal(0);
-const doubled = computed(() => count.get() * 2);
-const label = count.map(n => `Count: ${n}`);  // derive a signal
+const doubled = computed(() => count.get() * 2);     // ReadonlySignal — no .set
+const label = count.map(n => `Count: ${n}`);         // also ReadonlySignal
 
-const dispose = effect(() => {
-  console.log(`count is ${count.get()}`);
-});
+effect(() => console.log(count.get()));              // runs on count change
 
-count.set(1);        // logs "count is 1"
-count.update(n => n + 1); // logs "count is 2"
-count.peek();        // read without tracking
+count.set(1);
+count.update(n => n + 1);
+count.peek();                                         // read without tracking
+untrack(() => count.get());                           // same, function form
 
-// In-place mutation (auto-clones, always notifies):
+// In-place mutation helpers — the realtime story
 const todos = signal([{ id: 1, text: "Buy milk" }]);
-todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));
+todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));   // structuredClone + notify
+todos.patch({ /* shallow merge for object signals */ });
+todos.touch();                                                 // notify without replacing the ref
 
-// Shallow merge for object signals:
-const filter = signal({ color: "red", size: 10 });
-filter.patch({ color: "blue" }); // { color: "blue", size: 10 }
-
-batch(() => {
-  count.set(10);
-  count.set(20);     // effect runs once, not twice
+// Custom equality — suppress notifications when contents match
+const filter = signal({ x: 1, y: 2 }, {
+  equals: (a, b) => a.x === b.x && a.y === b.y,
 });
 
-dispose();           // stop listening
+batch(() => { count.set(10); count.set(20); });      // effect runs once
 ```
 
-### JSX
+## JSX
 
-Components are functions that run **once** and return DOM nodes. Reactivity comes from signals, not re-rendering.
+Components run **once** and return real DOM nodes. Reactivity is in the signals, not in re-rendering.
 
 ```tsx
-import { signal, when, list } from "@blueshed/railroad";
-
 const name = signal("World");
-
 function Greeting() {
-  return <h1>Hello {name}</h1>;  // updates when name changes
+  return <h1>Hello {name}</h1>;       // bare signal as child — auto-reactive
 }
+
+<span>{() => count.get() > 5 ? "High" : "Low"}</span>      // function child auto-tracks
+<input value={name} />                                      // signal as prop
+<div class={visible.map(v => v ? "show" : "hide")} />       // .map() for derived attrs
 ```
 
-#### Reactive expressions — function children
+### `when(condition, truthy, falsy?)`
 
 ```tsx
-<span>{() => count.get() > 5 ? "High" : "Low"}</span>
-<p>{() => `${first.get()} ${last.get()}`}</p>
+{when(loggedIn, () => <Dashboard />, () => <Login />)}
 ```
 
-#### Reactive attributes — `computed()` or `.map()`
+### `list(items, keyFn?, render)` — keyed reactive list
 
 ```tsx
-<div class={visible.map(v => v ? "show" : "hide")}>...</div>
-<input disabled={count.map(n => n > 10)} />
-```
-
-#### `when(condition, truthy, falsy?)` — conditional rendering
-
-```tsx
-{when(
-  () => loggedIn.get(),
-  () => <Dashboard />,
-  () => <Login />,
-)}
-```
-
-Nestable — `when()` inside `when()` works without wrapper elements.
-
-#### `list(items, keyFn?, render)` — keyed list rendering
-
-```tsx
-// Keyed — render receives Signal<T> and Signal<number>:
 {list(todos, t => t.id, (todo$, idx$) => (
   <li class={idx$.map(i => i % 2 ? "odd" : "even")}>
-    {todo$.map(t => t.name)}
+    {todo$.map(t => t.text)}
   </li>
 ))}
-
-// Non-keyed (index-based, raw values):
-{list(items, (item, i) => <li>{item}</li>)}
 ```
 
-### Routes
+SVG works transparently — `<svg><circle /></svg>` adopts children into the SVG namespace, including inside `when()` and `list()`.
 
-Hash-based client router. Handlers receive `(params, params$)` — destructure the first for convenience, watch the second for reactive param changes.
+## Routes
 
-```tsx
-import { routes, navigate, route, when, effect } from "@blueshed/railroad";
-
-routes(app, {
-  "/":           () => <Home />,
-  "/about":      () => <About />,
-  "/users/:id":  ({ id }, params$) => {
-    effect(() => fetchUser(params$.get().id));
-    return <h1>{params$.map(p => `User ${p.id}`)}</h1>;
-  },
-  "*":           () => <NotFound />,
-});
-
-navigate("/users/42");
-```
-
-#### Nested routes
-
-Use wildcard patterns to keep a layout mounted while sub-views swap:
+Hash-based client router. Handlers receive `(params, params$)` — the second is a reactive `ReadonlySignal` that updates when params change within the same pattern (`/users/1` → `/users/2` does not re-render).
 
 ```tsx
+import { routes, navigate, route, when } from "@blueshed/railroad";
+
 routes(app, {
   "/":          () => <Home />,
-  "/sites/*":   () => <SitesLayout />,
+  "/users/:id": (_p, params$) => <User id={params$.map(p => p.id)} />,
+  "/sites/*":   () => <SitesLayout />,    // wildcard keeps layout mounted
 });
 
 function SitesLayout() {
   const detail = route<{ id: string }>("/sites/:id");
-
   return (
     <div>
       <SitesNav />
-      {when(() => detail.get(),
-        () => <SiteDetail params$={detail} />,
-        () => <SitesList />,
-      )}
+      {when(detail, () => <SiteDetail />, () => <SitesList />)}
     </div>
+  );
+}
+
+navigate("/users/42");
+```
+
+`/sites` → `/sites/42` → `/sites/99`: `SitesLayout` stays mounted, only the inner content swaps. Navigate away from `/sites/*` and the layout tears down cleanly.
+
+## Realtime — the actual reason this library exists
+
+Two patterns, depending on whether the patch stream is something you control or something you delegate to `@blueshed/delta`.
+
+### Hand-rolled patch streams — `.touch()` + `.mutate()`
+
+For a signal holding a large document mutated in place by patches (CRDT updates, custom WebSocket protocols, SQL `LISTEN/NOTIFY` payloads), `Signal.touch()` and `.mutate()` skip the `structuredClone` cost of `.set()` on a fresh object:
+
+```tsx
+import { signal, list } from "@blueshed/railroad";
+
+type Row = { id: number; text: string; done: boolean };
+const rows = signal<Row[]>([]);
+
+const ws = new WebSocket("/ws");
+ws.onmessage = (ev) => {
+  applyPatch(rows.peek(), JSON.parse(ev.data));   // mutate the existing array
+  rows.touch();                                    // notify without cloning
+};
+
+function App() {
+  return (
+    <ul>
+      {list(rows, r => r.id, (row$) => (
+        <li>
+          <input type="checkbox" checked={row$.map(r => r.done)} />
+          {row$.map(r => r.text)}
+        </li>
+      ))}
+    </ul>
   );
 }
 ```
 
-Navigate `/sites` → `/sites/42` → `/sites/99`: `SitesLayout` stays mounted, only the inner content swaps. Navigate away from `/sites/*`: layout tears down cleanly.
+### Delta-doc — turnkey JSON-Patch sync, signal-backed
 
-### Shared
+For a turnkey WebSocket sync layer use [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). Delta declares railroad as a peer dependency and `delta/client.ts` imports `signal` directly — `openDoc("name")` returns a `Doc<T>` whose `data` field **is** a railroad `Signal<T | null>`, not a wrapper. It drops straight into JSX, `when()`, and `list()` with no glue. Three backends: JSON file, SQLite (temporal), Postgres (RLS + LISTEN/NOTIFY).
 
-Typed dependency injection without prop threading.
+```tsx
+// Server — same Bun.serve hosting your JSX routes
+import home from "./index.html";
+import { createWs, registerDoc } from "@blueshed/delta/server";
+
+const ws = createWs();
+await registerDoc(ws, "board:1", {
+  file: "./board.json",
+  empty: { columns: {}, cards: {} },
+});
+
+Bun.serve({
+  routes: { "/": home, [ws.path]: ws.upgrade },
+  websocket: ws.websocket,
+  development: { hmr: true, console: true },
+});
+```
+
+```tsx
+// Client — list() reads doc.data directly, preserving per-row identity
+import { provide, list, when } from "@blueshed/railroad";
+import { connectWs, WS, openDoc } from "@blueshed/delta/client";
+
+provide(WS, connectWs("/ws"));
+
+interface Card { id: number; title: string; column_id: number }
+interface BoardDoc { columns: Record<string, Column>; cards: Record<string, Card> }
+
+const doc = openDoc<BoardDoc>("board:1");
+
+function Board() {
+  const cards = doc.data.map((d) => d ? Object.values(d.cards) : []);
+  return when(doc.data, () => (
+    <ul>
+      {list(cards, c => c.id, (card$) => (
+        <li>{card$.map(c => c.title)}</li>
+      ))}
+    </ul>
+  ), () => <p>loading…</p>);
+}
+
+await doc.send([{ op: "add", path: "/cards/-",
+  value: { column_id: 1, title: "new card", position: 0 } }]);
+```
+
+**One important steering note:** delta also ships `applyOpsToCollection` (in `@blueshed/delta/dom-ops`) for projects without a keyed reactive list primitive. **If you have railroad, use `list()` instead** — the keyed form already does the per-row surgical update that `applyOpsToCollection` exists to provide. They overlap; pick one per project. Use `list(doc.data.map(d => Object.values(d.coll)), r => r.id, ...)` and keep the realtime story in one idiom.
+
+## Testing — `bun test` does both halves
+
+Unit tests run against happy-dom (preloaded via `bunfig.toml`) for fast reactivity assertions. Integration tests use **`Bun.WebView`** (1.3.12+) to drive a real headless browser against your actual `Bun.serve` instance:
+
+```ts
+import { test, expect } from "bun:test";
+import { startServer } from "./server";
+
+test("counter increments", async () => {
+  const { server } = await startServer({ port: 0 });
+  await using view = new Bun.WebView({ width: 800, height: 600 });
+  await view.navigate(server.url.href);
+  await view.click("[data-testid=inc]");
+  expect(await view.evaluate<string>("document.querySelector('#count').textContent")).toBe("1");
+  server.stop(true);
+});
+```
+
+Same `bun test` runner. No Playwright install. No browser binary download on macOS (uses system WKWebView). Railroad's own suite is 106 tests across happy-dom and WebView.
+
+## Shared (DI) and Logger
 
 ```ts
 import { key, provide, inject } from "@blueshed/railroad";
-
 const STORE = key<AppStore>("store");
 provide(STORE, createStore());
-
-// anywhere:
 const store = inject(STORE);
 
-// Non-throwing variant:
-const maybeStore = tryInject(STORE); // T | undefined
-```
-
-### Logger
-
-Colored, timestamped, level-gated console output.
-Set the level via `.env` (Bun loads it automatically):
-
-```sh
-# .env
-LOG_LEVEL=debug    # debug | info | warn | error | silent
-```
-
-```ts
-import { createLogger, setLogLevel, loggedRequest } from "@blueshed/railroad";
-
+import { createLogger, setLogLevel } from "@blueshed/railroad";
 const log = createLogger("[server]");
-log.info("listening on :3000");
-log.debug("tick");             // only shown when level is "debug"
-
-setLogLevel("debug");          // override at runtime
-
-// Wrap a route handler with access logging:
-const handler = loggedRequest("[api]", myHandler);
+log.info("listening");                    // gated by LOG_LEVEL in .env
 ```
 
-### Doc sync — use `@blueshed/delta`
+## Progressive adoption
 
-Real-time document sync used to live here; it's now its own package: [**@blueshed/delta**](https://www.npmjs.com/package/@blueshed/delta). The delta client imports railroad's signals internally, so `openDoc("name")` returns a reactive signal that drops straight into a railroad JSX tree. Three backends — JSON file, SQLite, and Postgres — behind the same `openDoc` client API.
-
-```tsx
-// Server (minimal, JSON file backend)
-import { createWs, registerDoc } from "@blueshed/delta/server";
-const ws = createWs();
-await registerDoc(ws, "message", { file: "./message.json", empty: { message: "" } });
-Bun.serve({ routes: { "/": homepage, "/ws": ws.upgrade }, websocket: ws.websocket });
-
-// Client
-import { provide } from "@blueshed/railroad";
-import { connectWs, WS, openDoc } from "@blueshed/delta/client";
-provide(WS, connectWs("/ws"));
-const doc = openDoc<Message>("message");
-// {() => doc.data.get()?.message}   ← auto-reactive inside JSX
-doc.send([{ op: "replace", path: "/message", value: "hello" }]);
-```
-
-For SQLite (temporal tables) and Postgres (RLS + LISTEN/NOTIFY fan-out) backends, see the `@blueshed/delta` README and the `delta-doc` skill that ships with it.
-
-## Design
-
-- **Signals hold state** — reactive primitives with automatic dependency tracking
-- **Effects update the DOM** — run when dependencies change, auto-cleanup in scope
-- **JSX creates the DOM** — real elements, not virtual. Signal-aware props and children
-- **Routes swap the DOM** — hash-based, auto-scoped, nestable via wildcards
-
-No lifecycle methods. No hooks rules. No context providers. No `useCallback`. Just signals and the DOM.
-
-Need real-time doc sync? Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) — its client is railroad-native (`openDoc` returns a signal you can drop straight into JSX).
-
-## Why Railroad?
-
-SolidJS-style reactivity, a router, and a DI container in ~1,700 lines of Bun-native TypeScript with zero dependencies. Real DOM, not virtual. No hook rules, no lifecycle methods, no context providers.
-
-The tradeoff is explicit: railroad is Bun-only and browser-leaning. For apps that also need real-time document sync over WebSocket — dashboards, admin panels, planning tools, chat — add `@blueshed/delta`; its client is built on railroad's own signals.
-
-## Progressive Adoption
-
-Each module is independent — use as much or as little as you need.
+Each module is independent — pick the level you need:
 
 ```
-signals.ts       ← no deps         Use signals anywhere: server, CLI, worker
-shared.ts        ← no deps         Add typed DI when you need shared state
-logger.ts        ← no deps         Add logging to your Bun server
-jsx.ts           ← signals         Add reactive DOM when you need a UI
-routes.ts        ← signals         Add client-side routing when you need pages
+signals     no deps        Use anywhere: server, CLI, worker, tests
+shared      no deps        Typed DI without prop threading
+logger      no deps        Bun-friendly leveled console output
+jsx         signals        Reactive real-DOM rendering
+routes      signals        Hash router with reactive params
 ```
-
-For real-time doc sync over WebSocket, add [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). It builds on railroad's signals — `openDoc("name")` returns a reactive `Doc<T>` you can drop straight into JSX.
-
-**Level 1 — Reactive state only** (no DOM, no tsconfig changes)
 
 ```ts
+// Just signals (no JSX, no tsconfig changes)
 import { signal, computed, effect } from "@blueshed/railroad/signals";
 ```
 
-**Level 2 — Add JSX** (needs `tsconfig.json` JSX settings)
-
-```ts
-import { signal, createElement, when, list } from "@blueshed/railroad";
-```
-
-**Level 3 — Full app** (signals + JSX + routing + DI + logging)
-
-```ts
-import { signal, routes, inject, createLogger } from "@blueshed/railroad";
-```
-
-Every import path (`/signals`, `/shared`, `/logger`, `/jsx`, `/routes`) works standalone. The barrel export (`@blueshed/railroad`) re-exports everything.
-
 ## Claude Code
 
-This package ships with a [Claude Code](https://claude.com/claude-code) skill in `.claude/skills/railroad/`. Copy it into your project so Claude generates correct railroad code:
+Ships with a Claude Code skill at `.claude/skills/railroad/SKILL.md`. It's a checklist of the failure modes that have actually shown up in development — not a tutorial. Copy it in:
 
 ```sh
 cp -r node_modules/@blueshed/railroad/.claude/skills/railroad .claude/skills/
-```
-
-Or install it user-wide (available in all projects):
-
-```sh
+# or user-wide:
 cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
 ```
+
+## What it isn't
+
+- Not a TC39 Signals implementation. It's push-based, in the same family as Vue's `ref`, Solid's `createSignal`, Preact's signals.
+- Not an SSR / RSC framework. Bun doesn't ship those either; railroad doesn't add them on top.
+- Not a 30KB framework with a hooks system, lifecycle methods, or a virtual DOM.
+
+It's the smallest correct reactive layer for the workflow Bun 1.3 actually ships: HTML imports, TSX bundling, HMR, and `--compile` to a single binary. That's the niche, and it's a real one.
 
 ## License
 

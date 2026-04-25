@@ -219,3 +219,169 @@ describe("SVG namespace adoption inside list() and when()", () => {
     expect(spans.every((s) => s.namespaceURI !== SVG_NS)).toBe(true);
   });
 });
+
+describe("reactive props", () => {
+  test("Signal value prop updates input.value", () => {
+    document.body.innerHTML = "";
+    const v = signal("hello");
+    const input = (<input type="text" value={v} />) as HTMLInputElement;
+    document.body.append(input);
+    expect(input.value).toBe("hello");
+    v.set("world");
+    expect(input.value).toBe("world");
+  });
+
+  test("Signal checked prop updates input.checked", () => {
+    document.body.innerHTML = "";
+    const c = signal(false);
+    const input = (<input type="checkbox" checked={c} />) as HTMLInputElement;
+    document.body.append(input);
+    expect(input.checked).toBe(false);
+    c.set(true);
+    expect(input.checked).toBe(true);
+  });
+
+  test("Signal disabled prop updates button.disabled", () => {
+    document.body.innerHTML = "";
+    const d = signal(false);
+    const btn = (<button disabled={d}>x</button>) as HTMLButtonElement;
+    document.body.append(btn);
+    expect(btn.disabled).toBe(false);
+    d.set(true);
+    expect(btn.disabled).toBe(true);
+  });
+
+  test("Signal class prop updates the element's class", () => {
+    document.body.innerHTML = "";
+    const cls = signal("a");
+    const div = (<div class={cls}>x</div>) as HTMLDivElement;
+    document.body.append(div);
+    expect(div.getAttribute("class")).toBe("a");
+    cls.set("a b");
+    expect(div.getAttribute("class")).toBe("a b");
+  });
+
+  test("Signal generic attribute updates and removes on falsy/null", () => {
+    document.body.innerHTML = "";
+    const t = signal<string | null | false>("hello");
+    const div = (<div title={t}>x</div>) as HTMLDivElement;
+    document.body.append(div);
+    expect(div.getAttribute("title")).toBe("hello");
+
+    t.set("world");
+    expect(div.getAttribute("title")).toBe("world");
+
+    t.set(null);
+    expect(div.hasAttribute("title")).toBe(false);
+
+    t.set("back");
+    expect(div.getAttribute("title")).toBe("back");
+
+    t.set(false);
+    expect(div.hasAttribute("title")).toBe(false);
+  });
+
+  test("Signal style prop merges into element.style", () => {
+    document.body.innerHTML = "";
+    const sty = signal({ color: "red", fontSize: "10px" });
+    const div = (<div style={sty}>x</div>) as HTMLDivElement;
+    document.body.append(div);
+    expect(div.style.color).toBe("red");
+    expect(div.style.fontSize).toBe("10px");
+
+    sty.set({ color: "blue", fontSize: "12px" });
+    expect(div.style.color).toBe("blue");
+    expect(div.style.fontSize).toBe("12px");
+  });
+
+  test("Signal innerHTML prop updates element.innerHTML", () => {
+    document.body.innerHTML = "";
+    const html = signal("<span>a</span>");
+    const div = (<div innerHTML={html} />) as HTMLDivElement;
+    document.body.append(div);
+    expect(div.querySelector("span")?.textContent).toBe("a");
+
+    html.set("<em>b</em>");
+    expect(div.querySelector("em")?.textContent).toBe("b");
+  });
+
+  test("Signal as a child node updates text content", () => {
+    document.body.innerHTML = "";
+    const s = signal("hello");
+    const span = (<span>{s}</span>) as HTMLSpanElement;
+    document.body.append(span);
+    expect(span.textContent).toBe("hello");
+    s.set("bye");
+    expect(span.textContent).toBe("bye");
+  });
+
+  test("function child auto-tracks signal reads", () => {
+    document.body.innerHTML = "";
+    const n = signal(3);
+    const span = (<span>{() => n.get() * 2}</span>) as HTMLSpanElement;
+    document.body.append(span);
+    expect(span.textContent).toBe("6");
+    n.set(5);
+    expect(span.textContent).toBe("10");
+  });
+
+  test("event handler fires", () => {
+    document.body.innerHTML = "";
+    let clicks = 0;
+    const btn = (<button onclick={() => { clicks++; }}>x</button>) as HTMLButtonElement;
+    document.body.append(btn);
+    btn.click();
+    btn.click();
+    expect(clicks).toBe(2);
+  });
+
+  test("ref callback receives the element", () => {
+    document.body.innerHTML = "";
+    const captured: { el: Element | null } = { el: null };
+    const div = (<div ref={(el: Element) => { captured.el = el; }} />) as HTMLDivElement;
+    document.body.append(div);
+    expect(captured.el).toBe(div);
+  });
+});
+
+describe("when() and list() composition", () => {
+  test("nested when() inside list() — toggles per-item without re-creating the list entry", async () => {
+    document.body.innerHTML = "";
+    type Item = { id: number; open: boolean };
+    const items = signal<Item[]>([
+      { id: 1, open: false },
+      { id: 2, open: false },
+    ]);
+    const root = (
+      <ul>
+        {list(items, (i: Item) => i.id, (i$) => {
+          const open = i$.map((i) => i.open);
+          return (
+            <li data-id={String(i$.peek().id)}>
+              {when(open, () => <span class="body">open</span>)}
+            </li>
+          );
+        })}
+      </ul>
+    ) as HTMLElement;
+    document.body.append(root);
+    await flushMicrotasks();
+
+    const li1 = root.querySelector('[data-id="1"]')!;
+    expect(li1.querySelector(".body")).toBeNull();
+
+    items.set([
+      { id: 1, open: true },
+      { id: 2, open: false },
+    ]);
+    await flushMicrotasks();
+    expect(li1.querySelector(".body")?.textContent).toBe("open");
+
+    items.set([
+      { id: 1, open: false },
+      { id: 2, open: false },
+    ]);
+    await flushMicrotasks();
+    expect(li1.querySelector(".body")).toBeNull();
+  });
+});

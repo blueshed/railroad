@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { signal, computed, effect, batch, Signal, pushDisposeScope, popDisposeScope } from "./signals";
+import { signal, computed, effect, batch, Signal, untrack, pushDisposeScope, popDisposeScope } from "./signals";
 
 describe("signal", () => {
   test("get and set", () => {
@@ -318,6 +318,141 @@ describe("effect auto-tracking", () => {
     s.set(10);
     // After dispose, computed's internal effect is stopped
     expect(doubled.get()).toBe(10);
+  });
+});
+
+describe("equals option (RFC-flavoured)", () => {
+  test("custom equals on signal() suppresses set when equal", () => {
+    const s = signal({ x: 1, y: 2 }, {
+      equals: (a, b) => a.x === b.x && a.y === b.y,
+    });
+    let runs = 0;
+    effect(() => { s.get(); runs++; });
+    expect(runs).toBe(1);
+
+    // Different reference, equal contents — should NOT fire.
+    s.set({ x: 1, y: 2 });
+    expect(runs).toBe(1);
+
+    // Different contents — should fire.
+    s.set({ x: 1, y: 3 });
+    expect(runs).toBe(2);
+  });
+
+  test("custom equals on computed() throttles propagation", () => {
+    const s = signal({ items: [1, 2, 3] });
+    // computed returns a new array every time; equals based on length.
+    const len = computed(
+      () => [...s.get().items],
+      { equals: (a, b) => a.length === b.length },
+    );
+    let runs = 0;
+    effect(() => { len.get(); runs++; });
+    expect(runs).toBe(1);
+
+    // Same length — listener should not fire even though the inner array
+    // is a fresh reference.
+    s.set({ items: [4, 5, 6] });
+    expect(runs).toBe(1);
+
+    // Different length — fires.
+    s.set({ items: [7] });
+    expect(runs).toBe(2);
+  });
+
+  test("default equals is Object.is — NaN is treated as equal", () => {
+    const s = signal(NaN);
+    let runs = 0;
+    effect(() => { s.get(); runs++; });
+    expect(runs).toBe(1);
+    s.set(NaN);
+    expect(runs).toBe(1); // Object.is(NaN, NaN) === true
+  });
+});
+
+describe("untrack (RFC-flavoured)", () => {
+  test("reads inside untrack() do not subscribe the outer effect", () => {
+    const a = signal(1);
+    const b = signal(10);
+    let runs = 0;
+    effect(() => {
+      a.get();
+      untrack(() => b.get());
+      runs++;
+    });
+    expect(runs).toBe(1);
+
+    // Changing b should NOT re-run.
+    b.set(20);
+    expect(runs).toBe(1);
+
+    // Changing a SHOULD re-run.
+    a.set(2);
+    expect(runs).toBe(2);
+  });
+
+  test("untrack() returns the value of fn", () => {
+    const s = signal(42);
+    expect(untrack(() => s.get())).toBe(42);
+  });
+
+  test("untrack() restores tracking after it returns", () => {
+    const a = signal(1);
+    const b = signal(10);
+    let runs = 0;
+    effect(() => {
+      untrack(() => a.get()); // not tracked
+      b.get();                 // tracked
+      runs++;
+    });
+    expect(runs).toBe(1);
+    a.set(2); // not tracked
+    expect(runs).toBe(1);
+    b.set(20);
+    expect(runs).toBe(2);
+  });
+
+  test("untrack() works inside computed()", () => {
+    const a = signal(1);
+    const b = signal(100);
+    const sum = computed(() => a.get() + untrack(() => b.get()));
+    expect(sum.get()).toBe(101);
+
+    // b changes — sum does not update (b not tracked).
+    b.set(200);
+    expect(sum.get()).toBe(101);
+
+    // a changes — sum re-evaluates and reads the latest b.
+    a.set(2);
+    expect(sum.get()).toBe(202);
+  });
+});
+
+describe("computed() returns ReadonlySignal (RFC-flavoured)", () => {
+  test("exposes get/peek/map", () => {
+    const a = signal(3);
+    const c = computed(() => a.get() * 2);
+    expect(c.get()).toBe(6);
+    expect(c.peek()).toBe(6);
+    const mapped = c.map((n) => n + 1);
+    expect(mapped.get()).toBe(7);
+  });
+
+  test(".set() on a computed is a TypeScript error", () => {
+    const a = signal(1);
+    const c = computed(() => a.get() * 2);
+    // @ts-expect-error — computed returns ReadonlySignal; .set() is not allowed.
+    c.set(99);
+    // (The runtime object IS still a Signal, so the call doesn't throw —
+    // the TS error is the contract.)
+  });
+
+  test("Signal.map() returns ReadonlySignal", () => {
+    const s = signal({ name: "Alice" });
+    const name = s.map((v) => v.name);
+    expect(name.get()).toBe("Alice");
+    // @ts-expect-error — map result is read-only.
+    name.set("Bob");
   });
 });
 
