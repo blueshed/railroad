@@ -244,6 +244,61 @@ describe("routes()", () => {
     console.error = origError;
   });
 
+  test("synchronous handler error boundary renders fallback view", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    location.hash = "#/boom";
+    await tick();
+
+    const dispose = routes(
+      target,
+      {
+        "/boom": () => { throw new Error("kaboom"); },
+      },
+      {
+        onError: (err) => {
+          const el = document.createElement("div");
+          el.textContent = `Error: ${(err as Error).message}`;
+          return el;
+        },
+      }
+    );
+
+    expect(target.textContent).toBe("Error: kaboom");
+    dispose();
+  });
+
+  test("async handler error boundary renders fallback view", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    location.hash = "#/slow-boom";
+    await tick();
+
+    const d = defer<Node>();
+    const dispose = routes(
+      target,
+      {
+        "/slow-boom": () => d.promise,
+      },
+      {
+        onError: (err) => {
+          const el = document.createElement("div");
+          el.textContent = `Error: ${(err as Error).message}`;
+          return el;
+        },
+      }
+    );
+
+    d.reject(new Error("async kaboom"));
+    try {
+      await d.promise;
+    } catch {}
+    await tick();
+
+    expect(target.textContent).toBe("Error: async kaboom");
+    dispose();
+  });
+
   test("dispose stack stays balanced after handler throw", async () => {
     // Direct guarantee: popDisposeScope now throws on imbalance, so any leak
     // from the previous test would crash this one's first effect call.

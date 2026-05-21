@@ -108,9 +108,14 @@ type RouteHandler = (
   params$: Signal<Record<string, string>>,
 ) => Node | Promise<Node>;
 
+export interface RouterOptions {
+  onError?: (err: unknown) => Node | void;
+}
+
 export function routes(
   target: HTMLElement,
   table: Record<string, RouteHandler>,
+  options?: RouterOptions,
 ): Dispose {
   const hash = getHash();
   let activePattern: string | null = null;
@@ -144,6 +149,13 @@ export function routes(
       popDisposeScope()();
       activePattern = null;
       activeParams = null;
+      if (options?.onError) {
+        const fallback = options.onError(err);
+        if (fallback instanceof Node) {
+          target.appendChild(fallback);
+          return;
+        }
+      }
       throw err;
     }
 
@@ -162,6 +174,13 @@ export function routes(
           popDisposeScope()();
           activePattern = null;
           activeParams = null;
+          if (options?.onError) {
+            const fallback = options.onError(err);
+            if (fallback instanceof Node) {
+              target.appendChild(fallback);
+              return;
+            }
+          }
           console.error("[railroad/routes] async handler rejected:", err);
         },
       );

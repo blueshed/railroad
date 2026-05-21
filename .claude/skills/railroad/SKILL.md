@@ -1,5 +1,6 @@
 ---
 name: railroad
+version: 0.8.1
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -12,13 +13,13 @@ Source files (each has a JSDoc header — read for full API): `signals.ts` · `j
 Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.WebView`. Railroad adds:
 
 - **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39).
-- **JSX runtime** — components run once, return real DOM nodes, signals bind to text and attributes automatically.
+- **JSX runtime** — components run once, return real DOM nodes, signals bind to text and attributes automatically; supports automatic `style` signal property clearance when updated signals omit style keys.
 - **`when()` / `list()`** — reactive conditionals and keyed lists with auto-disposal.
-- **Hash router** — `routes(target, table)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting.
+- **Hash router** — `routes(target, table, options)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting; supports `options.onError` boundary callback.
 - **DI / logger** — typed `provide`/`inject` with phantom-typed keys; leveled console output.
 - **Realtime escape hatches** — `.touch()`, `.mutate()`, `.patch()` for in-place document mutation under WebSocket / CRDT / `LISTEN/NOTIFY` patch streams.
 
-## The five things that bite if you're not careful
+## The seven things that bite if you're not careful
 
 ### 1. Do NOT call `.get()` in JSX children
 
@@ -110,6 +111,37 @@ filter.patch({ color: "blue" });
 
 `.touch()` propagates to effects and primitive-returning computeds. A computed that returns the same reference (`computed(() => doc.get().items)`) bails via its own `equals` guard — by design.
 
+### 6. Event handlers are lowercase HTML, not React PascalCase
+
+Railroad is HTML-flavoured JSX — it uses `class`, not `className`; `onclick`, not `onClick`. The runtime accepts PascalCase too (it lowercases anything starting with `on`), but mixing conventions makes diffs noisier and trains the next reader on the wrong style.
+
+```tsx
+// ✅ Lowercase HTML — matches `class`, `srcdoc`, `tabindex` etc.
+<button onclick={() => count.update(n => n + 1)}>+1</button>
+<div ondragover={onDragOver} ondrop={onDrop} />
+
+// ❌ React-style PascalCase — works, but inconsistent with the rest of railroad
+<button onClick={() => count.update(n => n + 1)}>+1</button>
+```
+
+### 7. Dynamic-length arrays need `list()`; plain `.map()` is fine for static collections
+
+`{arr.map(item => <Row item={item} />)}` produces a flat array of nodes. Railroad has no reconciler, so if `arr` ever *changes length* (push, splice, filter), the JSX won't react — the children are baked in at the time JSX evaluated.
+
+```tsx
+// ✅ Static collection (length never changes) — plain .map() is fine
+const COLUMNS = [{ id: "todo" }, { id: "doing" }, { id: "done" }];
+<main>{COLUMNS.map(c => <Column col={c} />)}</main>
+
+// ❌ Dynamic collection — children won't update on change
+<ul>{rows.peek().map(r => <li>{r.text}</li>)}</ul>
+
+// ✅ Dynamic collection — list() with a key preserves identity per row
+<ul>{list(rows, r => r.id, (row$) => <li>{row$.map(r => r.text)}</li>)}</ul>
+```
+
+Rule of thumb: any array derived from a signal (`doc.data.map(d => d.cards)`, `signal([...])`, etc.) must go through `list()`. Hard-coded arrays in module scope can use `.map()`.
+
 ## Mental model
 
 Components run **once**. They return real DOM nodes. No virtual DOM, no reconciler, no diffing. Reactivity comes from signals — bare signals as children become reactive text nodes; signals as props become reactive attributes; function children auto-track signal reads.
@@ -138,6 +170,29 @@ function SitesLayout() {
 `/sites` → `/sites/42` → `/sites/99`: layout stays mounted, only inner content swaps. `params$` updates without remounting; `route()` is a `ReadonlySignal<T | null>`.
 
 In tests: `hashchange` is dispatched on the next macrotask in both happy-dom and real browsers. After `navigate(...)`, `await new Promise(r => setTimeout(r, 0))`.
+
+### Error Boundaries (`options.onError`)
+
+The router supports an optional third argument `options` with an `onError` boundary callback:
+
+```tsx
+routes(
+  document.getElementById("root")!,
+  {
+    "/": () => <Home />,
+    "/bad": () => { throw new Error("Sync crash"); },
+    "/bad-async": async () => { throw new Error("Async crash"); },
+  },
+  {
+    onError: (err) => {
+      console.warn("Caught route error:", err.message);
+      return <div class="error-boundary">Something went wrong.</div>;
+    }
+  }
+);
+```
+
+If a route handler throws synchronously or rejects asynchronously, the `onError` hook is executed. If it returns a standard DOM `Node`, that node is rendered in the router's container, avoiding a blank screen while keeping the internal dispose scope stack perfectly balanced. If omitted, the error is logged to `console.error`.
 
 ## Realtime — pair with `@blueshed/delta`
 

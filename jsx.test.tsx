@@ -294,6 +294,19 @@ describe("reactive props", () => {
     expect(div.style.fontSize).toBe("12px");
   });
 
+  test("Signal style prop clears stale properties when keys are omitted", () => {
+    document.body.innerHTML = "";
+    const sty = signal<Record<string, string>>({ color: "red", fontSize: "10px" });
+    const div = (<div style={sty}>x</div>) as HTMLDivElement;
+    document.body.append(div);
+    expect(div.style.color).toBe("red");
+    expect(div.style.fontSize).toBe("10px");
+
+    sty.set({ color: "blue" });
+    expect(div.style.color).toBe("blue");
+    expect(div.style.fontSize).toBe("");
+  });
+
   test("Signal innerHTML prop updates element.innerHTML", () => {
     document.body.innerHTML = "";
     const html = signal("<span>a</span>");

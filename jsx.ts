@@ -73,7 +73,21 @@ function applyProps(el: Element, props: Record<string, any>): void {
         (el as any)[key] = value;
       }
     } else if (key === "style" && value instanceof Signal) {
-      effect(() => { Object.assign((el as HTMLElement).style, value.get()); });
+      const oldKeys = new Set<string>();
+      effect(() => {
+        const nextStyle = (value.get() || {}) as Record<string, string>;
+        const elStyle = (el as HTMLElement).style;
+        for (const k of oldKeys) {
+          if (!(k in nextStyle)) {
+            elStyle[k as any] = "";
+          }
+        }
+        oldKeys.clear();
+        for (const [k, v] of Object.entries(nextStyle)) {
+          elStyle[k as any] = v;
+          oldKeys.add(k);
+        }
+      });
     } else if (key === "style" && typeof value === "object") {
       Object.assign((el as HTMLElement).style, value);
     } else if (key.startsWith("on")) {

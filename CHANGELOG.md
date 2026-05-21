@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.1
+
+### Added
+
+- **`options.onError` router boundary callback** — `routes(container, table, options)` now accepts `options.onError(err)`. Synchronous route throws and async handler rejections invoke the callback; if it returns a `Node`, the fallback is rendered into the container instead of a blank screen. Dispose scope stack stays balanced. Returning nothing preserves the prior behavior (sync re-throws, async logs to `console.error`).
+
+### Fixed
+
+- **`style` signal property clearance** — reactive style updates now track previously written keys and reset any key omitted by the next style object to `""`. Previously, `sty.set({ color: "blue" })` after `{ color: "red", fontSize: "10px" }` left `fontSize: 10px` lingering on the element.
+
+### Tests
+
+- **`routes.test.ts`** — added two tests covering sync and async `onError` boundary fallback rendering.
+- **`jsx.test.tsx`** — added a test verifying dynamic style-key clearance when style signals omit keys.
+- Suite: 106 → **109 passing tests**.
+
+### Docs
+
+- **SKILL.md** — expanded operational checklist from five to seven gotchas: lowercase HTML event handlers (`onclick`, not `onClick`), and `list()` vs plain `.map()` for dynamic arrays.
+- **`/publish` skill** — restructured with frontmatter; codified the rule that the skill itself is the authorisation for the push (per global `CLAUDE.md`); requires skill `version:` frontmatter to track `package.json`.
+
 ## 0.8.0
 
 ### Re-positioned, not redesigned
