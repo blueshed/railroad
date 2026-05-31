@@ -61,30 +61,28 @@ browser download hosts (`cdn.playwright.dev`, `googlechromelabs.github.io`,
 The npm registry and GitHub *are* reachable, so the binary comes from the
 `@sparticuz/chromium` npm package, which bundles a real headless Chromium build
 *inside the tarball* rather than fetching it from a CDN.
-`scripts/setup-webview.sh` automates the whole thing:
 
-```sh
-bash scripts/setup-webview.sh
-export BUN_CHROME_PATH=/opt/chromium/chrome-shim.sh
-bun test          # 109 pass, 0 fail
-```
+All of this — the Bun upgrade, `bun install`, and staging the browser — is
+handled automatically by the `.claude/hooks/session-start.sh` SessionStart hook
+(wired up in `.claude/settings.json`). It runs only when `CLAUDE_CODE_REMOTE`
+is `true`, so it's a no-op on your local machine, and it's self-contained:
+copy that one file plus the hook entry into any Bun project to get the same
+setup. What it does, in order:
 
-What the script does:
-
-1. Parks two preinstalled PPAs (deadsnakes, ondrej/php) that `403` and abort
+1. Upgrades Bun to >= 1.3.12 if the image is older (npm registry, no CDN).
+2. `bun install` for dev dependencies.
+3. Parks two preinstalled PPAs (deadsnakes, ondrej/php) that `403` and abort
    `apt update`, then installs Chromium's system libraries with
    `npx playwright install-deps chromium` (apt only — no CDN).
-2. `npm pack @sparticuz/chromium`, brotli-decompresses `bin/chromium.br` into
+4. `npm pack @sparticuz/chromium`, brotli-decompresses `bin/chromium.br` into
    `/opt/chromium/chromium`, and unpacks the swiftshader (software GL) libs
    alongside it.
-3. Writes `/opt/chromium/chrome-shim.sh`, a launcher that adds `--no-sandbox`
-   `--disable-dev-shm-usage` `--disable-gpu`. The shim is what
-   `BUN_CHROME_PATH` points at — without `--no-sandbox` a root-owned Chromium
-   aborts at startup and Bun reports `Chrome process closed the pipe`.
+5. Writes `/opt/chromium/chrome-shim.sh`, a launcher that adds `--no-sandbox`
+   `--disable-dev-shm-usage` `--disable-gpu` — without `--no-sandbox` a
+   root-owned Chromium aborts at startup and Bun reports
+   `Chrome process closed the pipe` — and persists `BUN_CHROME_PATH` to it for
+   the session.
 
-Because the sandbox is ephemeral, `/opt/chromium` and the Bun upgrade do not
-survive a fresh container — re-run the two steps above (or wire them into a
-`SessionStart` hook) at the start of a session that needs the WebView tests.
 The unit tests need none of this and run anywhere with `bun test`.
 
 ## Conventions
