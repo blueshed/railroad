@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createElement, when, list } from "./jsx";
-import { signal } from "./signals";
+import { signal, pushDisposeScope, popDisposeScope } from "./signals";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -354,6 +354,22 @@ describe("reactive props", () => {
     const div = (<div ref={(el: Element) => { captured.el = el; }} />) as HTMLDivElement;
     document.body.append(div);
     expect(captured.el).toBe(div);
+  });
+});
+
+describe("component error handling", () => {
+  test("a throwing component leaves the dispose stack balanced", () => {
+    const Bad = () => { throw new Error("boom"); };
+
+    // Wrap in our own scope so we can prove the count is unchanged afterwards.
+    pushDisposeScope();
+    expect(() => (createElement as any)(Bad, null)).toThrow("boom");
+
+    // If createElement leaked Bad's scope, this pop would return that scope and
+    // a second pop would be needed to drain the stack. Exactly one pop here must
+    // balance us, and a further pop must throw (no extra scope was left behind).
+    expect(() => popDisposeScope()).not.toThrow();
+    expect(() => popDisposeScope()).toThrow(/imbalance/);
   });
 });
 

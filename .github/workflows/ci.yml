@@ -1,15 +1,13 @@
-name: Publish to npm
+name: CI
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
-  publish:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,8 +15,12 @@ jobs:
 
       - run: bun install
 
-      # tests/webview.test.ts needs a browser for Bun.WebView; ubuntu-latest
-      # ships google-chrome-stable. Fail loudly if a future image drops it.
+      - run: bunx tsc --noEmit
+
+      # tests/webview.test.ts drives Bun.WebView, which needs a Chrome/Chromium
+      # on the runner. ubuntu-latest ships google-chrome-stable; point Bun at it
+      # explicitly so a future runner-image change fails loudly here, not at
+      # publish time.
       - name: Locate Chrome for Bun.WebView
         run: |
           chrome="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
@@ -26,12 +28,3 @@ jobs:
           echo "BUN_CHROME_PATH=$chrome" >> "$GITHUB_ENV"
 
       - run: bun test
-
-      - run: bunx tsc --noEmit
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
-
-      - run: NODE_AUTH_TOKEN="" npm publish --provenance --access public

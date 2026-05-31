@@ -245,6 +245,22 @@ describe("batch", () => {
     expect(runs).toBe(2); // one run, not two
   });
 
+  test("a throwing effect does not strand others queued behind it", () => {
+    const a = signal(0);
+    let goodRuns = 0;
+    // Throws only on re-run (a > 0), so creation succeeds and it subscribes.
+    effect(() => { if (a.get() > 0) throw new Error("boom"); });
+    effect(() => { a.get(); goodRuns++; });
+    goodRuns = 0;
+
+    // Both effects are queued by the write; the thrower must not prevent the
+    // second from running, and the first error is rethrown out of batch().
+    expect(() => {
+      batch(() => { a.set(1); });
+    }).toThrow("boom");
+    expect(goodRuns).toBe(1);
+  });
+
   test("nested batch", () => {
     const s = signal(0);
     let runs = 0;

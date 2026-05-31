@@ -6,6 +6,12 @@
  * internal effect. Designed to be small enough to fit in your head and
  * predictable enough to write correctly without re-reading the source.
  *
+ * Not glitch-free. Propagation is eager and untopological, so a diamond
+ * (a -> b, a -> c, an effect reading both b and c) re-runs the effect once
+ * per path and its first run can observe a half-updated state (b new, c
+ * stale). For multi-write transactions wrap the writes in batch() so
+ * subscribers re-run once against a consistent snapshot.
+ *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
  *   computed<T>(fn, opts?)    — derive a read-only signal from other signals
@@ -104,6 +110,8 @@ export class Signal<T> implements ReadonlySignal<T> {
     this.set(fn(this.value));
   }
 
+  // Note: structuredClone throws on non-cloneable values (functions, class
+  // instances, DOM nodes) — .mutate() is for plain-data signals only.
   mutate(fn: (current: T) => void): void {
     const copy = structuredClone(this.value);
     fn(copy);
@@ -282,15 +290,30 @@ export function batch(fn: () => void): void {
     batchDepth--;
     if (batchDepth === 0 && !flushing) {
       flushing = true;
+      // A throwing effect must not strand the effects already queued behind it
+      // (pendingEffects was cleared before running). Run them all, remember the
+      // first error, and rethrow it once the flush has drained.
+      let firstError: unknown;
+      let hasError = false;
       try {
         while (pendingEffects.size > 0) {
           const effects = [...pendingEffects];
           pendingEffects.clear();
-          for (const e of effects) e();
+          for (const e of effects) {
+            try {
+              e();
+            } catch (err) {
+              if (!hasError) {
+                hasError = true;
+                firstError = err;
+              }
+            }
+          }
         }
       } finally {
         flushing = false;
       }
+      if (hasError) throw firstError;
     }
   }
 }

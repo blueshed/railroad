@@ -114,12 +114,15 @@ export function createElement(
   ...children: any[]
 ): Node {
   if (typeof tag === "function") {
-    pushDisposeScope();
     const componentProps = { ...props, children };
-    const node = tag(componentProps);
-    const dispose = popDisposeScope();
-    trackDispose(dispose);
-    return node;
+    pushDisposeScope();
+    // finally (not a trailing pop) so a throwing component still balances the
+    // dispose stack — otherwise the leaked scope corrupts every later push/pop.
+    try {
+      return tag(componentProps);
+    } finally {
+      trackDispose(popDisposeScope());
+    }
   }
 
   // SVG root element is always created with the SVG namespace.

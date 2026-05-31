@@ -19,11 +19,16 @@ export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 
 const LEVELS: Record<LogLevel, number> = { silent: -1, error: 0, warn: 1, info: 2, debug: 3 };
 
-let current: LogLevel =
-  (globalThis.Bun?.env?.LOG_LEVEL as LogLevel) ?? "info";
+// A typo'd LOG_LEVEL would otherwise make LEVELS[current] undefined and silence
+// every log (including errors), so coerce unknown values back to "info".
+function normalizeLevel(level: string | undefined | null): LogLevel {
+  return level != null && level in LEVELS ? (level as LogLevel) : "info";
+}
+
+let current: LogLevel = normalizeLevel(globalThis.Bun?.env?.LOG_LEVEL);
 
 export function setLogLevel(level: LogLevel) {
-  current = level;
+  current = normalizeLevel(level);
 }
 
 export function getLogLevel(): LogLevel {

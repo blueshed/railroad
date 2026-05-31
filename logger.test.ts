@@ -85,6 +85,17 @@ describe("logger", () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  test("an unknown level falls back to info instead of silencing everything", () => {
+    // Simulates a typo'd LOG_LEVEL env value reaching setLogLevel.
+    setLogLevel("verbose" as any);
+    expect(getLogLevel()).toBe("info");
+    const log = createLogger("[test]");
+    log.info("still visible");
+    log.error("errors still visible");
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
   test("output includes timestamp and level", () => {
     setLogLevel("info");
     const log = createLogger("[srv]");

@@ -282,7 +282,7 @@ test("counter increments", async () => {
 });
 ```
 
-Same `bun test` runner. No Playwright install. No browser binary download on macOS (uses system WKWebView). Railroad's own suite is 106 tests across happy-dom and WebView.
+Same `bun test` runner. No Playwright install. No browser binary download on macOS (uses system WKWebView). Railroad's own suite is 112 tests across happy-dom and WebView.
 
 ## Shared (DI) and Logger
 
@@ -329,6 +329,13 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
 - Not a TC39 Signals implementation. It's push-based, in the same family as Vue's `ref`, Solid's `createSignal`, Preact's signals.
 - Not an SSR / RSC framework. Bun doesn't ship those either; railroad doesn't add them on top.
 - Not a 30KB framework with a hooks system, lifecycle methods, or a virtual DOM.
+
+## Sharp edges to know
+
+- **Propagation is eager, not glitch-free.** In a diamond (`a → b`, `a → c`, an effect reads both), a write to `a` runs the effect twice and its first run can observe a half-updated state (`b` new, `c` stale). Fine for binding signals to DOM; for multi-write transactions wrap them in `batch()` so subscribers see one consistent flush.
+- **Routes match in declaration order.** The first pattern that matches wins — declare `/users/new` before `/users/:id`.
+- **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
+- **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
 
 It's the smallest correct reactive layer for the workflow Bun 1.3 actually ships: HTML imports, TSX bundling, HMR, and `--compile` to a single binary. That's the niche, and it's a real one.
 

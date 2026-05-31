@@ -7,6 +7,11 @@
  *   const STORE = key<Store>("store");
  *   provide(STORE, createStore());   // in home.ts
  *   const store = inject(STORE);     // anywhere
+ *
+ * Scope: the registry is a single process-global map. Ideal for client apps
+ * and app-wide singletons; on the server it is shared across every request, so
+ * do not use it for per-request state. (undefined is the "missing" sentinel —
+ * you cannot provide() undefined; use null if you need an explicit empty.)
  */
 
 const registry = new Map<symbol, unknown>();

@@ -12,6 +12,9 @@
  *   "/sites/*"       — wildcard, matches /sites and /sites/any/depth
  *   "/sites/:id/*"   — params + wildcard, rest captured as params["*"]
  *
+ * Patterns are tested in declaration order; the first match wins. Declare
+ * specific routes before parameterised ones (`/users/new` before `/users/:id`).
+ *
  * Handlers receive (params, params$) and return a Node (sync or async).
  *   params  — plain object for destructuring: ({ id }) => ...
  *   params$ — Signal that updates when params change within the same pattern
