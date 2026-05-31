@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.8.2
+
+### Fixed
+
+- **`batch()` no longer strands queued effects on a throw** — if an effect throws mid-flush, the remaining effects already queued behind it still run; the first error is remembered and rethrown once the flush drains. Previously a throwing effect aborted the loop and silently dropped the rest.
+- **Throwing components keep the dispose-scope stack balanced** — `createElement` now wraps component render in `try/finally`, so a component that throws still pops its dispose scope. Previously the leaked scope corrupted every later `pushDisposeScope`/`popDisposeScope`.
+- **Unknown `LOG_LEVEL` falls back to `info`** — a typo'd value (env or `setLogLevel`) no longer makes `LEVELS[current]` undefined and silence all logs including errors; unknown values coerce back to `"info"`.
+
+### Docs
+
+- JSDoc on `signals.ts` (eager/non-glitch-free propagation, `.mutate()` `structuredClone` limits), `routes.ts` (declaration-order matching), and `shared.ts` (process-global DI, not per-request on the server).
+- README: new "Sharp edges to know" section; added `CLAUDE.md` repository guide.
+
+### CI
+
+- Added `.github/workflows/ci.yml` (tsc + test on push/PR) and a Chrome-locating step for the `Bun.WebView` integration tests in both CI and publish workflows.
+
+### Tests
+
+- Added tests for batch throw-resilience, component-throw dispose balance, and logger level fallback. Suite: 109 → **112 passing tests**.
+
 ## 0.8.1
 
 ### Added
