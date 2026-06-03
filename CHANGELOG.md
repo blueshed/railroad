@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.9.0
+
+A deep correctness/fitness review drove this release. Every item below is pinned
+by a regression test; the full suite and a new consumer-typecheck pass are green.
+
+### Fixed
+
+- **Router: async first render no longer imbalances the dispose stack.** When a
+  router's first matching handler was async, `routes()` returned with an extra
+  scope left on the global dispose stack. Nested inside a parent scope (the
+  documented pattern), the parent then popped the wrong scope — leaking its own
+  disposers — and the resolving render captured the parent scope into
+  `activeDispose`, recursing into a **stack overflow on teardown**. `run()` now
+  always returns at the depth it entered, sync or async.
+- **Router: `dispose()` is idempotent.** Calling the returned disposer more than
+  once (or via both the handle and a parent scope) previously drove the shared
+  `hashListenerCount` negative and detached the `hashchange` listener out from
+  under other live routers. `route()` got the same guard.
+- **Router: same-pattern param navigation during a pending async render** now
+  invalidates the in-flight render and re-runs the handler, instead of painting
+  stale content built from the original params.
+- **Router: a throwing `onError` boundary on the async-reject path** is now
+  contained (logged via `console.error`) like the sync path, instead of escaping
+  as an unhandled rejection.
+- **Signals: an effect disposed mid-`batch()` no longer runs.** Effects carry a
+  `disposed` flag checked before execution, so a `batch()` flush that snapshotted
+  the queue before disposal can't run a dead effect. `effect()`'s disposer is now
+  idempotent.
+- **JSX: SVG namespace adoption no longer double-subscribes.** Adopting an HTML
+  element into `<svg>` re-applied its props to a fresh SVG element while leaving
+  the discarded element's reactive effects live (writing to a detached node). The
+  discarded element's effects are now torn down first; the `ref` ends on the
+  final SVG-namespace element.
+- **JSX: cleared signal values coerce to `""`** for `value`/`checked`/`src`/etc.,
+  instead of writing the literal string `"null"`/`"undefined"`.
+- **`matchRoute`** keeps the raw segment when a `:param` has a malformed percent-
+  escape (consistent with the wildcard branch) instead of silently failing to
+  match.
+
+### Changed
+
+- **`provide(k, undefined)` is now honored** — presence is tracked by key
+  (`registry.has`), so `inject(k)` returns a provided `undefined` instead of
+  throwing "No provider".
+- **Infinite-loop guard raised** from 100 to 1000 (and the check now precedes the
+  increment), so a legitimately deep computed chain isn't misreported as a loop.
+- **Logger emits ANSI colors only to an interactive TTY** and respects
+  `NO_COLOR`; logs stay plain when piped, redirected, or in a browser. Env is read
+  via a typed cast so consumers no longer need `@types/bun`.
+
+### Added
+
+- `clearProviders()` (DI registry reset, for test isolation).
+- Re-exported dispose-scope primitives from the package root: `trackDispose`,
+  `pushDisposeScope`, `popDisposeScope`.
+- New `./logger` and `./package.json` subpath exports; `engines.bun` marker.
+- Dev-mode `console.warn` for `list()` duplicate keys and for a function child
+  that returns a Node.
+- Scripts: `test:webview` (explicit WebView run) and `check:consumer` (type-check
+  against the documented react-jsx + strict + no-`@types/bun` config).
+- `tests/consumer-types/` fixture exercising the documented consumer surface.
+
+### Type-safety / DX
+
+- **`list()` is now real overloads**, so the bare-arrow keyed form
+  `list(rows, r => r.id, …)` infers `r` and compiles under a consumer's `strict`
+  tsconfig (previously `implicitly has an 'any' type`).
+- **Importing the package root type-checks without `@types/bun`** (the
+  `globalThis.Bun` `TS7017` break is fixed); CI now gates the consumer config.
+
+### CI / packaging
+
+- `bun.lock` is committed; CI and publish install with `--frozen-lockfile`.
+- CI and publish run the WebView suite as an explicit step (bare `bun test` can
+  drop it from discovery) and run `bun run check:consumer`.
+
+### Skills
+
+- **`bun-route` skill refreshed for Bun 1.3.13–1.3.14 `Bun.WebView`/`Bun.serve`:**
+  native double-click via `click(selector, { clickCount: 2 })` (retires the
+  synthetic-`dblclick` recipe), per-click `timeout`, constructor `console`/
+  `dataStore` options, `view.url`/`title`/`loading` properties, `Range`/`206`
+  file serving, `--target=bun` keeping `using` native, and the `bun test`
+  `--isolate`/`--parallel`/`--shard`/`--changed` flags.
+
 ## 0.8.2
 
 ### Fixed

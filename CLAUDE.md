@@ -7,17 +7,21 @@ Guidance for Claude Code (and humans) working in this repository.
 `@blueshed/railroad` — the smallest reactive layer for Bun realtime apps:
 signals, a real-DOM JSX runtime, a hash router, typed DI, and a logger. Zero
 runtime dependencies, ~1KLOC. Each module is independent and importable on its
-own (`@blueshed/railroad/signals`, `/jsx`, `/routes`, `/shared`).
+own (`@blueshed/railroad/signals`, `/jsx`, `/routes`, `/shared`, `/logger`).
 
 | File | Exports | Depends on |
 |---|---|---|
-| `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` | — |
+| `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` | — |
 | `jsx.ts` | `createElement` `Fragment` `when` `list` | signals |
 | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals |
-| `shared.ts` | `key` `provide` `inject` `tryInject` | — |
-| `logger.ts` | `createLogger` `setLogLevel` `loggedRequest` | — |
+| `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
+| `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
 | `index.ts` | re-exports the public surface | all of the above |
 | `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment` | jsx |
+
+This package is **Bun-/bundler-only**: it ships TypeScript source with no build
+step and uses extensionless imports, so consumers must use `moduleResolution:
+"bundler"` (or `"bun"`). It does not resolve under `node16`/`nodenext`.
 
 Every source file has a JSDoc header that is the authoritative API reference —
 read it before changing behaviour. `.claude/skills/railroad/SKILL.md` documents
@@ -27,13 +31,26 @@ the usage gotchas.
 
 ```sh
 bun install          # install dev deps
-bun test             # full suite (unit + WebView integration)
+bun test             # unit suite (happy-dom)
+bun run test:webview # real-browser WebView integration tests (explicit)
 bun run check        # bunx tsc --noEmit — strict, noUncheckedIndexedAccess
+bun run check:consumer # tsc against the documented consumer config (react-jsx, no @types/bun)
 ```
 
 Unit tests run against happy-dom (preloaded via `bunfig.toml`). The integration
 tests in `tests/webview.test.ts` drive a real headless browser via `Bun.WebView`
 and need a one-time environment setup on Linux — see below.
+
+Run the WebView suite via `bun run test:webview` (an explicit path). Bare
+`bun test` discovers files under `tests/` non-deterministically and can silently
+drop the WebView layer, so CI runs it as its own step — never rely on the bare
+`bun test` count to tell you the browser tests ran.
+
+`bun run check:consumer` type-checks `tests/consumer-types/` under the exact
+config the README tells consumers to use (`jsx: react-jsx`, `jsxImportSource`,
+`strict`, **no `@types/bun`**). The main `bun run check` uses `jsx: react`, so
+this is the only gate on the automatic-runtime path consumers actually compile
+against — keep it green.
 
 ## Testing in the Claude Code web sandbox
 
@@ -90,10 +107,16 @@ The unit tests need none of this and run anywhere with `bun test`.
 - HTML-flavoured JSX: `class` not `className`, `onclick` not `onClick`.
 - Never call `.get()` in JSX children — pass the bare signal (`{count}`), a
   function child (`{() => ...}`), or `.map()`. See SKILL.md §1.
-- Effects/computeds auto-dispose only inside a parent scope (component, route,
-  `when`, `list`); a top-level `effect()` leaks unless you keep its disposer.
-- TypeScript is strict with `noUncheckedIndexedAccess`. Keep `bun run check`
-  clean.
+- Effects/computeds auto-dispose only inside a parent scope (a component, a
+  `routes()` handler, `when`, or `list`); a top-level `effect()` — or a `when`/
+  `list`/`route()` created outside any scope — leaks unless you keep its
+  disposer. `route()` (singular) returns a `ReadonlySignal`; it does not push a
+  scope for children.
+- TypeScript is strict with `noUncheckedIndexedAccess`. Keep both `bun run check`
+  and `bun run check:consumer` clean.
+- `bun.lock` is committed; CI/publish install with `--frozen-lockfile`. Keep it
+  in sync (`bun install` after a dependency change) and commit the result.
 - Publishing is release-driven: `.github/workflows/publish.yml` runs
-  `bun test` + `bunx tsc --noEmit` then `npm publish --provenance` on a
-  published GitHub release. Don't publish by hand.
+  `bun test` + the WebView suite + `bunx tsc --noEmit` + `bun run check:consumer`
+  then `npm publish --provenance` on a published GitHub release. Don't publish by
+  hand.

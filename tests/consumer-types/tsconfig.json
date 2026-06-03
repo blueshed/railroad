@@ -1,0 +1,21 @@
+{
+  "//": "Simulates a downstream consumer compiling against the package the way the README prescribes: automatic JSX runtime via jsxImportSource, strict mode, moduleResolution bundler, and crucially NO @types/bun (types: []). Because the package ships raw .ts, tsc type-checks railroad's own source through these imports — so this catches regressions like a bare `globalThis.Bun` (TS7017) or a list() keyFn that fails to infer. `paths` maps the package name to the repo root.",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@blueshed/railroad",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "esnext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@blueshed/railroad": ["../../index.ts"],
+      "@blueshed/railroad/*": ["../../*.ts"]
+    }
+  },
+  "include": ["app.tsx"]
+}

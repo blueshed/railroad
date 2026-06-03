@@ -25,7 +25,16 @@ function normalizeLevel(level: string | undefined | null): LogLevel {
   return level != null && level in LEVELS ? (level as LogLevel) : "info";
 }
 
-let current: LogLevel = normalizeLevel(globalThis.Bun?.env?.LOG_LEVEL);
+// Read env without depending on Bun's ambient global type. This file ships as
+// .ts, so a consumer's tsc type-checks it directly — referencing `globalThis.Bun`
+// would force every consumer to install @types/bun (TS7017 otherwise). The cast
+// keeps it portable across Bun, Node, and the browser.
+const env: Record<string, string | undefined> =
+  (globalThis as { Bun?: { env?: Record<string, string | undefined> } }).Bun?.env ??
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ??
+  {};
+
+let current: LogLevel = normalizeLevel(env.LOG_LEVEL);
 
 export function setLogLevel(level: LogLevel) {
   current = normalizeLevel(level);
@@ -41,10 +50,22 @@ function shouldLog(level: LogLevel): boolean {
 
 // === Colors ===
 
-const gray = (s: string) => `\x1b[90m${s}\x1b[0m`;
-const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
-const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+// Emit ANSI colors only to an interactive terminal. Respects NO_COLOR
+// (https://no-color.org) and stays plain when piped, redirected to a file, or
+// running in a browser — contexts where raw escape codes corrupt the output.
+const colorEnabled: boolean = (() => {
+  if (env.NO_COLOR != null && env.NO_COLOR !== "") return false;
+  const stdout = (globalThis as { process?: { stdout?: { isTTY?: boolean } } })
+    .process?.stdout;
+  return stdout?.isTTY === true;
+})();
+
+const wrap = (code: string) => (s: string) =>
+  colorEnabled ? `\x1b[${code}m${s}\x1b[0m` : s;
+const gray = wrap("90");
+const yellow = wrap("33");
+const red = wrap("31");
+const dim = wrap("2");
 
 const color: Record<string, (s: string) => string> = {
   error: red,

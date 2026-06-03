@@ -36,6 +36,11 @@ import type { Dispose, ReadonlySignal } from "./signals";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const storedProps = new WeakMap<Element, Record<string, any>>();
+// Disposers for the reactive effects applyProps creates per element. SVG
+// adoption discards the original HTML-namespace element and re-applies its
+// props to a fresh SVG element; without tearing these down first, both elements
+// would stay subscribed and the detached one would keep being written to.
+const propEffectDisposers = new WeakMap<Element, Dispose[]>();
 
 // === Fragment ===
 
@@ -51,30 +56,33 @@ export function Fragment(props: any): DocumentFragment {
 // === Props application ===
 
 function applyProps(el: Element, props: Record<string, any>): void {
+  const disposers: Dispose[] = [];
   for (const [key, value] of Object.entries(props)) {
     if (key === "ref") {
       if (typeof value === "function") value(el);
     } else if (key === "innerHTML") {
       if (value instanceof Signal) {
-        effect(() => { el.innerHTML = value.get(); });
+        disposers.push(effect(() => { el.innerHTML = value.get(); }));
       } else {
         el.innerHTML = value;
       }
     } else if (key === "className" || key === "class") {
       if (value instanceof Signal) {
-        effect(() => { el.setAttribute("class", value.get()); });
+        disposers.push(effect(() => { el.setAttribute("class", value.get()); }));
       } else {
         el.setAttribute("class", value);
       }
     } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
+      // Coerce null/undefined to "" so a cleared signal doesn't write the
+      // literal string "null"/"undefined" into the DOM property.
       if (value instanceof Signal) {
-        effect(() => { (el as any)[key] = value.get(); });
+        disposers.push(effect(() => { (el as any)[key] = value.get() ?? ""; }));
       } else {
-        (el as any)[key] = value;
+        (el as any)[key] = value ?? "";
       }
     } else if (key === "style" && value instanceof Signal) {
       const oldKeys = new Set<string>();
-      effect(() => {
+      disposers.push(effect(() => {
         const nextStyle = (value.get() || {}) as Record<string, string>;
         const elStyle = (el as HTMLElement).style;
         for (const k of oldKeys) {
@@ -87,23 +95,24 @@ function applyProps(el: Element, props: Record<string, any>): void {
           elStyle[k as any] = v;
           oldKeys.add(k);
         }
-      });
+      }));
     } else if (key === "style" && typeof value === "object") {
       Object.assign((el as HTMLElement).style, value);
     } else if (key.startsWith("on")) {
       el.addEventListener(key.slice(2).toLowerCase(), value);
     } else {
       if (value instanceof Signal) {
-        effect(() => {
+        disposers.push(effect(() => {
           const v = value.get();
           if (v === false || v == null) el.removeAttribute(key);
           else el.setAttribute(key, String(v));
-        });
+        }));
       } else if (value !== false && value != null) {
         el.setAttribute(key, String(value));
       }
     }
   }
+  if (disposers.length) propEffectDisposers.set(el, disposers);
 }
 
 // === createElement ===
@@ -156,6 +165,16 @@ function adoptSvg(node: Node): Node {
   const props = storedProps.get(node);
 
   if (props) {
+    // Dispose the discarded HTML element's reactive prop effects before
+    // re-applying props to the SVG element, so each signal keeps exactly one
+    // live effect (targeting svgEl) rather than leaking one onto the detached
+    // node. The disposed effects are idempotent, so the owning scope tearing
+    // them down again later is a no-op.
+    const oldDisposers = propEffectDisposers.get(node);
+    if (oldDisposers) {
+      for (const d of oldDisposers) d();
+      propEffectDisposers.delete(node);
+    }
     storedProps.set(svgEl, props);
     applyProps(svgEl, props);
   } else {
@@ -219,8 +238,18 @@ function appendChildren(parent: Node, children: any[]): void {
     } else if (typeof child === "function") {
       const fn = child as () => any;
       const textNode = document.createTextNode("");
+      let warnedNode = false;
       effect(() => {
-        textNode.textContent = String(fn() ?? "");
+        const v = fn();
+        if (!warnedNode && v instanceof Node) {
+          warnedNode = true;
+          console.warn(
+            "[railroad/jsx] A function child returned a DOM Node; it is rendered " +
+              "as text, not inserted as an element. To render elements reactively, " +
+              "use when() or list().",
+          );
+        }
+        textNode.textContent = String(v ?? "");
       });
       parent.appendChild(textNode);
     } else if (child instanceof Node) {
@@ -316,6 +345,19 @@ function collectNodes(result: Node): Node[] {
     : [result];
 }
 
+// Keyed form — render receives Signal<T> / Signal<number>. Real overloads (not
+// a union-typed param) so the keyFn's item parameter is inferred from T; the
+// bare-arrow form `list(rows, r => r.id, ...)` type-checks under strict.
+export function list<T>(
+  items: ReadonlySignal<T[]>,
+  keyFn: (item: T) => string | number,
+  render: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
+): Node;
+// Index-based form — render receives raw T.
+export function list<T>(
+  items: ReadonlySignal<T[]>,
+  render: (item: T, index: number) => Node,
+): Node;
 export function list<T>(
   items: ReadonlySignal<T[]>,
   keyFnOrRender: ((item: T) => string | number) | ((item: T, index: number) => Node),
@@ -354,6 +396,15 @@ export function list<T>(
 
     const newKeys = arr.map((item, i) => keyFn ? keyFn(item) : i);
     const newKeySet = new Set(newKeys);
+
+    // Duplicate keys collapse to one entry in the Map, silently dropping rows.
+    // Warn rather than mis-render — keyFn must return a unique key per item.
+    if (keyFn && newKeySet.size !== newKeys.length) {
+      console.warn(
+        "[railroad/list] duplicate keys detected — items sharing a key collapse " +
+          "to a single row and others are dropped. keyFn must return a unique key per item.",
+      );
+    }
 
     // Remove entries no longer in the list
     for (const key of order) {

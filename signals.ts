@@ -9,8 +9,10 @@
  * Not glitch-free. Propagation is eager and untopological, so a diamond
  * (a -> b, a -> c, an effect reading both b and c) re-runs the effect once
  * per path and its first run can observe a half-updated state (b new, c
- * stale). For multi-write transactions wrap the writes in batch() so
- * subscribers re-run once against a consistent snapshot.
+ * stale). batch() does NOT fix this for a single write to `a` — the two
+ * paths still flush separately; batch() only coalesces MULTIPLE writes (a
+ * multi-write transaction) so subscribers re-run once against a consistent
+ * snapshot. For DOM binding the transient intermediate state is harmless.
  *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
@@ -52,9 +54,12 @@ let currentDeps: Set<Signal<any>> | null = null;
 let batchDepth = 0;
 const pendingEffects = new Set<Listener>();
 
-// Infinite loop guard
+// Infinite loop guard. A genuine cycle climbs this counter extremely fast, so
+// the ceiling is set high enough that a legitimate but deep dependency graph
+// (e.g. a long chain of derived computeds) won't trip it. The check runs before
+// the increment so the limit is exact: depth N is allowed, N+1 throws.
 let effectDepth = 0;
-const MAX_EFFECT_DEPTH = 100;
+const MAX_EFFECT_DEPTH = 1000;
 
 // === Signal options ===
 
@@ -110,8 +115,10 @@ export class Signal<T> implements ReadonlySignal<T> {
     this.set(fn(this.value));
   }
 
-  // Note: structuredClone throws on non-cloneable values (functions, class
-  // instances, DOM nodes) — .mutate() is for plain-data signals only.
+  // Note: .mutate() is for plain-data signals only. structuredClone THROWS on
+  // functions, DOM nodes, and other non-cloneable values, and SILENTLY strips
+  // the prototype of class instances (you get a plain object back, losing
+  // methods/getters). Use .set()/.update() for signals holding class instances.
   mutate(fn: (current: T) => void): void {
     const copy = structuredClone(this.value);
     fn(copy);
@@ -156,13 +163,13 @@ export class Signal<T> implements ReadonlySignal<T> {
       for (const listener of this.listeners) pendingEffects.add(listener);
       return;
     }
+    if (effectDepth >= MAX_EFFECT_DEPTH) {
+      throw new Error(
+        "Maximum effect depth exceeded — possible infinite loop",
+      );
+    }
     effectDepth++;
     try {
-      if (effectDepth >= MAX_EFFECT_DEPTH) {
-        throw new Error(
-          "Maximum effect depth exceeded — possible infinite loop",
-        );
-      }
       for (const listener of this.listeners) listener();
     } finally {
       effectDepth--;
@@ -179,8 +186,15 @@ export class Signal<T> implements ReadonlySignal<T> {
 export function effect(fn: () => void | (() => void)): () => void {
   let cleanup: (() => void) | void;
   let deps = new Set<Signal<any>>();
+  let disposed = false;
 
   const execute = () => {
+    // A disposed effect must never run its body again. It can still be reached
+    // after dispose() via a batch() flush that snapshotted pendingEffects into
+    // a local array before the effect was disposed, so guard here rather than
+    // relying on the listener Set having been mutated. Keeps the batch and
+    // non-batch paths consistent.
+    if (disposed) return;
     if (cleanup) cleanup();
 
     const prevListener = currentListener;
@@ -204,6 +218,8 @@ export function effect(fn: () => void | (() => void)): () => void {
   };
 
   const dispose = () => {
+    if (disposed) return; // idempotent — safe to call more than once
+    disposed = true;
     if (cleanup) cleanup();
     for (const dep of deps) dep.unsubscribe(execute);
     deps.clear();

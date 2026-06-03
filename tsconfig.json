@@ -10,5 +10,6 @@
     "target": "esnext",
     "skipLibCheck": false,
     "noEmit": true
-  }
+  },
+  "exclude": ["tests/consumer-types"]
 }

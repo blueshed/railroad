@@ -142,6 +142,10 @@ Bun.serve({
 });
 ```
 
+### Serving files & media (Bun 1.3.13+)
+
+When a handler returns a `Bun.file(...)` (or a static-file route), `Bun.serve()` honours `Range: bytes=...` automatically — it replies `206 Partial Content` with `Content-Range`, supporting suffix (`bytes=-500`), open-ended (`bytes=1024-`), and standard forms (RFC 9110). This is what lets `<video>`/`<audio>` seek without any extra code. File responses also stream incrementally on SSL and Windows rather than buffering the whole file into memory.
+
 ## Production build & deploy
 
 Two paths, both Bun-native — no separate bundler config.
@@ -159,7 +163,7 @@ bun build --compile server.ts --outfile myapp
 ./myapp
 ```
 
-`--compile` follows the HTML imports inside `server.ts`, bundles every TSX/CSS/asset reference, and stamps it all into the output binary. Works on macOS, Linux, and Windows; cross-compile with `--target=bun-linux-x64` etc.
+`--compile` follows the HTML imports inside `server.ts`, bundles every TSX/CSS/asset reference, and stamps it all into the output binary. Works on macOS, Linux, and Windows; cross-compile with `--target=bun-linux-x64` etc. As of Bun 1.3.14, `--target=bun` keeps `using` / `await using` as native syntax instead of lowering them to transpiled helpers — so the `await using view` pattern in the tests compiles cleanly.
 
 ## Key rules
 
@@ -172,7 +176,12 @@ bun build --compile server.ts --outfile myapp
 
 ## Testing routes with `Bun.WebView`
 
-Bun 1.3.12+ ships a headless browser as the global `Bun.WebView` — no import, no extra install. Tests run via plain `bun test`; no `--browser` flag. On macOS it uses system WKWebView; pass `backend: "chrome"` on Linux/Windows. Input is dispatched as real OS events (`isTrusted: true`), and selector methods (`click`, `type`) auto-wait for actionability — there is **no** `waitForSelector` or `waitForFunction`.
+Bun ships a headless browser as the global `Bun.WebView` — no import, no extra install. The global appeared in 1.3.12, but **these patterns assume Bun 1.3.14+**, where the options used below (`clickCount`, per-click `timeout`, constructor `console`/`dataStore`) and the test-runner flags landed. Tests run via plain `bun test`; no `--browser` flag. On macOS it uses system WKWebView; pass `backend: "chrome"` on Linux/Windows. Input is dispatched as real OS events (`isTrusted: true`), and selector methods (`click`, `type`) auto-wait for actionability — there is **no** `waitForSelector` or `waitForFunction`, but selector clicks take a per-call `timeout` (default 30000ms).
+
+Two constructor options are worth knowing for tests:
+
+- `console` — pass `console` (forward page logs to the terminal) or a callback `(type, ...args) => …` to capture and assert on page console output, instead of only the server-side `development: { console: true }`.
+- `dataStore` — `"ephemeral"` (default-style throwaway storage per view) or `{ directory }` to persist a profile. Use `"ephemeral"` to keep cookies/localStorage from leaking between tests without managing temp dirs by hand.
 
 ### Make the server importable
 
@@ -245,14 +254,16 @@ test("renders and responds to click", async () => {
 |---|---|
 | `navigate(url)` | Blocking; resolves when page is loaded. |
 | `evaluate<T>(expr)` | **Single expression only.** Always pass `<T>` — defaults to `unknown` and breaks `expect()` overloads. For multi-statement bodies, wrap with `Function(...)()` — see below. |
-| `click(selector \| x, y)` | Auto-waits for the element to be attached, visible, stable, unobscured. |
+| `click(selector \| x, y, opts?)` | Auto-waits for the element to be attached, visible, stable, unobscured. `opts`: `button`, `modifiers`, `clickCount` (1–3 — `2` = double-click), and on the selector form `timeout` (default 30000ms). |
 | `type(text)`, `press(key, { modifiers })` | Keyboard input to the focused element. |
 | `scroll(dx, dy)`, `scrollTo(selector)` | |
 | `screenshot({ format, quality, encoding })` | Returns bytes/base64. |
 | `resize(w, h)`, `goBack()`, `goForward()`, `reload()` | |
 | `cdp(method, params)` | Chrome DevTools Protocol escape hatch (`chrome` backend only). |
 
-**No `dblclick`, `waitForSelector`, `waitForNavigation`, `waitForFunction`.** Workarounds below.
+Properties: `view.url`, `view.title`, `view.loading`.
+
+**Double-click is native** — `click(selector, { clickCount: 2 })`. Still missing: `waitForSelector`, `waitForNavigation`, `waitForFunction`. Workarounds below.
 
 ### `evaluate` takes an expression, not statements
 
@@ -308,19 +319,7 @@ const count = await waitFor(
 
 ### Synthetic events for gaps in the API
 
-Dispatch real DOM events via `evaluate` when there's no helper. Common cases:
-
-**Double-click:**
-
-```ts
-await view.evaluate(
-  `Function("const el = document.querySelector('#target');" +
-           "const r = el.getBoundingClientRect();" +
-           "const x = r.left + r.width/2, y = r.top + r.height/2;" +
-           "el.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,cancelable:true,clientX:x,clientY:y,view:window}));" +
-           "return true;")()
-`);
-```
+Dispatch real DOM events via `evaluate` when there's no helper. (Double-click no longer needs this — use `view.click(selector, { clickCount: 2 })`.) Remaining cases:
 
 **Pointer drag** (for canvas/SVG interactions that respond to `pointerdown`/`move`/`up`):
 
@@ -361,6 +360,15 @@ await waitFor(
 const after = JSON.parse(readFileSync(dataFile, "utf8")).shape;
 expect(after.x - before.x).toBeCloseTo(120, 0);
 ```
+
+### Running the suite (Bun 1.3.13+)
+
+`bun test` gained flags that matter for these WebView suites:
+
+- `--isolate` — runs each test file in a fresh global (drains microtasks, closes sockets, kills subprocesses between files). Use it when route tests would otherwise leak global/DOM state across files.
+- `--parallel[=N]` — spreads files across worker processes. Safe only if each file binds its own `port: 0` server and its own throwaway data path (the factory pattern above already does this); files that share one on-disk fixture will race.
+- `--shard=M/N` — splits files across CI runners (path-sorted, deterministic).
+- `--changed` — runs only files whose import graph touches your git changes.
 
 ### What not to do
 

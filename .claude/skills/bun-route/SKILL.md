@@ -1,6 +1,6 @@
 ---
 name: bun-route
-version: 0.8.2
+version: 0.9.0
 description: Scaffold a new Bun HTML route with bundled CSS and TypeScript/JavaScript. Use when the user wants to add a page/route to a Bun fullstack app.
 argument-hint: [route-path] [description]
 ---
@@ -80,13 +80,15 @@ Ask the user to start (or restart) the server if it's not already running. Then:
 
 ## Step 6 — Tests (when the route has interaction worth locking down)
 
-Bun 1.3.12+ ships `Bun.WebView` — a real headless browser usable directly from `bun test`. If the route has non-trivial behaviour (forms, drag, WebSockets, client state), write a `bun test` against it.
+Bun 1.3.12+ ships `Bun.WebView` — a real headless browser usable directly from `bun test`. If the route has non-trivial behaviour (forms, drag, WebSockets, client state), write a `bun test` against it. This skill's testing patterns assume **Bun 1.3.14+**, which is where the WebView options used below (`clickCount`, per-click `timeout`, constructor `console`/`dataStore`) and the `bun test` parallelism flags settled; on 1.3.12–1.3.13 the WebView exists but those options may be missing.
 
 The testing flow requires the server to be **importable** — refactor its entry into an exported `startServer(opts)` factory so tests can bind to `port: 0` and inject throwaway paths. Then `await using view = new Bun.WebView(...)` and drive it with `navigate`, `click`, `evaluate`.
 
 Three footguns worth knowing before you start:
 - `view.evaluate` takes a single **expression**, not statement bodies. For multi-statement code, wrap with `Function("…; return …;")()`.
 - `view.evaluate<T = unknown>` defaults to `unknown`, which makes bun:test's `expect()` pick the wrong overload. Always pass an explicit type arg: `view.evaluate<string>(...)`, `evaluate<number>(...)`, `evaluate<boolean>(...)`.
-- There is no `waitForSelector` / `waitForFunction` — selector methods auto-wait on actionability, but for anything else (async WS updates landing in the DOM, file-system persistence) write a small `waitFor(fn, pred, ms)` poll helper.
+- There is no `waitForSelector` / `waitForFunction` — selector methods auto-wait on actionability (with a per-call `timeout`, default 30000ms), but for anything else (async WS updates landing in the DOM, file-system persistence) write a small `waitFor(fn, pred, ms)` poll helper.
 
-Full patterns, the `Function(...)()` wrapping idiom, synthetic-event recipes for the gaps (no `dblclick`, no pointer-drag helper), and order-independent test structure are in `reference.md` → **Testing routes with `Bun.WebView`**.
+Double-click is now native — `view.click(selector, { clickCount: 2 })` (1–3) — so the old synthetic-`dblclick` recipe is no longer needed. Pointer-drag and wheel still have no helper and need dispatched events.
+
+Full patterns, the `Function(...)()` wrapping idiom, synthetic-event recipes for the remaining gaps (pointer-drag, wheel), and order-independent test structure are in `reference.md` → **Testing routes with `Bun.WebView`**.

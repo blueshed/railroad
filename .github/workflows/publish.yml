@@ -15,7 +15,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       # tests/webview.test.ts needs a browser for Bun.WebView; ubuntu-latest
       # ships google-chrome-stable. Fail loudly if a future image drops it.
@@ -27,7 +27,13 @@ jobs:
 
       - run: bun test
 
+      # Run the WebView suite explicitly — bare `bun test` can drop it from
+      # discovery, and the real-browser layer must gate a publish.
+      - run: bun test ./tests/webview.test.ts
+
       - run: bunx tsc --noEmit
+
+      - run: bun run check:consumer
 
       - uses: actions/setup-node@v4
         with:

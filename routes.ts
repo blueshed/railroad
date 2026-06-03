@@ -84,10 +84,12 @@ export function matchRoute(
       }).join("/");
       return params;
     } else if (pp[i]!.startsWith(":")) {
+      // A malformed percent-escape must not silently un-match the route.
+      // Fall back to the raw segment, consistent with the wildcard branch.
       try {
         params[pp[i]!.slice(1)] = decodeURIComponent(hp[i]!);
       } catch {
-        return null;
+        params[pp[i]!.slice(1)] = hp[i]!;
       }
     } else if (pp[i] !== hp[i]) return null;
   }
@@ -98,7 +100,15 @@ export function route<
   T extends Record<string, string> = Record<string, string>,
 >(pattern: string): ReadonlySignal<T | null> {
   const hash = getHash();
-  trackDispose(() => releaseHash());
+  // Idempotent release — disposing the scope more than once must not drive the
+  // shared hashListenerCount negative and tear the listener out from under
+  // other live routers.
+  let released = false;
+  trackDispose(() => {
+    if (released) return;
+    released = true;
+    releaseHash();
+  });
   return computed(() => matchRoute(pattern, hash.get()) as T | null);
 }
 
@@ -128,11 +138,10 @@ export function routes(
   let asyncPending = false;
 
   function teardown() {
+    // Bumping runId invalidates any in-flight async render: when its promise
+    // settles, the myRunId !== runId guard disposes that render's own scope.
     runId++;
-    if (asyncPending) {
-      popDisposeScope()();
-      asyncPending = false;
-    }
+    asyncPending = false;
     if (activeDispose) activeDispose();
     activeDispose = null;
     activePattern = null;
@@ -140,65 +149,93 @@ export function routes(
     target.replaceChildren();
   }
 
+  // Route the error through onError (if present) or console.error. Used by both
+  // the sync-throw and async-reject paths so they behave identically — and so a
+  // throwing onError can never escape as an unhandled rejection.
+  function handleError(err: unknown): boolean {
+    if (options?.onError) {
+      try {
+        const fallback = options.onError(err);
+        if (fallback instanceof Node) {
+          target.appendChild(fallback);
+          return true;
+        }
+      } catch (boundaryErr) {
+        console.error("[railroad/routes] onError boundary threw:", boundaryErr);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function run(handler: RouteHandler, params: Record<string, string>) {
     const myRunId = ++runId;
     activeParams = signal(params);
+
+    // Always pop the scope synchronously before run() returns — never leave it
+    // pushed across an await. Otherwise an async first render returns with the
+    // global dispose stack imbalanced, so a parent scope pops the wrong scope
+    // (leaking its own disposers) and the resolving .then() captures the parent
+    // scope into activeDispose, recursing into a stack overflow on teardown.
     pushDisposeScope();
     let result: Node | Promise<Node>;
     try {
       result = handler(params, activeParams);
     } catch (err) {
-      // Synchronous throw — pop and dispose so the stack stays balanced.
+      // Synchronous throw — pop+dispose the children created so far so the
+      // stack stays balanced, then route through the error boundary.
       popDisposeScope()();
       activePattern = null;
       activeParams = null;
-      if (options?.onError) {
-        const fallback = options.onError(err);
-        if (fallback instanceof Node) {
-          target.appendChild(fallback);
-          return;
-        }
-      }
+      if (handleError(err)) return;
       throw err;
     }
+    // No synchronous throw: pop now (balanced) and capture the disposer.
+    const scopeDispose = popDisposeScope();
 
     if (result instanceof Promise) {
       asyncPending = true;
       result.then(
         (node) => {
-          if (myRunId !== runId) return; // navigated away during await
+          if (myRunId !== runId) {
+            scopeDispose(); // navigated away during await — drop orphaned children
+            return;
+          }
           asyncPending = false;
-          activeDispose = popDisposeScope();
+          activeDispose = scopeDispose;
           target.appendChild(node);
         },
         (err) => {
-          if (myRunId !== runId) return; // teardown already popped our scope
+          if (myRunId !== runId) {
+            scopeDispose();
+            return;
+          }
           asyncPending = false;
-          popDisposeScope()();
+          scopeDispose();
           activePattern = null;
           activeParams = null;
-          if (options?.onError) {
-            const fallback = options.onError(err);
-            if (fallback instanceof Node) {
-              target.appendChild(fallback);
-              return;
-            }
-          }
+          if (handleError(err)) return;
           console.error("[railroad/routes] async handler rejected:", err);
         },
       );
     } else {
-      activeDispose = popDisposeScope();
+      activeDispose = scopeDispose;
       target.appendChild(result);
     }
   }
 
   // Register the outer dispose into the caller's scope BEFORE creating the
-  // effect — otherwise an async first-render leaves run()'s pushed scope on
-  // the stack, and trackDispose() would place dispose into the route's own
-  // internal scope, causing a self-disposal loop on teardown.
+  // effect, so dispose lands in the caller's scope (not the router's own
+  // internal one). run() keeps the dispose stack balanced across async first
+  // renders, so this is now purely about attributing dispose to the right scope.
   let disposeEffect: Dispose | null = null;
+  let disposed = false;
   const dispose = () => {
+    // Idempotent — calling dispose() more than once (or via both the returned
+    // handle and a parent scope) must release the shared hash refcount exactly
+    // once, or it goes negative and detaches the listener from other routers.
+    if (disposed) return;
+    disposed = true;
     if (disposeEffect) disposeEffect();
     teardown();
     releaseHash();
@@ -211,7 +248,21 @@ export function routes(
       const params = matchRoute(pattern, path);
       if (params) {
         if (pattern === activePattern) {
-          // Same pattern, different params — update the signal
+          // Same pattern, different params. If a render for the OLD params is
+          // still in flight, updating the signal alone would let the stale
+          // resolution paint outdated content (and a handler that captured the
+          // initial `params` arg would never refresh) — so invalidate it with a
+          // full teardown + re-run. Otherwise just push the new params.
+          if (asyncPending) {
+            teardown();
+            activePattern = pattern;
+            try {
+              run(handler, params);
+            } catch (err) {
+              console.error("[railroad/routes] handler threw:", err);
+            }
+            return;
+          }
           activeParams!.set(params);
           return;
         }

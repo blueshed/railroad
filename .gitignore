@@ -1,2 +1,4 @@
 node_modules
-*.lock
+# Ignore only the legacy binary lockfile; the text-format bun.lock IS committed
+# so CI/publish install a pinned, reproducible dependency graph.
+bun.lockb

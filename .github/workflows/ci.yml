@@ -13,9 +13,14 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - run: bunx tsc --noEmit
+
+      # Type-check the documented consumer surface (react-jsx + jsxImportSource,
+      # strict, no @types/bun). The check above runs jsx:react, so this is the
+      # only gate on the automatic-runtime path consumers actually compile against.
+      - run: bun run check:consumer
 
       # tests/webview.test.ts drives Bun.WebView, which needs a Chrome/Chromium
       # on the runner. ubuntu-latest ships google-chrome-stable; point Bun at it
@@ -28,3 +33,8 @@ jobs:
           echo "BUN_CHROME_PATH=$chrome" >> "$GITHUB_ENV"
 
       - run: bun test
+
+      # Bare `bun test` non-deterministically drops files under tests/ from
+      # discovery, so run the WebView suite explicitly — the real-browser layer
+      # must never be silently skipped behind a green check.
+      - run: bun test ./tests/webview.test.ts

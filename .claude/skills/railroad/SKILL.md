@@ -1,6 +1,6 @@
 ---
 name: railroad
-version: 0.8.2
+version: 0.9.0
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -40,6 +40,8 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 
 #1 bug. `{count}` puts the Signal *itself* into JSX, where the runtime registers a reactive text node. `{count.get()}` puts a plain number in, never reactive again.
 
+A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the *stringified* element (e.g. `[object SVGElement]`), not the element — railroad warns in dev. To render elements conditionally use `when()`; for collections use `list()`.
+
 ### 2. `list()` keyed render gets `Signal<T>`, not `T`
 
 ```tsx
@@ -54,6 +56,8 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 ```
 
 Index-based form (no keyFn) gets raw values and recreates the row on change — fine for static lists, wasteful for editable ones.
+
+`keyFn` must return a **unique** key per item. Duplicate keys collapse to a single row and silently drop the others (railroad warns in dev) — key by a stable unique id (`r => r.id`), not by a value that can repeat.
 
 ### 3. SVG works — but only when `<svg>` is the JSX outer wrapper
 
@@ -84,7 +88,12 @@ const c = signal(0);
 effect(() => console.log(c.get()));
 ```
 
-Dispose scopes are pushed by `createElement(Component)`, `routes()`, `route()`, `when()`, and `list()`. If you create an effect outside any of those, capture the dispose function returned by `effect(...)` and call it manually.
+Dispose scopes are pushed by `createElement(Component)`, a `routes()` handler, `when()`, and `list()` — for the effects/computeds created **inside** them. `route()` (singular) is **not** a scope provider: it returns a `ReadonlySignal` and does not dispose children for you.
+
+Two consequences worth internalising:
+
+- A top-level `effect()` you create yourself leaks unless you keep its disposer.
+- `when()` / `list()` / `route()` created **outside** any parent scope also leak — their driving effect's disposer is unreachable (they return a DOM node / signal, not a disposer). Mount UI through a component or a `routes()` handler so a scope exists. For an advanced custom root, bracket it yourself: `pushDisposeScope()` … build UI … `const dispose = popDisposeScope()` (both exported from the package), or register cleanups with `trackDispose(fn)`.
 
 ### 5. Use the realtime escape hatches for large documents
 

@@ -22,6 +22,11 @@ Railroad fills exactly the slot Bun leaves open: a small, push-based reactive la
 bun add @blueshed/railroad
 ```
 
+> **Bun / bundler only.** Railroad ships TypeScript source with no build step and
+> uses extensionless imports, so your toolchain must transpile TS and resolve
+> with `moduleResolution: "bundler"` (or `"bun"`). It does **not** resolve under
+> Node's `node16`/`nodenext`. Bun is the intended runtime.
+
 ## A working app, end to end
 
 ```json
@@ -107,11 +112,15 @@ untrack(() => count.get());                           // same, function form
 // In-place mutation helpers — the realtime story
 const todos = signal([{ id: 1, text: "Buy milk" }]);
 todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));   // structuredClone + notify
-todos.patch({ /* shallow merge for object signals */ });
 todos.touch();                                                 // notify without replacing the ref
 
+// .patch() shallow-merges OBJECT signals (don't call it on an array — it would
+// spread the array into a plain object and break it)
+const filter = signal({ color: "all", done: false });
+filter.patch({ color: "blue" });                              // { color: "blue", done: false }
+
 // Custom equality — suppress notifications when contents match
-const filter = signal({ x: 1, y: 2 }, {
+const coords = signal({ x: 1, y: 2 }, {
   equals: (a, b) => a.x === b.x && a.y === b.y,
 });
 
@@ -282,7 +291,7 @@ test("counter increments", async () => {
 });
 ```
 
-Same `bun test` runner. No Playwright install. No browser binary download on macOS (uses system WKWebView). Railroad's own suite is 112 tests across happy-dom and WebView.
+Same `bun test` runner. No Playwright install. No browser binary download on macOS (uses system WKWebView). Railroad's own suite spans happy-dom unit tests and real-browser WebView integration tests. Run the browser layer explicitly with `bun run test:webview` — bare `bun test` can drop files under `tests/` from discovery, so CI runs it as its own step.
 
 ## Shared (DI) and Logger
 
@@ -332,7 +341,7 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
 
 ## Sharp edges to know
 
-- **Propagation is eager, not glitch-free.** In a diamond (`a → b`, `a → c`, an effect reads both), a write to `a` runs the effect twice and its first run can observe a half-updated state (`b` new, `c` stale). Fine for binding signals to DOM; for multi-write transactions wrap them in `batch()` so subscribers see one consistent flush.
+- **Propagation is eager, not glitch-free.** In a diamond (`a → b`, `a → c`, an effect reads both), a *single* write to `a` runs the effect twice and its first run can observe a half-updated state (`b` new, `c` stale). `batch()` does **not** fix this for one write — it only coalesces *multiple* writes into a single flush. Fine for binding signals to DOM; the transient state is gone by the next frame.
 - **Routes match in declaration order.** The first pattern that matches wins — declare `/users/new` before `/users/:id`.
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
