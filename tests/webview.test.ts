@@ -7,8 +7,13 @@
 // happy-dom (registered in happy-dom.setup.ts) must NOT interfere. It doesn't:
 // the WebView is a separate process that talks via IPC.
 
-import { test, expect, beforeAll, afterAll, describe } from "bun:test";
+import { test, expect, beforeAll, afterAll, describe, setDefaultTimeout } from "bun:test";
 import { startServer } from "./server";
+
+// Real-browser tests pay a cold Chrome/CDP launch on the first test (slow on CI
+// Linux runners), which can blow Bun's default 5s per-test timeout. Give the
+// whole file generous headroom — these are integration tests, not unit tests.
+setDefaultTimeout(30_000);
 
 let server: Awaited<ReturnType<typeof startServer>>["server"];
 let url: string;
@@ -26,7 +31,7 @@ afterAll(() => {
 async function waitFor<T>(
   fn: () => Promise<T> | T,
   pred: (v: T) => boolean,
-  ms = 3000,
+  ms = 10000,
 ): Promise<T> {
   const start = Date.now();
   let last: T;

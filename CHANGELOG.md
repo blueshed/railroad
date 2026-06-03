@@ -75,6 +75,9 @@ by a regression test; the full suite and a new consumer-typecheck pass are green
 - `bun.lock` is committed; CI and publish install with `--frozen-lockfile`.
 - CI and publish run the WebView suite as an explicit step (bare `bun test` can
   drop it from discovery) and run `bun run check:consumer`.
+- Pinned `setup-bun` to `1.3.14` in CI/publish (previously resolved implicitly
+  from `engines.bun`), and gave the WebView suite a 30s default timeout so a cold
+  Chrome launch on CI runners can't trip Bun's 5s per-test default.
 
 ### Skills
 
