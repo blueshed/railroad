@@ -49,7 +49,7 @@ document.getElementById("root")!.append(Page());
 
 ### tsx-railroad mode
 
-The sibling `railroad` skill (installed alongside this one in `@blueshed/railroad`'s `.claude/skills/`) covers the API surface and the five JSX gotchas that bite if you're not careful (`.get()` in children, list keying, SVG namespace, dispose scopes, realtime escape hatches). Read it before generating component code.
+The sibling `railroad` skill (installed alongside this one in `@blueshed/railroad`'s `.claude/skills/`) covers the API surface and the seven JSX gotchas that bite if you're not careful (`.get()` in children, list keying, SVG namespace, dispose scopes, realtime escape hatches, lowercase event handlers, `list()` vs plain `.map()`). Read it before generating component code.
 
 The mount pattern:
 

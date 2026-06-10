@@ -19,7 +19,16 @@
  *   <svg> is created with the SVG namespace. Any HTML children appended to
  *   an SVG-namespaced parent are automatically adopted into the SVG namespace.
  *   This handles the JSX bottom-up evaluation order transparently — you can
- *   write <svg><g><circle /></g></svg> and it just works.
+ *   write <svg><g><circle /></g></svg> and it just works. camelCase SVG tags
+ *   (linearGradient, clipPath, foreignObject, fe* filters, ...) keep their
+ *   authored case through adoption, and adoption stops at <foreignObject>,
+ *   whose subtree stays HTML.
+ *
+ *   Adoption caveats: the adopted element is a fresh node, so a `ref` callback
+ *   fires twice (first with the discarded HTML-namespace element, then with
+ *   the final SVG one — use the last call), and listeners attached manually
+ *   via addEventListener (rather than on* props) do not survive adoption.
+ *   Elements built by hand with createElementNS pass through untouched.
  *
  * Reactive helpers:
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
@@ -36,6 +45,11 @@ import type { Dispose, ReadonlySignal } from "./signals";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const storedProps = new WeakMap<Element, Record<string, any>>();
+// document.createElement() lowercases tag names in HTML documents, which
+// destroys camelCase SVG tags (linearGradient, clipPath, foreignObject, every
+// fe* filter primitive, ...) before adoption can see them. Remember the
+// authored tag so adoptSvg can recreate the element with its original case.
+const authoredTags = new WeakMap<Element, string>();
 // Disposers for the reactive effects applyProps creates per element. SVG
 // adoption discards the original HTML-namespace element and re-applies its
 // props to a fresh SVG element; without tearing these down first, both elements
@@ -140,6 +154,7 @@ export function createElement(
   const el = tag === "svg"
     ? document.createElementNS(SVG_NS, tag)
     : document.createElement(tag);
+  if (el.localName !== tag) authoredTags.set(el, tag);
 
   if (props) {
     storedProps.set(el, props);
@@ -161,7 +176,10 @@ function adoptSvg(node: Node): Node {
   if (node instanceof Text || node instanceof Comment) return node;
   if (!(node instanceof Element) || node.namespaceURI === SVG_NS) return node;
 
-  const svgEl = document.createElementNS(SVG_NS, node.localName);
+  const svgEl = document.createElementNS(
+    SVG_NS,
+    authoredTags.get(node) ?? node.localName,
+  );
   const props = storedProps.get(node);
 
   if (props) {
@@ -185,9 +203,12 @@ function adoptSvg(node: Node): Node {
     }
   }
 
-  // Adopt children recursively
+  // Adopt children recursively — except through <foreignObject>, whose
+  // subtree is HTML content by definition and must keep its namespace.
+  const isForeign = svgEl.localName === "foreignObject";
   while (node.firstChild) {
-    svgEl.appendChild(adoptSvg(node.removeChild(node.firstChild)));
+    const child = node.removeChild(node.firstChild);
+    svgEl.appendChild(isForeign ? child : adoptSvg(child));
   }
 
   return svgEl;
@@ -202,7 +223,13 @@ function adoptSvg(node: Node): Node {
  * swapped (caller must reassign).
  */
 function adoptIntoSvg(result: Node, parent: Node | null): Node {
-  if (!(parent instanceof Element) || parent.namespaceURI !== SVG_NS) {
+  // <foreignObject> is an SVG-namespace element whose children are HTML —
+  // adoption stops at that boundary.
+  if (
+    !(parent instanceof Element) ||
+    parent.namespaceURI !== SVG_NS ||
+    parent.localName === "foreignObject"
+  ) {
     return result;
   }
   if (result instanceof DocumentFragment) {
@@ -223,8 +250,10 @@ function adoptIntoSvg(result: Node, parent: Node | null): Node {
 // === Child rendering ===
 
 function appendChildren(parent: Node, children: any[]): void {
+  // foreignObject children are HTML by definition — never adopt them.
   const isSvgParent = parent instanceof Element &&
-    parent.namespaceURI === SVG_NS;
+    parent.namespaceURI === SVG_NS &&
+    parent.localName !== "foreignObject";
 
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === true) continue;
@@ -322,6 +351,16 @@ export function when(
     } else {
       swap();
     }
+  });
+
+  // The active branch's scope is otherwise only disposed on the next
+  // truthiness swap — without this, effects inside the branch outlive the
+  // parent scope (route/component teardown) and keep writing to detached DOM.
+  trackDispose(() => {
+    if (currentDispose) currentDispose();
+    currentDispose = null;
+    for (const n of currentNodes) n.parentNode?.removeChild(n);
+    currentNodes = [];
   });
 
   const frag = document.createDocumentFragment();

@@ -15,6 +15,11 @@
  * Patterns are tested in declaration order; the first match wins. Declare
  * specific routes before parameterised ones (`/users/new` before `/users/:id`).
  *
+ * Matching is purely segment-based — there is no query-string handling. A
+ * hash of "#/users/42?tab=1" matches "/users/:id" with id === "42?tab=1"
+ * (split on "?" yourself if you need it), and a trailing slash is a real
+ * empty segment: "/users/42/" does NOT match "/users/:id".
+ *
  * Handlers receive (params, params$) and return a Node (sync or async).
  *   params  — plain object for destructuring: ({ id }) => ...
  *   params$ — Signal that updates when params change within the same pattern

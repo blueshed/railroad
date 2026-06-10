@@ -158,7 +158,7 @@ function Greeting() {
 ))}
 ```
 
-SVG works transparently — `<svg><circle /></svg>` adopts children into the SVG namespace, including inside `when()` and `list()`.
+SVG works transparently — `<svg><circle /></svg>` adopts children into the SVG namespace, including inside `when()` and `list()`. camelCase tags (`linearGradient`, `clipPath`, `foreignObject`, filter primitives) keep their case, and `<foreignObject>` children stay HTML.
 
 ## Routes
 
@@ -325,12 +325,12 @@ import { signal, computed, effect } from "@blueshed/railroad/signals";
 
 ## Claude Code
 
-Ships with a Claude Code skill at `.claude/skills/railroad/SKILL.md`. It's a checklist of the failure modes that have actually shown up in development — not a tutorial. Copy it in:
+Ships with two Claude Code skills under `.claude/skills/`: `railroad` (a checklist of the failure modes that have actually shown up in development — not a tutorial) and `bun-route` (scaffolds Bun HTML routes and `Bun.WebView` tests; the railroad skill refers to it). Copy both in:
 
 ```sh
-cp -r node_modules/@blueshed/railroad/.claude/skills/railroad .claude/skills/
+cp -r node_modules/@blueshed/railroad/.claude/skills/* .claude/skills/
 # or user-wide:
-cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
+cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
 ```
 
 ## What it isn't
@@ -343,6 +343,8 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/railroad ~/.claude/skills/
 
 - **Propagation is eager, not glitch-free.** In a diamond (`a → b`, `a → c`, an effect reads both), a *single* write to `a` runs the effect twice and its first run can observe a half-updated state (`b` new, `c` stale). `batch()` does **not** fix this for one write — it only coalesces *multiple* writes into a single flush. Fine for binding signals to DOM; the transient state is gone by the next frame.
 - **Routes match in declaration order.** The first pattern that matches wins — declare `/users/new` before `/users/:id`.
+- **Route matching is segment-based only.** No query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"`), and a trailing slash is a real empty segment (`/users/42/` does not match `/users/:id`).
+- **SVG adoption creates fresh nodes.** A `ref` on a JSX element inside `<svg>` fires twice (use the last call); `addEventListener` calls made by hand before adoption don't carry over — use `on*` props.
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
 

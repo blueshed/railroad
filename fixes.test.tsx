@@ -1,4 +1,4 @@
-// Regression tests for the v0.9.0 fix set — each pins a bug found in the deep
+// Regression tests for the v0.9.x fix sets — each pins a bug found in a deep
 // review (and several load-bearing invariants that previously had no test).
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { createElement, when, list } from "./jsx";
@@ -70,6 +70,32 @@ describe("signals: disposed-effect / depth-guard / dispose", () => {
     d(); // second call must be a safe no-op
     expect((s as any).listeners.size).toBe(0);
   });
+
+  test("a throwing effect run does not strand subscriptions past dispose()", () => {
+    const a = signal(0);
+    const b = signal(0);
+    // First run reads only a; the second run reads b and then throws, so the
+    // dep-set swap must still happen or dispose() can never unsubscribe from b.
+    const d = effect(() => {
+      if (a.get() === 1) { b.get(); throw new Error("boom"); }
+    });
+    expect(() => a.set(1)).toThrow("boom");
+    d();
+    expect((a as any).listeners.size).toBe(0);
+    expect((b as any).listeners.size).toBe(0);
+  });
+
+  test("batch(): an error thrown by fn() is not masked by a flush error", () => {
+    const s = signal(0);
+    // This effect throws during the flush; fn()'s own error must still win.
+    effect(() => { if (s.get() > 0) throw new Error("flush boom"); });
+    expect(() => {
+      batch(() => {
+        s.set(1);
+        throw new Error("fn boom");
+      });
+    }).toThrow("fn boom");
+  });
 });
 
 // ============================================================ jsx.ts
@@ -137,6 +163,79 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     expect(input.value).toBe("hi");
     v.set(null);
     expect(input.value).toBe("");
+  });
+
+  test("when(): active branch effects die with the parent scope", async () => {
+    const flag = signal(true);
+    const inner = signal(0);
+    let branchRuns = 0;
+
+    pushDisposeScope();
+    const node = when(flag, () => {
+      const el = document.createElement("span");
+      effect(() => { inner.get(); branchRuns++; });
+      return el;
+    });
+    const dispose = popDisposeScope();
+
+    document.body.append(node);
+    await flush();
+    expect(branchRuns).toBe(1);
+    inner.set(1);
+    expect(branchRuns).toBe(2);
+
+    dispose(); // parent teardown must dispose the live branch too
+    inner.set(2);
+    expect(branchRuns).toBe(2);
+    expect(document.body.querySelector("span")).toBeNull(); // nodes removed
+  });
+
+  test("camelCase SVG tags keep their case through adoption", () => {
+    const svg = (
+      <svg>
+        <defs>
+          <linearGradient id="g">
+            <stop offset="0" stop-color="red" />
+          </linearGradient>
+        </defs>
+      </svg>
+    ) as unknown as SVGElement;
+    const grad = svg.querySelector("#g")!;
+    expect(grad.namespaceURI).toBe(SVG_NS);
+    expect(grad.localName).toBe("linearGradient");
+    expect(grad.querySelector("stop")!.namespaceURI).toBe(SVG_NS);
+  });
+
+  test("foreignObject keeps its case and its children stay HTML", () => {
+    const svg = (
+      <svg>
+        <foreignObject width="100" height="100">
+          <div class="html-island">hello</div>
+        </foreignObject>
+      </svg>
+    ) as unknown as SVGElement;
+    const fo = svg.querySelector("foreignObject")!;
+    expect(fo.namespaceURI).toBe(SVG_NS);
+    expect(fo.localName).toBe("foreignObject");
+    const div = fo.querySelector("div")!;
+    expect(div.namespaceURI).not.toBe(SVG_NS);
+    expect(div.textContent).toBe("hello");
+  });
+
+  test("when() inside foreignObject renders HTML-namespace content", async () => {
+    const open = signal(true);
+    const svg = (
+      <svg>
+        <foreignObject width="100" height="100">
+          {when(open, () => <p class="note">html note</p>)}
+        </foreignObject>
+      </svg>
+    ) as unknown as SVGElement;
+    document.body.append(svg);
+    await flush();
+    const p = svg.querySelector("p.note")!;
+    expect(p).not.toBeNull();
+    expect(p.namespaceURI).not.toBe(SVG_NS);
   });
 });
 

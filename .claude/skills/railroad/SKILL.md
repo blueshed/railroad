@@ -40,7 +40,7 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 
 #1 bug. `{count}` puts the Signal *itself* into JSX, where the runtime registers a reactive text node. `{count.get()}` puts a plain number in, never reactive again.
 
-A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the *stringified* element (e.g. `[object SVGElement]`), not the element — railroad warns in dev. To render elements conditionally use `when()`; for collections use `list()`.
+A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the *stringified* element (e.g. `[object SVGElement]`), not the element — railroad warns on the console (dev and prod alike). To render elements conditionally use `when()`; for collections use `list()`.
 
 ### 2. `list()` keyed render gets `Signal<T>`, not `T`
 
@@ -57,7 +57,7 @@ A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B
 
 Index-based form (no keyFn) gets raw values and recreates the row on change — fine for static lists, wasteful for editable ones.
 
-`keyFn` must return a **unique** key per item. Duplicate keys collapse to a single row and silently drop the others (railroad warns in dev) — key by a stable unique id (`r => r.id`), not by a value that can repeat.
+`keyFn` must return a **unique** key per item. Duplicate keys collapse to a single row and silently drop the others (railroad warns on the console) — key by a stable unique id (`r => r.id`), not by a value that can repeat.
 
 ### 3. SVG works — but only when `<svg>` is the JSX outer wrapper
 
@@ -67,11 +67,21 @@ Index-based form (no keyFn) gets raw values and recreates the row on change — 
   {list(shapes, s => s.id, (s$) => <circle r={s$.map(s => s.r)} />)}
 </svg>
 
-// ❌ <circle> created outside an <svg> ancestor stays in HTML namespace, won't render
+// ✅ camelCase tags keep their case; foreignObject children stay HTML
+<svg>
+  <defs><linearGradient id="g"><stop offset="0" stop-color="red" /></linearGradient></defs>
+  <circle r="10" fill="url(#g)" />
+  <foreignObject width="100" height="100"><div>html island</div></foreignObject>
+</svg>
+
+// ❌ <circle> mounted without an <svg> ancestor stays in HTML namespace, won't render
 function Circle() { return <circle r="10" />; }
+document.body.append(<Circle />);
 ```
 
 If you must build SVG by hand, use `document.createElementNS("http://www.w3.org/2000/svg", "circle")` — railroad passes those through unchanged.
+
+Adoption replaces the element with a fresh SVG-namespace node, so two caveats: a `ref` on an adopted element fires **twice** (discarded HTML node first, final SVG node last — use the last call), and listeners attached manually via `addEventListener` inside a component don't survive adoption — use `on*` props, which are re-applied to the adopted element.
 
 ### 4. Effects auto-dispose **only** inside a parent scope
 
@@ -177,6 +187,8 @@ function SitesLayout() {
 ```
 
 `/sites` → `/sites/42` → `/sites/99`: layout stays mounted, only inner content swaps. `params$` updates without remounting; `route()` is a `ReadonlySignal<T | null>`.
+
+Matching is purely segment-based: there is no query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"` — split on `?` yourself), and a trailing slash is a real empty segment (`/users/42/` does **not** match `/users/:id`).
 
 In tests: `hashchange` is dispatched on the next macrotask in both happy-dom and real browsers. After `navigate(...)`, `await new Promise(r => setTimeout(r, 0))`.
 

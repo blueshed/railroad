@@ -227,6 +227,20 @@ describe("Bun.WebView — railroad fixture app", () => {
       () => evalStr(view, `document.querySelector('[data-testid=circle]').getAttribute('cx')`),
       (v) => v === "70",
     );
+
+    // camelCase adoption: the browser must see a REAL SVGLinearGradientElement
+    // (a lowercased <lineargradient> would be SVG-namespace but unrecognised).
+    expect(await evalBool(view,
+      `document.querySelector('[data-testid=grad]') instanceof SVGLinearGradientElement`,
+    )).toBe(true);
+
+    // foreignObject: a real SVGForeignObjectElement whose children stay HTML.
+    expect(await evalBool(view,
+      `document.querySelector('[data-testid=fo]') instanceof SVGForeignObjectElement`,
+    )).toBe(true);
+    expect(await evalStr(view,
+      `document.querySelector('[data-testid=fo-html]').namespaceURI`,
+    )).toBe("http://www.w3.org/1999/xhtml");
   });
 
   test("async route resolves and renders", async () => {

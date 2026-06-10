@@ -103,7 +103,16 @@ function SvgPage() {
     <section data-route="svg">
       <h1>svg</h1>
       <svg width="200" height="100" data-testid="svg">
-        <circle data-testid="circle" cx={cx} cy="50" r="20" fill="red" />
+        <defs>
+          <linearGradient id="grad" data-testid="grad">
+            <stop offset="0%" stop-color="red" />
+            <stop offset="100%" stop-color="blue" />
+          </linearGradient>
+        </defs>
+        <circle data-testid="circle" cx={cx} cy="50" r="20" fill="url(#grad)" />
+        <foreignObject x="100" y="0" width="100" height="100" data-testid="fo">
+          <div data-testid="fo-html">html island</div>
+        </foreignObject>
       </svg>
       <button data-testid="move" onclick={move}>move</button>
       <a data-testid="back-home" href="#/">home</a>

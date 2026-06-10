@@ -208,13 +208,14 @@ export function effect(fn: () => void | (() => void)): () => void {
     } finally {
       currentListener = prevListener;
       currentDeps = prevDeps;
+      // Swap dep sets even when fn() throws: signals read before the throw
+      // have already registered this effect, so skipping the swap would leave
+      // dispose() iterating the stale set and leak those subscriptions.
+      for (const dep of deps) {
+        if (!nextDeps.has(dep)) dep.unsubscribe(execute);
+      }
+      deps = nextDeps;
     }
-
-    // Unsubscribe from signals no longer read
-    for (const dep of deps) {
-      if (!nextDeps.has(dep)) dep.unsubscribe(execute);
-    }
-    deps = nextDeps;
   };
 
   const dispose = () => {
@@ -299,6 +300,14 @@ export function untrack<T>(fn: () => T): T {
 let flushing = false;
 
 export function batch(fn: () => void): void {
+  // A throwing effect must not strand the effects already queued behind it
+  // (pendingEffects was cleared before running). Run them all, remember the
+  // first error, and rethrow it once the flush has drained. If fn() itself
+  // threw, its error takes priority over a flush error — the flush still runs
+  // (writes made before the throw must propagate), but must not mask the
+  // original exception.
+  let flushError: unknown;
+  let flushThrew = false;
   batchDepth++;
   try {
     fn();
@@ -306,11 +315,6 @@ export function batch(fn: () => void): void {
     batchDepth--;
     if (batchDepth === 0 && !flushing) {
       flushing = true;
-      // A throwing effect must not strand the effects already queued behind it
-      // (pendingEffects was cleared before running). Run them all, remember the
-      // first error, and rethrow it once the flush has drained.
-      let firstError: unknown;
-      let hasError = false;
       try {
         while (pendingEffects.size > 0) {
           const effects = [...pendingEffects];
@@ -319,9 +323,9 @@ export function batch(fn: () => void): void {
             try {
               e();
             } catch (err) {
-              if (!hasError) {
-                hasError = true;
-                firstError = err;
+              if (!flushThrew) {
+                flushThrew = true;
+                flushError = err;
               }
             }
           }
@@ -329,9 +333,9 @@ export function batch(fn: () => void): void {
       } finally {
         flushing = false;
       }
-      if (hasError) throw firstError;
     }
   }
+  if (flushThrew) throw flushError;
 }
 
 // === Convenience factory ===
