@@ -110,8 +110,9 @@ The unit tests need none of this and run anywhere with `bun test`.
 - Effects/computeds auto-dispose only inside a parent scope (a component, a
   `routes()` handler, `when`, `list`, or `mount()`); a top-level `effect()`
   leaks unless you keep its disposer, and `when`/`list` outside any scope warn
-  on the console. Root non-routed apps with `mount()`. `route()` (singular)
-  returns a `ReadonlySignal`; it does not push a scope for children.
+  on the console. Root non-routed apps with `mount()`, which brackets a scope
+  and returns its disposer. `route()` (singular) returns a `ReadonlySignal`; it
+  does not push a scope for children.
 - TypeScript is strict with `noUncheckedIndexedAccess`. Keep both `bun run check`
   and `bun run check:consumer` clean.
 - `bun.lock` is committed; CI/publish install with `--frozen-lockfile`. Keep it
