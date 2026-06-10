@@ -282,14 +282,11 @@ function appendChildren(parent: Node, children: any[]): void {
       });
       parent.appendChild(textNode);
     } else if (child instanceof Node) {
-      // Adopt HTML elements into SVG namespace when parent is SVG
-      if (isSvgParent &&
-          child instanceof Element &&
-          child.namespaceURI !== SVG_NS) {
-        parent.appendChild(adoptSvg(child));
-      } else {
-        parent.appendChild(child);
-      }
+      // Adopt HTML elements — and the element children of DocumentFragments
+      // (from <>...</> or components returning fragments) — into the SVG
+      // namespace when the parent is SVG. adoptIntoSvg handles both shapes
+      // and passes Text/Comment/already-SVG nodes through untouched.
+      parent.appendChild(isSvgParent ? adoptIntoSvg(child, parent) : child);
     } else {
       parent.appendChild(document.createTextNode(String(child)));
     }

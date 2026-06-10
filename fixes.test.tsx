@@ -1,7 +1,7 @@
 // Regression tests for the v0.9.x fix sets — each pins a bug found in a deep
 // review (and several load-bearing invariants that previously had no test).
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
-import { createElement, when, list } from "./jsx";
+import { createElement, Fragment, when, list } from "./jsx";
 import {
   signal,
   computed,
@@ -220,6 +220,26 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     const div = fo.querySelector("div")!;
     expect(div.namespaceURI).not.toBe(SVG_NS);
     expect(div.textContent).toBe("hello");
+  });
+
+  test("fragment children inside <svg> are adopted (<>...</> and components)", () => {
+    const Shapes = () => (
+      <>
+        <circle r="1" data-kind="comp" />
+      </>
+    );
+    const svg = (
+      <svg>
+        <>
+          <circle r="10" data-kind="frag" />
+          <rect width="5" data-kind="frag" />
+        </>
+        <Shapes />
+      </svg>
+    ) as unknown as SVGElement;
+    const kids = [...svg.querySelectorAll("[data-kind]")];
+    expect(kids).toHaveLength(3);
+    expect(kids.every((k) => k.namespaceURI === SVG_NS)).toBe(true);
   });
 
   test("when() inside foreignObject renders HTML-namespace content", async () => {
