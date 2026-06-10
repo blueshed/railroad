@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createElement, when, list } from "./jsx";
 import { signal, pushDisposeScope, popDisposeScope } from "./signals";
 
@@ -8,7 +8,15 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((r) => queueMicrotask(r));
 }
 
+// when()/list() warn when created outside a dispose scope; bracket each test
+// in one (as a component or mount() would) and tear it down afterwards.
+const scoped = () => {
+  beforeEach(() => { pushDisposeScope(); });
+  afterEach(() => { popDisposeScope()(); });
+};
+
 describe("SVG namespace adoption inside list() and when()", () => {
+  scoped();
   test("list() inside <svg> adopts children to SVG namespace", async () => {
     document.body.innerHTML = "";
     const items = signal<{ id: number }[]>([{ id: 1 }]);
@@ -374,6 +382,8 @@ describe("component error handling", () => {
 });
 
 describe("when() and list() composition", () => {
+  scoped();
+
   test("nested when() inside list() — toggles per-item without re-creating the list entry", async () => {
     document.body.innerHTML = "";
     type Item = { id: number; open: boolean };

@@ -9,6 +9,7 @@ import {
   effect,
   when,
   list,
+  mount,
   routes,
   route,
   navigate,
@@ -17,6 +18,7 @@ import {
   inject,
   createLogger,
 } from "@blueshed/railroad";
+import type { Dispose } from "@blueshed/railroad";
 
 const count = signal(0);
 const doubled = computed(() => count.get() * 2);
@@ -63,6 +65,8 @@ void user.get();
 
 const root = document.getElementById("root");
 if (root) {
+  const disposeApp: Dispose = mount(root, () => <App />);
+  void disposeApp;
   routes(root, {
     "/": () => <App />,
     "/users/:id": (_p, params$) => {

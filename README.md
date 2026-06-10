@@ -137,6 +137,10 @@ function Greeting() {
   return <h1>Hello {name}</h1>;       // bare signal as child — auto-reactive
 }
 
+// App root without a router: mount() brackets a dispose scope and
+// returns the disposer. (Routed apps get the same from routes().)
+const dispose = mount(document.getElementById("root")!, () => <Greeting />);
+
 <span>{() => count.get() > 5 ? "High" : "Low"}</span>      // function child auto-tracks
 <input value={name} />                                      // signal as prop
 <div class={visible.map(v => v ? "show" : "hide")} />       // .map() for derived attrs
@@ -158,7 +162,7 @@ function Greeting() {
 ))}
 ```
 
-SVG works transparently — `<svg><circle /></svg>` adopts children into the SVG namespace, including inside `when()` and `list()`. camelCase tags (`linearGradient`, `clipPath`, `foreignObject`, filter primitives) keep their case, and `<foreignObject>` children stay HTML.
+SVG works transparently — SVG tags (`circle`, `g`, `linearGradient`, `clipPath`, filter primitives, …) are created in the SVG namespace outright, including inside `when()` and `list()`, with camelCase preserved. `<foreignObject>` children stay HTML.
 
 ## Routes
 
@@ -341,10 +345,11 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
 
 ## Sharp edges to know
 
-- **Propagation is eager, not glitch-free.** In a diamond (`a → b`, `a → c`, an effect reads both), a *single* write to `a` runs the effect twice and its first run can observe a half-updated state (`b` new, `c` stale). `batch()` does **not** fix this for one write — it only coalesces *multiple* writes into a single flush. Fine for binding signals to DOM; the transient state is gone by the next frame.
+- **Propagation is glitch-free and topologically ordered** (0.10+). One write — or one `batch()` of writes — runs each affected computed/effect at most once per settled pass, upstream before downstream, so a diamond (`a → b`, `a → c`, an effect reads both) never observes half-updated state. Siblings at the same depth run in subscription order; an effect that *writes* signals re-queues their consumers in the same pass (a true cycle throws).
+- **`when()`/`list()` need a dispose scope.** Created outside a component, `routes()` handler, or `mount()`, their internal effects are unreachable — railroad warns on the console. Mount roots via `mount()` or `routes()`.
 - **Routes match in declaration order.** The first pattern that matches wins — declare `/users/new` before `/users/:id`.
 - **Route matching is segment-based only.** No query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"`), and a trailing slash is a real empty segment (`/users/42/` does not match `/users/:id`).
-- **SVG adoption creates fresh nodes.** A `ref` on a JSX element inside `<svg>` fires twice (use the last call); `addEventListener` calls made by hand before adoption don't carry over — use `on*` props.
+- **SVG tags get their namespace at creation** (0.10+) — refs fire once and manual listeners survive. Only the four HTML/SVG-ambiguous tags (`a`, `script`, `style`, `title`) still go through adoption when appended inside `<svg>`: on that path a `ref` fires twice (use the last call) and hand-attached listeners don't carry over — use `on*` props.
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
 

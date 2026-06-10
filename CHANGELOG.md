@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.10.0
+
+SVG promoted to first-class and the two long-standing core caveats removed:
+propagation is now glitch-free, and the dispose-scope rule got a real API plus
+a guardrail. Every change is pinned by a regression test; the WebView suite
+verifies the SVG work in real Chrome.
+
+### Added
+
+- **`mount(target, render)`** — root dispose scope for apps mounted outside
+  `routes()`. Effects, `when()`, and `list()` created by the render callback
+  tear down via the returned disposer, which also removes the rendered nodes.
+- **`hasActiveDisposeScope()`** — exported alongside the scope primitives.
+- **Scope guardrail:** `when()`/`list()` created outside any dispose scope now
+  `console.warn` — their internal disposers are unreachable, a guaranteed leak
+  once that UI unmounts.
+
+### Changed
+
+- **Signals are glitch-free.** Propagation is topologically scheduled: a write
+  (or batch) runs each affected computed/effect at most once per settled pass,
+  ordered by derivation depth. A diamond (`a → b`, `a → c`, effect reads both)
+  re-runs the effect once and never observes half-updated state. Deep computed
+  chains no longer grow the call stack. The cycle guard is now per-listener per
+  flush (same `Maximum effect depth` error).
+- **SVG namespace is decided at creation.** SVG-only tags (`circle`, `g`,
+  `linearGradient`, `clipPath`, `foreignObject`, `fe*` filters, …) are created
+  via `createElementNS` directly, so refs fire once, manual `addEventListener`
+  survives, and camelCase needs no rescue. Only the four HTML-ambiguous tags
+  (`a`, `script`, `style`, `title`) still use append-time adoption.
+
+### Fixed
+
+- **`when()` leaked its active branch on parent teardown.** The branch scope's
+  disposer was only invoked on the next truthiness swap, so effects inside the
+  rendered branch outlived route/component teardown and kept writing to
+  detached DOM. `when()` now registers branch cleanup in the parent scope, as
+  `list()` already did.
+- **camelCase SVG tags were silently broken** (pre-table):
+  `document.createElement` lowercased `linearGradient` et al. before adoption,
+  producing SVG-namespace elements the browser doesn't recognise. Now created
+  with correct case; real Chrome asserts `instanceof SVGLinearGradientElement`
+  in the WebView suite.
+- **`<foreignObject>` children were force-adopted into the SVG namespace**,
+  destroying HTML islands. Adoption (and `when()`/`list()` insertion) stops at
+  the `foreignObject` boundary.
+- **Fragment children inside `<svg>` bypassed adoption** — `<>...</>` and
+  components returning fragments left children in the HTML namespace.
+- **A throwing effect run stranded its new subscriptions:** the dep-set swap
+  was skipped on throw, so `dispose()` could never unsubscribe signals first
+  read in the failed run.
+- **`batch()` no longer masks an error thrown by `fn()`** with a later flush
+  error; the flush still drains, but the original exception wins.
+- **Docs:** route matching documented as segment-only (query strings fold into
+  the last param; trailing slash is a real empty segment); README
+  ships-both-skills copy instructions; bun-route reference updated to the seven
+  gotchas and the `mount()` pattern.
+
 ## 0.9.0
 
 A deep correctness/fitness review drove this release. Every item below is pinned

@@ -1,7 +1,7 @@
 // Regression tests for the v0.9.x fix sets — each pins a bug found in a deep
 // review (and several load-bearing invariants that previously had no test).
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
-import { createElement, Fragment, when, list } from "./jsx";
+import { createElement, Fragment, when, list, mount } from "./jsx";
 import {
   signal,
   computed,
@@ -101,7 +101,9 @@ describe("signals: disposed-effect / depth-guard / dispose", () => {
 // ============================================================ jsx.ts
 
 describe("jsx: SVG adoption / list / function-child / prop guards", () => {
-  beforeEach(() => { document.body.innerHTML = ""; });
+  // when()/list() warn outside a dispose scope — bracket each test in one.
+  beforeEach(() => { document.body.innerHTML = ""; pushDisposeScope(); });
+  afterEach(() => { popDisposeScope()(); });
 
   test("adopted SVG element keeps exactly one reactive subscription", () => {
     const cls = signal("a");
@@ -256,6 +258,104 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     const p = svg.querySelector("p.note")!;
     expect(p).not.toBeNull();
     expect(p.namespaceURI).not.toBe(SVG_NS);
+  });
+});
+
+// ============================================================ mount() & scope guardrails
+
+describe("mount() and scope-less warnings", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  test("mount() scopes effects and removes nodes on dispose", () => {
+    const count = signal(0);
+    let runs = 0;
+    const dispose = mount(document.body, () => {
+      effect(() => { count.get(); runs++; });
+      return <main id="app">{count}</main>;
+    });
+    expect(document.querySelector("#app")).not.toBeNull();
+    expect(runs).toBe(1);
+    count.set(1);
+    expect(runs).toBe(2);
+
+    dispose();
+    count.set(2);
+    expect(runs).toBe(2); // effect dead
+    expect(document.querySelector("#app")).toBeNull(); // nodes removed
+  });
+
+  test("when()/list() inside mount() do not warn and are disposed with it", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const flag = signal(true);
+    const rows = signal([{ id: 1 }]);
+    const dispose = mount(document.body, () => (
+      <div>
+        {when(flag, () => <span>on</span>)}
+        <ul>{list(rows, (r) => r.id, () => <li />)}</ul>
+      </div>
+    ));
+    await flush();
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes("outside a dispose scope")),
+    ).toBe(false);
+    expect(document.querySelector("span")?.textContent).toBe("on");
+    dispose();
+    warnSpy.mockRestore();
+  });
+
+  test("a throwing render disposes partial children and rethrows", () => {
+    const s = signal(0);
+    let runs = 0;
+    expect(() =>
+      mount(document.body, () => {
+        effect(() => { s.get(); runs++; });
+        throw new Error("render boom");
+      }),
+    ).toThrow("render boom");
+    s.set(1);
+    expect(runs).toBe(1); // partial effect was disposed
+  });
+
+  test("scope-less when() and list() warn with guidance", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    when(signal(true), () => document.createElement("i"));
+    list(signal([1]), (n) => document.createElement("li"));
+    const texts = warnSpy.mock.calls.map((c) => String(c[0]));
+    expect(texts.some((t) => t.includes("[railroad/when]") && t.includes("mount()"))).toBe(true);
+    expect(texts.some((t) => t.includes("[railroad/list]") && t.includes("mount()"))).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  test("SVG-only tags get the SVG namespace at creation, even standalone", () => {
+    const circle = (<circle r="5" />) as unknown as Element;
+    expect(circle.namespaceURI).toBe(SVG_NS);
+    const grad = (<linearGradient id="x" />) as unknown as Element;
+    expect(grad.localName).toBe("linearGradient");
+    expect(grad.namespaceURI).toBe(SVG_NS);
+    // refs fire exactly once for SVG-only tags — no adoption pass.
+    const refs: Element[] = [];
+    const svg = (
+      <svg>
+        <rect ref={(el: Element) => { refs.push(el); }} />
+      </svg>
+    ) as unknown as SVGElement;
+    expect(refs).toHaveLength(1);
+    expect(refs[0]!.namespaceURI).toBe(SVG_NS);
+    expect(svg.querySelector("rect")).toBe(refs[0] as any);
+  });
+
+  test("ambiguous <a> still adopts inside <svg>, stays HTML outside", () => {
+    const svg = (
+      <svg>
+        <a href="#x"><circle r="1" /></a>
+      </svg>
+    ) as unknown as SVGElement;
+    const link = svg.querySelector("a")!;
+    expect(link.namespaceURI).toBe(SVG_NS);
+    expect(link.querySelector("circle")!.namespaceURI).toBe(SVG_NS);
+
+    const htmlLink = (<a href="#y">text</a>) as unknown as Element;
+    expect(htmlLink.namespaceURI).not.toBe(SVG_NS);
   });
 });
 

@@ -2,14 +2,14 @@
 
 export { Signal, signal, computed, effect, batch, untrack } from "./signals";
 // Dispose-scope primitives — for advanced cases that mount UI outside a
-// component/route (e.g. a custom root). trackDispose registers a cleanup in the
-// current scope; push/pop bracket a manual scope. App code rarely needs these.
-export { trackDispose, pushDisposeScope, popDisposeScope } from "./signals";
+// component/route/mount(). trackDispose registers a cleanup in the current
+// scope; push/pop bracket a manual scope. App code rarely needs these.
+export { trackDispose, pushDisposeScope, popDisposeScope, hasActiveDisposeScope } from "./signals";
 export type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 export {
   createElement, Fragment,
-  when, list,
+  when, list, mount,
 } from "./jsx";
 
 export { routes, route, navigate, matchRoute } from "./routes";

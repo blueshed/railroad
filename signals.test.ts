@@ -277,6 +277,59 @@ describe("batch", () => {
   });
 });
 
+describe("topological scheduling (glitch-free)", () => {
+  test("diamond: one write re-runs the effect once, with consistent values", () => {
+    const a = signal(1);
+    const b = computed(() => a.get() * 10);
+    const c = computed(() => a.get() + 1);
+    const seen: Array<[number, number]> = [];
+    effect(() => { seen.push([b.get(), c.get()]); });
+    expect(seen).toEqual([[10, 2]]);
+
+    a.set(2);
+    // Pre-0.10 this produced [[10,2],[20,2],[20,3]] — a torn middle state.
+    expect(seen).toEqual([[10, 2], [20, 3]]);
+  });
+
+  test("diamond under batch() behaves identically", () => {
+    const a = signal(1);
+    const b = computed(() => a.get() * 10);
+    const c = computed(() => a.get() + 1);
+    const seen: Array<[number, number]> = [];
+    effect(() => { seen.push([b.get(), c.get()]); });
+
+    batch(() => { a.set(2); a.set(3); });
+    expect(seen).toEqual([[10, 2], [30, 4]]);
+  });
+
+  test("unequal-depth branches still settle before the reader", () => {
+    // a -> long chain -> d, and a -> e directly; reader sees both consistent.
+    const a = signal(1);
+    const b = computed(() => a.get() + 1);
+    const ch = computed(() => b.get() + 1);
+    const d = computed(() => ch.get() + 1);
+    const e = computed(() => a.get() * 100);
+    const seen: Array<[number, number]> = [];
+    effect(() => { seen.push([d.get(), e.get()]); });
+    expect(seen).toEqual([[4, 100]]);
+
+    a.set(2);
+    expect(seen).toEqual([[4, 100], [5, 200]]);
+  });
+
+  test("an effect that writes a signal re-queues its consumers in the same pass", () => {
+    const source = signal(0);
+    const derived = signal(0);
+    effect(() => { derived.set(source.get() * 2); });
+    const seen: number[] = [];
+    effect(() => { seen.push(derived.get()); });
+    expect(seen).toEqual([0]);
+
+    source.set(3);
+    expect(seen).toEqual([0, 6]);
+  });
+});
+
 describe("Signal.map", () => {
   test("derives a new signal", () => {
     const s = signal({ name: "Alice", age: 30 });

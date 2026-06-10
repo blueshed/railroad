@@ -16,27 +16,29 @@
  * the parent scope (route, when, list) tears down. No manual dispose needed.
  *
  * SVG support:
- *   <svg> is created with the SVG namespace. Any HTML children appended to
- *   an SVG-namespaced parent are automatically adopted into the SVG namespace.
- *   This handles the JSX bottom-up evaluation order transparently — you can
- *   write <svg><g><circle /></g></svg> and it just works. camelCase SVG tags
- *   (linearGradient, clipPath, foreignObject, fe* filters, ...) keep their
- *   authored case through adoption, and adoption stops at <foreignObject>,
- *   whose subtree stays HTML.
- *
- *   Adoption caveats: the adopted element is a fresh node, so a `ref` callback
- *   fires twice (first with the discarded HTML-namespace element, then with
- *   the final SVG one — use the last call), and listeners attached manually
- *   via addEventListener (rather than on* props) do not survive adoption.
- *   Elements built by hand with createElementNS pass through untouched.
+ *   SVG-only tags (circle, g, linearGradient, foreignObject, fe* filters, …)
+ *   are created directly in the SVG namespace — refs fire once, manual
+ *   addEventListener calls survive, camelCase is preserved, and
+ *   <foreignObject> children stay HTML. The only tags that can't be decided
+ *   at creation are the four shared with HTML (a, script, style, title):
+ *   those are created as HTML and namespace-adopted when appended to an SVG
+ *   parent. On that fallback path the adopted element is a fresh node, so a
+ *   `ref` fires twice (use the last call) and manual addEventListener calls
+ *   are lost — use on* props, which are re-applied. Elements built by hand
+ *   with createElementNS pass through untouched.
  *
  * Reactive helpers:
+ *   mount(target, render)         — root dispose scope; returns the disposer
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
  *   list(signal, keyFn, render)   — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
+ *
+ * when() and list() warn if created outside a dispose scope (a component,
+ * routes() handler, when/list render, or mount()) — their internal effects
+ * would be impossible to tear down.
  */
 
-import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
+import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -44,11 +46,31 @@ import type { Dispose, ReadonlySignal } from "./signals";
 // === SVG namespace ===
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+// SVG-only tag names (no overlap with HTML), so the namespace is decided at
+// creation: refs fire once, manual addEventListener survives, and no adoption
+// pass is needed for real SVG work. The four tags shared with HTML (a, script,
+// style, title) can't be disambiguated bottom-up — they are created as HTML
+// and namespace-adopted on append to an SVG parent, the legacy path.
+const SVG_TAGS = new Set([
+  "animate", "animateMotion", "animateTransform", "circle", "clipPath",
+  "defs", "desc", "ellipse", "feBlend", "feColorMatrix", "feComponentTransfer",
+  "feComposite", "feConvolveMatrix", "feDiffuseLighting", "feDisplacementMap",
+  "feDistantLight", "feDropShadow", "feFlood", "feFuncA", "feFuncB", "feFuncG",
+  "feFuncR", "feGaussianBlur", "feImage", "feMerge", "feMergeNode",
+  "feMorphology", "feOffset", "fePointLight", "feSpecularLighting",
+  "feSpotLight", "feTile", "feTurbulence", "filter", "foreignObject", "g",
+  "image", "line", "linearGradient", "marker", "mask", "metadata", "mpath",
+  "path", "pattern", "polygon", "polyline", "radialGradient", "rect", "set",
+  "stop", "svg", "switch", "symbol", "text", "textPath", "tspan", "use",
+  "view",
+]);
+
 const storedProps = new WeakMap<Element, Record<string, any>>();
-// document.createElement() lowercases tag names in HTML documents, which
-// destroys camelCase SVG tags (linearGradient, clipPath, foreignObject, every
-// fe* filter primitive, ...) before adoption can see them. Remember the
-// authored tag so adoptSvg can recreate the element with its original case.
+// document.createElement() lowercases tag names in HTML documents. Known SVG
+// tags never hit that path (created via createElementNS above), but remember
+// the authored tag for anything else so the adoption fallback can recreate a
+// future/unknown camelCase element with its original case.
 const authoredTags = new WeakMap<Element, string>();
 // Disposers for the reactive effects applyProps creates per element. SVG
 // adoption discards the original HTML-namespace element and re-applies its
@@ -148,10 +170,9 @@ export function createElement(
     }
   }
 
-  // SVG root element is always created with the SVG namespace.
-  // Child SVG elements are adopted in appendChildren when appended
-  // to an SVG-namespaced parent.
-  const el = tag === "svg"
+  // SVG-only tags are created in the SVG namespace outright; only the
+  // HTML/SVG-ambiguous tags fall back to adoption in appendChildren.
+  const el = SVG_TAGS.has(tag)
     ? document.createElementNS(SVG_NS, tag)
     : document.createElement(tag);
   if (el.localName !== tag) authoredTags.set(el, tag);
@@ -294,6 +315,53 @@ function appendChildren(parent: Node, children: any[]): void {
 }
 
 
+// === mount() — root dispose scope for an app mounted outside routes() ===
+
+/**
+ * Mount UI into `target` under a fresh dispose scope. Effects, computeds,
+ * when() and list() created by `render` tear down when the returned disposer
+ * runs, which also removes the rendered nodes. Use this (or routes()) for app
+ * roots so the scope rules in signals.ts hold all the way down.
+ *
+ *   const dispose = mount(document.getElementById("root")!, () => <App />);
+ */
+export function mount(target: Element, render: () => Node): Dispose {
+  pushDisposeScope();
+  let result: Node;
+  try {
+    result = render();
+  } catch (err) {
+    popDisposeScope()(); // dispose children created before the throw
+    throw err;
+  }
+  const scopeDispose = popDisposeScope();
+  const adopted = adoptIntoSvg(result, target);
+  const nodes = adopted instanceof DocumentFragment
+    ? [...adopted.childNodes]
+    : [adopted];
+  target.appendChild(adopted);
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    scopeDispose();
+    for (const n of nodes) n.parentNode?.removeChild(n);
+  };
+  trackDispose(dispose); // nested mounts compose with an outer scope
+  return dispose;
+}
+
+// Scope guardrail: when()/list() return DOM nodes, not disposers, so outside
+// a dispose scope their internal effects are unreachable — a guaranteed leak
+// once the UI is ever unmounted. Warn with the supported alternatives.
+function warnScopeless(helper: string): void {
+  console.warn(
+    `[railroad/${helper}] created outside a dispose scope — its effects can ` +
+      "never be torn down. Render it inside a component, a routes() handler, " +
+      "or mount().",
+  );
+}
+
 // === when() — conditional rendering ===
 // Swaps DOM nodes only when truthiness transitions (falsy↔truthy).
 // Value changes within the same branch (e.g. "a" → "b") do NOT re-render.
@@ -305,6 +373,7 @@ export function when(
   truthy: () => Node,
   falsy?: () => Node,
 ): Node {
+  if (!hasActiveDisposeScope()) warnScopeless("when");
   const anchor = document.createComment("when");
   let currentNodes: Node[] = [];
   let currentDispose: Dispose | null = null;
@@ -399,6 +468,7 @@ export function list<T>(
   keyFnOrRender: ((item: T) => string | number) | ((item: T, index: number) => Node),
   maybeRender?: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
 ): Node {
+  if (!hasActiveDisposeScope()) warnScopeless("list");
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
 

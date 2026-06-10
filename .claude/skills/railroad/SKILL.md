@@ -1,6 +1,6 @@
 ---
 name: railroad
-version: 0.9.0
+version: 0.10.0
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -12,9 +12,9 @@ Source files (each has a JSDoc header — read for full API): `signals.ts` · `j
 
 Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.WebView`. Railroad adds:
 
-- **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39).
+- **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39). Glitch-free: propagation is topologically ordered, so diamonds settle in one consistent pass.
 - **JSX runtime** — components run once, return real DOM nodes, signals bind to text and attributes automatically; supports automatic `style` signal property clearance when updated signals omit style keys.
-- **`when()` / `list()`** — reactive conditionals and keyed lists with auto-disposal.
+- **`when()` / `list()` / `mount()`** — reactive conditionals, keyed lists, and a root scope helper, all with auto-disposal.
 - **Hash router** — `routes(target, table, options)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting; supports `options.onError` boundary callback.
 - **DI / logger** — typed `provide`/`inject` with phantom-typed keys; leveled console output.
 - **Realtime escape hatches** — `.touch()`, `.mutate()`, `.patch()` for in-place document mutation under WebSocket / CRDT / `LISTEN/NOTIFY` patch streams.
@@ -59,51 +59,50 @@ Index-based form (no keyFn) gets raw values and recreates the row on change — 
 
 `keyFn` must return a **unique** key per item. Duplicate keys collapse to a single row and silently drop the others (railroad warns on the console) — key by a stable unique id (`r => r.id`), not by a value that can repeat.
 
-### 3. SVG works — but only when `<svg>` is the JSX outer wrapper
+### 3. SVG is first-class — tags get the SVG namespace at creation
+
+SVG-only tags (`circle`, `g`, `path`, `linearGradient`, `clipPath`, `foreignObject`, `fe*` filters, …) are created directly in the SVG namespace, wherever they appear — components returning `<circle>`, fragments, `when()`/`list()` renders. camelCase is preserved; `<foreignObject>` children stay HTML.
 
 ```tsx
-// ✅ list() / when() inside <svg> auto-adopt children to SVG namespace
-<svg>
-  {list(shapes, s => s.id, (s$) => <circle r={s$.map(s => s.r)} />)}
-</svg>
-
-// ✅ camelCase tags keep their case; foreignObject children stay HTML
+// ✅ All of this just works, with refs firing once and listeners surviving
 <svg>
   <defs><linearGradient id="g"><stop offset="0" stop-color="red" /></linearGradient></defs>
-  <circle r="10" fill="url(#g)" />
+  {list(shapes, s => s.id, (s$) => <circle r={s$.map(s => s.r)} fill="url(#g)" />)}
   <foreignObject width="100" height="100"><div>html island</div></foreignObject>
 </svg>
-
-// ❌ <circle> mounted without an <svg> ancestor stays in HTML namespace, won't render
-function Circle() { return <circle r="10" />; }
-document.body.append(<Circle />);
 ```
 
-If you must build SVG by hand, use `document.createElementNS("http://www.w3.org/2000/svg", "circle")` — railroad passes those through unchanged.
+Two edges remain:
 
-Adoption replaces the element with a fresh SVG-namespace node, so two caveats: a `ref` on an adopted element fires **twice** (discarded HTML node first, final SVG node last — use the last call), and listeners attached manually via `addEventListener` inside a component don't survive adoption — use `on*` props, which are re-applied to the adopted element.
+- The four tags shared with HTML — `a`, `script`, `style`, `title` — are created as HTML and **adopted** when appended inside `<svg>`. On that path only, a `ref` fires twice (use the last call) and manual `addEventListener` calls are lost — use `on*` props, which are re-applied.
+- An SVG element still needs an `<svg>` ancestor in the document to *render* — that's SVG itself, not railroad. Hand-built `createElementNS` elements pass through unchanged.
 
-### 4. Effects auto-dispose **only** inside a parent scope
+Prefer `href` over `xlink:href` on `<use>`/`<textPath>` — railroad sets plain attributes, which is exactly SVG2's `href`.
+
+### 4. Effects auto-dispose **only** inside a parent scope — root apps with `mount()`
 
 ```tsx
-// ✅ Inside a component / route / when / list — auto-disposed on teardown
+// ✅ Inside a component / route / when / list / mount — auto-disposed on teardown
 function Counter() {
   const c = signal(0);
   effect(() => console.log(c.get()));
   return <span>{c}</span>;
 }
 
+// ✅ App root without a router — mount() brackets a scope, returns the disposer
+const dispose = mount(document.getElementById("root")!, () => <App />);
+
 // ❌ Module top-level — never disposed (leaks until process exit)
 const c = signal(0);
 effect(() => console.log(c.get()));
 ```
 
-Dispose scopes are pushed by `createElement(Component)`, a `routes()` handler, `when()`, and `list()` — for the effects/computeds created **inside** them. `route()` (singular) is **not** a scope provider: it returns a `ReadonlySignal` and does not dispose children for you.
+Dispose scopes are pushed by `createElement(Component)`, a `routes()` handler, `when()`, `list()`, and `mount()` — for the effects/computeds created **inside** them. `route()` (singular) is **not** a scope provider: it returns a `ReadonlySignal` and does not dispose children for you.
 
 Two consequences worth internalising:
 
 - A top-level `effect()` you create yourself leaks unless you keep its disposer.
-- `when()` / `list()` / `route()` created **outside** any parent scope also leak — their driving effect's disposer is unreachable (they return a DOM node / signal, not a disposer). Mount UI through a component or a `routes()` handler so a scope exists. For an advanced custom root, bracket it yourself: `pushDisposeScope()` … build UI … `const dispose = popDisposeScope()` (both exported from the package), or register cleanups with `trackDispose(fn)`.
+- `when()` / `list()` created **outside** any parent scope leak — their driving effect's disposer is unreachable, so railroad **warns on the console**. Mount UI through a component, a `routes()` handler, or `mount()`. For an advanced custom root, bracket it yourself: `pushDisposeScope()` … build UI … `const dispose = popDisposeScope()`, or register cleanups with `trackDispose(fn)`; `hasActiveDisposeScope()` tells you whether one is open.
 
 ### 5. Use the realtime escape hatches for large documents
 
@@ -165,7 +164,7 @@ Rule of thumb: any array derived from a signal (`doc.data.map(d => d.cards)`, `s
 
 Components run **once**. They return real DOM nodes. No virtual DOM, no reconciler, no diffing. Reactivity comes from signals — bare signals as children become reactive text nodes; signals as props become reactive attributes; function children auto-track signal reads.
 
-Effects and computeds auto-dispose when their parent scope (component, route, `when`, `list`) tears down.
+Effects and computeds auto-dispose when their parent scope (component, route, `when`, `list`, `mount`) tears down.
 
 ## Routes — wildcard layouts
 

@@ -6,13 +6,15 @@
  * internal effect. Designed to be small enough to fit in your head and
  * predictable enough to write correctly without re-reading the source.
  *
- * Not glitch-free. Propagation is eager and untopological, so a diamond
- * (a -> b, a -> c, an effect reading both b and c) re-runs the effect once
- * per path and its first run can observe a half-updated state (b new, c
- * stale). batch() does NOT fix this for a single write to `a` — the two
- * paths still flush separately; batch() only coalesces MULTIPLE writes (a
- * multi-write transaction) so subscribers re-run once against a consistent
- * snapshot. For DOM binding the transient intermediate state is harmless.
+ * Glitch-free by topological scheduling. A write (or a batch of writes)
+ * enqueues the affected computeds and effects and runs them ordered by
+ * derivation depth, each at most once per settled pass — in a diamond
+ * (a -> b, a -> c, an effect reading both b and c) the effect re-runs once
+ * and never observes half-updated state. Two bounds to know: siblings at the
+ * same depth run in subscription order, and an effect that writes signals
+ * re-queues their consumers within the same pass (a true cycle throws after
+ * the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
+ * multi-write transaction) so subscribers see one consistent snapshot.
  *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
@@ -42,11 +44,15 @@
  *
  * Dispose pattern:
  *   effect() and computed() auto-track in the current dispose scope, so
- *   nested effects inside components / route handlers / when() / list()
- *   tear down with their parent. No manual trackDispose needed in app code.
+ *   nested effects inside components / route handlers / when() / list() /
+ *   mount() tear down with their parent. No manual trackDispose needed in
+ *   app code — mount UI through routes() or jsx's mount() so a root scope
+ *   exists.
  */
 
-type Listener = () => void;
+// Listeners carry their topological level (derivation depth) so the flush
+// scheduler can settle upstream computeds before downstream consumers.
+type Listener = (() => void) & { level?: number };
 
 // Global tracking for effect dependencies
 let currentListener: Listener | null = null;
@@ -54,12 +60,87 @@ let currentDeps: Set<Signal<any>> | null = null;
 let batchDepth = 0;
 const pendingEffects = new Set<Listener>();
 
-// Infinite loop guard. A genuine cycle climbs this counter extremely fast, so
-// the ceiling is set high enough that a legitimate but deep dependency graph
-// (e.g. a long chain of derived computeds) won't trip it. The check runs before
-// the increment so the limit is exact: depth N is allowed, N+1 throws.
-let effectDepth = 0;
-const MAX_EFFECT_DEPTH = 1000;
+// === Flush scheduler ===
+//
+// A write outside batch() starts a flush: affected listeners are queued in
+// level buckets and drained lowest-level-first, each at most once per queueing.
+// Writes made BY a running listener fold into the active flush instead of
+// recursing, which is what makes diamonds settle in one consistent pass (and
+// keeps deep computed chains off the call stack).
+
+// Infinite loop guard. A legitimate pass runs each listener a handful of times
+// (an effect re-queued by a later same-pass write); a genuine cycle re-runs the
+// same listener unboundedly, so the ceiling is per-listener per-flush.
+const MAX_RUNS_PER_LISTENER = 100;
+
+interface Flush {
+  buckets: (Listener[] | undefined)[];
+  queued: Set<Listener>;
+  runs: Map<Listener, number>;
+}
+
+let activeFlush: Flush | null = null;
+
+function enqueue(flush: Flush, listeners: Iterable<Listener>): void {
+  for (const l of listeners) {
+    if (flush.queued.has(l)) continue;
+    flush.queued.add(l);
+    const lv = l.level ?? 0;
+    (flush.buckets[lv] ??= []).push(l);
+  }
+}
+
+function drain(flush: Flush): void {
+  // A throwing listener must not strand the ones queued behind it — run them
+  // all, remember the first error, and rethrow it once the pass has settled.
+  let firstError: unknown;
+  let hasError = false;
+  for (;;) {
+    let lv = -1;
+    for (let i = 0; i < flush.buckets.length; i++) {
+      if (flush.buckets[i]?.length) { lv = i; break; }
+    }
+    if (lv === -1) break;
+    const bucket = flush.buckets[lv]!;
+    flush.buckets[lv] = undefined;
+    for (const l of bucket) {
+      // Remove from `queued` before running so a listener that re-dirties its
+      // own inputs is re-queued (and the runs guard catches a true cycle).
+      flush.queued.delete(l);
+      const n = (flush.runs.get(l) ?? 0) + 1;
+      if (n > MAX_RUNS_PER_LISTENER) {
+        throw new Error(
+          "Maximum effect depth exceeded — possible infinite loop",
+        );
+      }
+      flush.runs.set(l, n);
+      try {
+        l();
+      } catch (err) {
+        if (!hasError) {
+          hasError = true;
+          firstError = err;
+        }
+      }
+    }
+  }
+  if (hasError) throw firstError;
+}
+
+function scheduleListeners(listeners: Iterable<Listener>): void {
+  if (activeFlush) {
+    enqueue(activeFlush, listeners);
+    return;
+  }
+  const flush: Flush = { buckets: [], queued: new Set(), runs: new Map() };
+  enqueue(flush, listeners);
+  activeFlush = flush;
+  try {
+    drain(flush);
+  } finally {
+    activeFlush = null;
+  }
+}
 
 // === Signal options ===
 
@@ -92,6 +173,12 @@ export class Signal<T> implements ReadonlySignal<T> {
   // Stored as (a, b) => boolean (T-erased) to keep Signal<T> covariant —
   // otherwise Signal<NonNullable<T>> couldn't widen to Signal<T>.
   private equalsFn: (a: unknown, b: unknown) => boolean;
+  /**
+   * Topological depth for the flush scheduler: 0 for source signals; a
+   * computed's output signal carries 1 + the depth of its deepest source so
+   * consumers re-run after it settles. @internal
+   */
+  level = 0;
 
   constructor(initialValue: T, options?: SignalOptions<T>) {
     this.value = initialValue;
@@ -159,21 +246,12 @@ export class Signal<T> implements ReadonlySignal<T> {
    * Respects `batch()` — listeners are deferred until the batch exits.
    */
   touch(): void {
+    if (this.listeners.size === 0) return;
     if (batchDepth > 0) {
       for (const listener of this.listeners) pendingEffects.add(listener);
       return;
     }
-    if (effectDepth >= MAX_EFFECT_DEPTH) {
-      throw new Error(
-        "Maximum effect depth exceeded — possible infinite loop",
-      );
-    }
-    effectDepth++;
-    try {
-      for (const listener of this.listeners) listener();
-    } finally {
-      effectDepth--;
-    }
+    scheduleListeners(this.listeners);
   }
 
   unsubscribe(listener: Listener): void {
@@ -188,7 +266,7 @@ export function effect(fn: () => void | (() => void)): () => void {
   let deps = new Set<Signal<any>>();
   let disposed = false;
 
-  const execute = () => {
+  const execute: Listener = () => {
     // A disposed effect must never run its body again. It can still be reached
     // after dispose() via a batch() flush that snapshotted pendingEffects into
     // a local array before the effect was disposed, so guard here rather than
@@ -215,6 +293,11 @@ export function effect(fn: () => void | (() => void)): () => void {
         if (!nextDeps.has(dep)) dep.unsubscribe(execute);
       }
       deps = nextDeps;
+      // Topological level: one deeper than the deepest dependency, so the
+      // scheduler settles upstream computeds before re-running this effect.
+      let lv = 0;
+      for (const dep of deps) if (dep.level >= lv) lv = dep.level + 1;
+      execute.level = lv;
     }
   };
 
@@ -257,6 +340,15 @@ export function trackDispose(d: Dispose): void {
   if (scope) scope.push(d);
 }
 
+/**
+ * True while a dispose scope is active (inside a component, a routes()
+ * handler, a when()/list() render, or mount()). when() and list() warn when
+ * created without one, because their internal disposers are unreachable.
+ */
+export function hasActiveDisposeScope(): boolean {
+  return disposeStack.length > 0;
+}
+
 // === computed() ===
 
 export function computed<T>(
@@ -269,8 +361,18 @@ export function computed<T>(
   let s!: Signal<T>;
   effect(() => {
     const v = fn();
-    if (s) s.set(v);
-    else s = new Signal<T>(v, options);
+    // currentDeps is this effect's live dep set (fn has finished reading).
+    // The output signal sits one level above the deepest source so consumers
+    // reading it are scheduled after this computed settles.
+    let lv = 0;
+    for (const dep of currentDeps!) if (dep.level >= lv) lv = dep.level + 1;
+    if (s) {
+      s.level = lv;
+      s.set(v);
+    } else {
+      s = new Signal<T>(v, options);
+      s.level = lv;
+    }
   });
   return s;
 }
@@ -297,15 +399,11 @@ export function untrack<T>(fn: () => T): T {
 
 // === batch() ===
 
-let flushing = false;
-
 export function batch(fn: () => void): void {
-  // A throwing effect must not strand the effects already queued behind it
-  // (pendingEffects was cleared before running). Run them all, remember the
-  // first error, and rethrow it once the flush has drained. If fn() itself
-  // threw, its error takes priority over a flush error — the flush still runs
-  // (writes made before the throw must propagate), but must not mask the
-  // original exception.
+  // If fn() itself threw, its error takes priority over a flush error — the
+  // flush still runs (writes made before the throw must propagate), but must
+  // not mask the original exception. drain() already guarantees a throwing
+  // listener can't strand the ones queued behind it.
   let flushError: unknown;
   let flushThrew = false;
   batchDepth++;
@@ -313,25 +411,20 @@ export function batch(fn: () => void): void {
     fn();
   } finally {
     batchDepth--;
-    if (batchDepth === 0 && !flushing) {
-      flushing = true;
-      try {
-        while (pendingEffects.size > 0) {
-          const effects = [...pendingEffects];
-          pendingEffects.clear();
-          for (const e of effects) {
-            try {
-              e();
-            } catch (err) {
-              if (!flushThrew) {
-                flushThrew = true;
-                flushError = err;
-              }
-            }
-          }
+    if (batchDepth === 0 && pendingEffects.size > 0) {
+      const pending = [...pendingEffects];
+      pendingEffects.clear();
+      if (activeFlush) {
+        // batch() exited inside a running flush (called from an effect) —
+        // fold the queued listeners into the pass already draining.
+        enqueue(activeFlush, pending);
+      } else {
+        try {
+          scheduleListeners(pending);
+        } catch (err) {
+          flushThrew = true;
+          flushError = err;
         }
-      } finally {
-        flushing = false;
       }
     }
   }

@@ -1,6 +1,6 @@
 {
   "name": "@blueshed/railroad",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "The smallest reactive layer for Bun realtime apps — signals, JSX, hash router. Built so an LLM can use it correctly without re-learning. Pair with @blueshed/delta for WebSocket document sync.",
   "type": "module",
   "main": "index.ts",
