@@ -1,6 +1,6 @@
 ---
 name: railroad
-version: 0.10.1
+version: 0.10.2
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -19,7 +19,7 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 - **DI / logger** — typed `provide`/`inject` with phantom-typed keys; leveled console output.
 - **Realtime escape hatches** — `.touch()`, `.mutate()`, `.patch()` for in-place document mutation under WebSocket / CRDT / `LISTEN/NOTIFY` patch streams.
 
-## The seven things that bite if you're not careful
+## The eight things that bite if you're not careful
 
 ### 1. Do NOT call `.get()` in JSX children
 
@@ -141,6 +141,8 @@ filter.patch({ color: "blue" });
 
 Railroad is HTML-flavoured JSX — it uses `class`, not `className`; `onclick`, not `onClick`. The runtime accepts PascalCase too (it lowercases anything starting with `on`), but mixing conventions makes diffs noisier and trains the next reader on the wrong style.
 
+The value must be a **function** — `onclick={handler}`, never `onclick={handler()}` (that calls it at render) and never a Signal (handlers are not reactive; pass a function that reads the signal). A non-function warns on the console and attaches nothing. `onclick={maybeHandler}` with null/undefined is fine — no handler, no warning.
+
 ```tsx
 // ✅ Lowercase HTML — matches `class`, `srcdoc`, `tabindex` etc.
 <button onclick={() => count.update(n => n + 1)}>+1</button>
@@ -167,6 +169,28 @@ const COLUMNS = [{ id: "todo" }, { id: "doing" }, { id: "done" }];
 ```
 
 Rule of thumb: any array derived from a signal (`doc.data.map(d => d.cards)`, `signal([...])`, etc.) must go through `list()`. Hard-coded arrays in module scope can use `.map()`.
+
+### 8. Components are synchronous — no async components
+
+There is no Suspense and no RSC. A component that returns a Promise throws at render with a pointed error (it could never work: as a child it would stringify, at a root it would crash). Async work goes in an effect that sets a signal, or in a `routes()` handler — handlers ARE allowed to return `Promise<Node>`.
+
+```tsx
+// ❌ Throws at render
+async function Profile() {
+  const user = await fetchUser();
+  return <div>{user.name}</div>;
+}
+
+// ✅ Effect + signal
+function Profile() {
+  const user = signal<User | null>(null);
+  effect(() => { fetchUser().then(u => user.set(u)); });
+  return when(user, () => <div>{user.peek()!.name}</div>, () => <p>loading…</p>);
+}
+
+// ✅ Or push the await up into the route handler
+routes(app, { "/profile": async () => <div>{(await fetchUser()).name}</div> });
+```
 
 ## Mental model
 

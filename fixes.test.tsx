@@ -688,3 +688,73 @@ describe("logger: color gating", () => {
     setLogLevel("info");
   });
 });
+
+// ============================================================ review guards
+// Fixes from the 0.10.1 full review — missing guardrails, not logic bugs.
+// Each pins a footgun that previously failed silently or inscrutably.
+
+describe("guard: async components throw a pointed error", () => {
+  test("a component returning a Promise throws at render, naming the component", () => {
+    async function AsyncPage() {
+      return createElement("h1", null, "never");
+    }
+    const root = document.createElement("div");
+    expect(() => mount(root, () => createElement(AsyncPage as any, null)))
+      .toThrow(/AsyncPage.*Promise.*synchronous/s);
+    // The throw must not imbalance the dispose stack — a later scope pops clean.
+    pushDisposeScope();
+    popDisposeScope()();
+  });
+
+  test("as a child it throws too (no [object Promise] text)", () => {
+    const AsyncChild = async () => createElement("span", null, "x");
+    expect(() => createElement("div", null, createElement(AsyncChild as any, null)))
+      .toThrow(/Promise/);
+  });
+});
+
+describe("guard: non-function on* props warn and attach nothing", () => {
+  test("a Signal as onclick warns (mentioning Signal) and the click is inert", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const clicks = signal(0);
+    const btn = createElement("button", { onclick: clicks }, "go") as HTMLButtonElement;
+    document.body.appendChild(btn);
+    btn.dispatchEvent(new Event("click"));
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]![0])).toContain("Signal");
+    expect(clicks.peek()).toBe(0);
+    warnSpy.mockRestore();
+    btn.remove();
+  });
+
+  test("null/undefined handlers stay legal — no warning, no listener", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    createElement("button", { onclick: undefined }, "a");
+    createElement("button", { onclick: null }, "b");
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test("a real function still attaches", () => {
+    let n = 0;
+    const btn = createElement("button", { onclick: () => n++ }, "go") as HTMLButtonElement;
+    document.body.appendChild(btn);
+    btn.dispatchEvent(new Event("click"));
+    expect(n).toBe(1);
+    btn.remove();
+  });
+});
+
+describe("guard: .patch() refuses array signals", () => {
+  test("patch on an array throws instead of corrupting to an index-keyed object", () => {
+    const rows = signal([{ id: 1 }, { id: 2 }]);
+    expect(() => (rows as any).patch({ id: 3 })).toThrow(/array/i);
+    expect(Array.isArray(rows.peek())).toBe(true); // value untouched
+  });
+
+  test("patch on an object signal still shallow-merges", () => {
+    const filter = signal({ color: "all", done: false });
+    filter.patch({ color: "blue" });
+    expect(filter.peek()).toEqual({ color: "blue", done: false });
+  });
+});

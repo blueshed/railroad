@@ -135,7 +135,21 @@ function applyProps(el: Element, props: Record<string, any>): void {
     } else if (key === "style" && typeof value === "object") {
       Object.assign((el as HTMLElement).style, value);
     } else if (key.startsWith("on")) {
-      el.addEventListener(key.slice(2).toLowerCase(), value);
+      // A non-function here (a Signal, or an accidentally-invoked handler)
+      // would be silently ignored by addEventListener — the element just
+      // doesn't respond, with nothing to say why. null/undefined stay legal:
+      // `onclick={maybeHandler}` is a real conditional-handler pattern.
+      if (typeof value === "function") {
+        el.addEventListener(key.slice(2).toLowerCase(), value);
+      } else if (value != null) {
+        console.warn(
+          `[railroad/jsx] ${key} expects a function but got ` +
+            (value instanceof Signal
+              ? "a Signal — event handlers are not reactive; pass a function that reads it"
+              : typeof value) +
+            ". No listener was attached.",
+        );
+      }
     } else {
       if (value instanceof Signal) {
         disposers.push(effect(() => {
@@ -164,7 +178,19 @@ export function createElement(
     // finally (not a trailing pop) so a throwing component still balances the
     // dispose stack — otherwise the leaked scope corrupts every later push/pop.
     try {
-      return tag(componentProps);
+      const result = tag(componentProps);
+      // An async component can never render: as a child it stringifies to
+      // "[object Promise]", at a mount()/when()/list() root it crashes inside
+      // appendChild with an error that names neither components nor promises.
+      // Fail here, where the component is identifiable, with the way out.
+      if (result instanceof Promise) {
+        throw new Error(
+          `[railroad/jsx] <${tag.name || "anonymous"}> returned a Promise — ` +
+            "components are synchronous. Do async work in an effect that sets " +
+            "a signal, or in a routes() handler (handlers may return Promise<Node>).",
+        );
+      }
+      return result;
     } finally {
       trackDispose(popDisposeScope());
     }

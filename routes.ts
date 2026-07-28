@@ -37,6 +37,12 @@
  *
  * Both routes() and route() auto-track in the parent dispose scope,
  * so nested routing cleans up when the parent scope tears down.
+ *
+ * route() at module level (outside any dispose scope) is SUPPORTED: the
+ * signal and its share of the hashchange listener simply live for the app's
+ * lifetime, which is what module scope means. That's why route() doesn't warn
+ * when scopeless the way when()/list() do — for those, scopeless is almost
+ * always a leak; for route() it's a legitimate app-lifetime binding.
  */
 
 import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";

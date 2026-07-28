@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.10.2
+
+Guardrails from a full review that found no logic bugs in the core — only
+places where a footgun failed silently or inscrutably. Each is pinned by a
+regression test in `fixes.test.tsx`.
+
+### Fixed
+
+- **Async components now throw a pointed error at render**, naming the
+  component and the way out (effect + signal, or a `routes()` handler, which
+  may return `Promise<Node>`). Previously the returned Promise either
+  stringified to `[object Promise]` as a child or crashed inside `appendChild`
+  at a `mount()`/`when()`/`list()` root with an error naming neither
+  components nor promises.
+- **A non-function `on*` prop warns and attaches nothing.** `onclick={count$}`
+  (a Signal) or `onclick={handler()}` (accidentally invoked) previously went
+  into `addEventListener`, which ignores non-callables — the element was
+  silently inert. null/undefined stay legal for the conditional-handler
+  pattern.
+- **`.patch()` throws on array signals** instead of silently spreading the
+  array into an index-keyed plain object. Arrays update via `.set()`,
+  `.update()`, or `.mutate()`.
+
+### Docs
+
+- `route()` at module level documented as supported (app-lifetime binding —
+  why it doesn't warn when scopeless like `when()`/`list()` do).
+- Sharp edges: async components; index-based `list()` rebuilds every row per
+  change (use the keyed form for anything that updates).
+- Skill: new §8 "Components are synchronous"; §6 extended with the
+  function-only handler rule. Line count refreshed (~1.6KLOC).
+
 ## 0.10.1
 
 A cross-library hardening pass with `@blueshed/delta`: two `when()`/`list()`

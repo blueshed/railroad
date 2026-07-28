@@ -2,7 +2,7 @@
 
 Reactive UI for the Bun fullstack runtime. Signals, JSX, and a hash router that lean directly into Bun 1.3's HTML imports, HMR, and `Bun.build --compile`. Pair with [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) for WebSocket document sync.
 
-Zero runtime dependencies. Real DOM. ~1KLOC. Designed so an LLM (or you, six months from now) can use it correctly without re-reading documentation.
+Zero runtime dependencies. Real DOM. ~1.6KLOC. Designed so an LLM (or you, six months from now) can use it correctly without re-reading documentation.
 
 ## Why Bun + Railroad is the sweet spot
 
@@ -21,6 +21,8 @@ Railroad fills exactly the slot Bun leaves open: a small, push-based reactive la
 ```sh
 bun add @blueshed/railroad
 ```
+
+Starting fresh? `bun create blueshed my-app` scaffolds a full app — railroad + [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta) + invoket, agent wiring included.
 
 > **Bun / bundler only.** Railroad ships TypeScript source with no build step and
 > uses extensionless imports, so your toolchain must transpile TS and resolve
@@ -114,8 +116,8 @@ const todos = signal([{ id: 1, text: "Buy milk" }]);
 todos.mutate(arr => arr.push({ id: 2, text: "Walk dog" }));   // structuredClone + notify
 todos.touch();                                                 // notify without replacing the ref
 
-// .patch() shallow-merges OBJECT signals (don't call it on an array — it would
-// spread the array into a plain object and break it)
+// .patch() shallow-merges OBJECT signals (throws on arrays — use
+// .set()/.update()/.mutate() for array signals)
 const filter = signal({ color: "all", done: false });
 filter.patch({ color: "blue" });                              // { color: "blue", done: false }
 
@@ -366,6 +368,8 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
 - **In-place row mutation + `.touch()` needs `list()`'s `equals` option.** A keyed `list()` pushes updates into each row's item signal; a patch stream that mutates row objects in place re-delivers the same reference, which the default `Object.is` swallows — the row's DOM goes silently stale. Pass `{ equals: () => false }` as the fourth argument for such streams. Same-reference projections have the same trap: `doc.map(d => d.settings)` returns the same ref after a `.touch()`, so the computed bails — project to fresh values (`Object.values(...)`, primitives) or pass `{ equals: () => false }` to `.map()`.
+- **Components are synchronous — no async components.** A component that returns a Promise throws at render with a pointed error. Do async work in an effect that sets a signal, or in a `routes()` handler (handlers may return `Promise<Node>`).
+- **The index-based `list()` form rebuilds every row on every change.** It disposes and re-renders each row per sync; that's its contract. Use the keyed form (`list(items, keyFn, render)`) for anything that updates — rows then patch in place through their item signals.
 
 It's the smallest correct reactive layer for the workflow Bun 1.3 actually ships: HTML imports, TSX bundling, HMR, and `--compile` to a single binary. That's the niche, and it's a real one.
 

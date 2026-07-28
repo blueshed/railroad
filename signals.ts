@@ -214,6 +214,16 @@ export class Signal<T> implements ReadonlySignal<T> {
   }
 
   patch(partial: Partial<T & Record<string, unknown>>): void {
+    // Spreading an array into `{ ... }` yields a plain object keyed by index —
+    // silently corrupt data that surfaces far from the call site. Refuse loudly
+    // instead; arrays update via .set() / .update() / .mutate().
+    if (Array.isArray(this.value)) {
+      throw new Error(
+        "[railroad/signals] .patch() shallow-merges OBJECT signals — on an " +
+          "array it would spread indices into a plain object. Use .set(), " +
+          ".update(), or .mutate() for array signals.",
+      );
+    }
     this.set({ ...this.value, ...partial } as T);
   }
 

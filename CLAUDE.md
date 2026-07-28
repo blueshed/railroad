@@ -6,7 +6,7 @@ Guidance for Claude Code (and humans) working in this repository.
 
 `@blueshed/railroad` — the smallest reactive layer for Bun realtime apps:
 signals, a real-DOM JSX runtime, a hash router, typed DI, and a logger. Zero
-runtime dependencies, ~1KLOC. Each module is independent and importable on its
+runtime dependencies, ~1.6KLOC. Each module is independent and importable on its
 own (`@blueshed/railroad/signals`, `/jsx`, `/routes`, `/shared`, `/logger`).
 
 | File | Exports | Depends on |
