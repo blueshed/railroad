@@ -1,6 +1,6 @@
 ---
 name: railroad
-version: 0.10.2
+version: 0.11.0
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -170,27 +170,31 @@ const COLUMNS = [{ id: "todo" }, { id: "doing" }, { id: "done" }];
 
 Rule of thumb: any array derived from a signal (`doc.data.map(d => d.cards)`, `signal([...])`, etc.) must go through `list()`. Hard-coded arrays in module scope can use `.map()`.
 
-### 8. Components are synchronous — no async components
+### 8. Async components resolve to a **thunk**
 
-There is no Suspense and no RSC. A component that returns a Promise throws at render with a pointed error (it could never work: as a child it would stringify, at a root it would crash). Async work goes in an effect that sets a signal, or in a `routes()` handler — handlers ARE allowed to return `Promise<Node>`.
+Components may be `async`. They render a placeholder immediately (plus an optional `fallback` thunk prop) and fill in when the promise settles. The one rule: **resolve to a thunk, not a bare Node** — the `() =>` on the return line is the entire contract:
 
 ```tsx
-// ❌ Throws at render
+// ✅ Async component — note the `() =>` on the return line
 async function Profile() {
   const user = await fetchUser();
-  return <div>{user.name}</div>;
+  return () => <div>{user.name}</div>;
 }
+<Profile fallback={() => <p>loading…</p>} />
 
-// ✅ Effect + signal
-function Profile() {
-  const user = signal<User | null>(null);
-  effect(() => { fetchUser().then(u => user.set(u)); });
-  return when(user, () => <div>{user.peek()!.name}</div>, () => <p>loading…</p>);
+// ❌ Bare-Node resolution — pointed console.error, nothing rendered
+async function Profile() {
+  const user = await fetchUser();
+  return <div>{user.name}</div>;   // fix: return () => <div>{user.name}</div>
 }
-
-// ✅ Or push the await up into the route handler
-routes(app, { "/profile": async () => <div>{(await fetchUser()).name}</div> });
 ```
+
+Why the thunk: effects created after an `await` have no owner scope — browser JS has no AsyncContext to carry "current scope" across suspension — so a bare-Node resolution's bindings could never be torn down. The thunk gives railroad a synchronous moment it controls: it runs under a fresh scope composed into the component's cleanup, so teardown is correct no matter when the promise settles (dispose before resolution simply drops the thunk — it never runs).
+
+- `fallback` is a thunk too (`fallback={() => <p>…</p>}`) — rendered immediately, swapped out on settlement; a rejection clears it (no stuck spinners) and logs the error.
+- Effects created **before** the first `await` are owned by the component scope as usual.
+- Async `routes()` handlers follow the same contract — resolve to `() => <Node>` so post-await bindings die on navigation. A bare `Promise<Node>` still renders (back-compat), but anything reactive it built after the `await` outlives the route.
+- The effect + signal + `when()` pattern is still right when you want streaming or multi-stage states rather than one fallback→content swap.
 
 ## Mental model
 

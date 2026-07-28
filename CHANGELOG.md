@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.11.0
+
+Async, made honest. The 0.10.2 guard said "components are synchronous"; the
+truth was that railroad had no ownership story for code that resumes after an
+`await` — including the sanctioned async route handlers, whose post-await
+signal bindings silently outlived navigation. This release replaces the fence
+with a contract: **async components and async route handlers resolve to a
+thunk**, which railroad runs under a scope it owns. When TC39 AsyncContext
+ships, the thunk requirement can be dropped without breaking anyone.
+
+### Added
+
+- **Async components.**
+  `async function Profile() { const u = await fetchUser(); return () => <div>{u.name}</div>; }`
+  renders a bracketed placeholder immediately and fills in on resolution; an
+  optional `fallback` thunk prop (`<Profile fallback={() => <p>loading…</p>} />`)
+  shows until settlement. Effects created before the first `await` are owned
+  by the component scope as usual; the resolution thunk runs under a fresh
+  railroad-owned scope composed into the component's cleanup; teardown before
+  settlement drops the thunk unrun. Rejections clear the fallback (no stuck
+  spinners) and log. A bare-Node resolution gets a pointed `console.error`
+  with the one-word fix — the 0.10.2 throw, relocated to the only shape that
+  genuinely cannot work. Typed via `JSX.ElementType` plus a universal
+  `fallback` intrinsic attribute in both JSX namespaces, so `<AsyncThing />`
+  type-checks under `jsx: react` and `react-jsx` alike.
+- **Composition:** an async component as a keyed `list()` row rides the 0.10.1
+  row brackets — content resolving after a reorder still lands inside its row.
+
+### Fixed
+
+- **Async route handlers leaked post-await bindings.** A handler like
+  `async () => <span>{sig}</span>` builds its reactive bindings after the
+  first `await`, where the dispose-scope stack is necessarily empty (popped
+  pre-await since the 0.9.0 balance fix) — so those bindings had no owner,
+  survived navigation, and kept writing to detached DOM. Handlers may now
+  resolve to a thunk (`Promise<() => Node>`); railroad brackets the thunk in a
+  scope composed into the route's teardown. Bare `Promise<Node>` remains
+  supported for back-compat, with the caveat documented in the header and
+  skill.
+
 ## 0.10.2
 
 Guardrails from a full review that found no logic bugs in the core — only

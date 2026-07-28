@@ -20,7 +20,12 @@
  * (split on "?" yourself if you need it), and a trailing slash is a real
  * empty segment: "/users/42/" does NOT match "/users/:id".
  *
- * Handlers receive (params, params$) and return a Node (sync or async).
+ * Handlers receive (params, params$) and return a Node, or a Promise of a
+ * Node or of a THUNK (() => Node). Async handlers should resolve to the thunk
+ * form: railroad runs the thunk under a scope it owns, so reactive bindings
+ * built after the first await are disposed on navigation. A bare Promise<Node>
+ * still renders, but its post-await bindings have no owner scope (browser JS
+ * has no AsyncContext) and outlive the route.
  *   params  — plain object for destructuring: ({ id }) => ...
  *   params$ — Signal that updates when params change within the same pattern
  *
@@ -130,7 +135,7 @@ export function navigate(path: string): void {
 type RouteHandler = (
   params: Record<string, string>,
   params$: Signal<Record<string, string>>,
-) => Node | Promise<Node>;
+) => Node | Promise<Node | (() => Node)>;
 
 export interface RouterOptions {
   onError?: (err: unknown) => Node | void;
@@ -189,7 +194,7 @@ export function routes(
     // (leaking its own disposers) and the resolving .then() captures the parent
     // scope into activeDispose, recursing into a stack overflow on teardown.
     pushDisposeScope();
-    let result: Node | Promise<Node>;
+    let result: Node | Promise<Node | (() => Node)>;
     try {
       result = handler(params, activeParams);
     } catch (err) {
@@ -207,14 +212,51 @@ export function routes(
     if (result instanceof Promise) {
       asyncPending = true;
       result.then(
-        (node) => {
+        (resolved) => {
           if (myRunId !== runId) {
             scopeDispose(); // navigated away during await — drop orphaned children
             return;
           }
           asyncPending = false;
+          if (typeof resolved === "function") {
+            // Thunk resolution — the owner scope for post-await bindings. A
+            // bare Node resolution stays supported, but anything reactive it
+            // created after the first await is ownerless (browser JS has no
+            // AsyncContext to carry the scope across an await); resolve to a
+            // thunk so railroad can bracket its construction.
+            pushDisposeScope();
+            let built: unknown;
+            let thrown: unknown;
+            let didThrow = false;
+            try {
+              built = resolved();
+            } catch (err) {
+              didThrow = true;
+              thrown = err;
+            }
+            const thunkDispose = popDisposeScope();
+            if (didThrow || !(built instanceof Node)) {
+              thunkDispose();
+              scopeDispose();
+              activePattern = null;
+              activeParams = null;
+              const err = didThrow
+                ? thrown
+                : new Error("[railroad/routes] async handler thunk returned a non-Node");
+              if (handleError(err)) return;
+              console.error("[railroad/routes] async handler thunk failed:", err);
+              return;
+            }
+            const preAwaitDispose = scopeDispose;
+            activeDispose = () => {
+              thunkDispose();
+              preAwaitDispose();
+            };
+            target.appendChild(built);
+            return;
+          }
           activeDispose = scopeDispose;
-          target.appendChild(node);
+          target.appendChild(resolved);
         },
         (err) => {
           if (myRunId !== runId) {

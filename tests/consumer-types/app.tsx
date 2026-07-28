@@ -35,6 +35,13 @@ void inject(STORE).name;
 const log = createLogger("[consumer]");
 log.info("typechecks");
 
+// Async component — must type-check as a JSX tag (JSX.ElementType admits the
+// thunk resolution) and accept the universal `fallback` IntrinsicAttribute.
+async function AsyncProfile(props: { id: number }) {
+  await Promise.resolve();
+  return () => <div>{props.id}</div>;
+}
+
 function App() {
   return (
     <div class={label}>
@@ -60,6 +67,7 @@ function App() {
       {when(count.map((c) => c > 0), () => (
         <p>positive</p>
       ))}
+      <AsyncProfile id={1} fallback={() => <p>loading</p>} />
     </div>
   );
 }

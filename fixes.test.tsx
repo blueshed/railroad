@@ -568,6 +568,31 @@ describe("routes: async scope / idempotency / param race / onError", () => {
     expect(parentSentinel).toBe(1); // parent disposer fired exactly once
   });
 
+  test("async handler thunk resolution: post-await bindings die on navigation", async () => {
+    const name = signal("a");
+    const target = document.createElement("div");
+    document.body.append(target);
+    const dispose = routes(target, {
+      "/": async () => {
+        await Promise.resolve();
+        // Reactive binding built AFTER the first await — with a bare
+        // Promise<Node> resolution this had no owner scope and outlived the
+        // route (the pre-0.11 leak); the thunk gives railroad the moment to
+        // provide one.
+        return () => <span>{name}</span>;
+      },
+      "/other": () => <p>other</p>,
+    });
+    await tick();
+    expect(target.textContent).toBe("a");
+    expect((name as any).listeners.size).toBe(1);
+    navigate("/other");
+    await tick();
+    expect((name as any).listeners.size).toBe(0); // binding disposed with the route
+    expect(target.textContent).toBe("other");
+    dispose();
+  });
+
   test("double-dispose is idempotent and does not break a sibling router", async () => {
     const tA = document.createElement("div");
     const tB = document.createElement("div");
@@ -693,23 +718,152 @@ describe("logger: color gating", () => {
 // Fixes from the 0.10.1 full review — missing guardrails, not logic bugs.
 // Each pins a footgun that previously failed silently or inscrutably.
 
-describe("guard: async components throw a pointed error", () => {
-  test("a component returning a Promise throws at render, naming the component", () => {
-    async function AsyncPage() {
-      return createElement("h1", null, "never");
+describe("async components: thunk resolution + fallback", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  test("renders via its thunk; fallback shows until resolution, then swaps out", async () => {
+    const d = defer<string>();
+    async function Profile() {
+      const name = await d.promise;
+      return () => <div class="profile">{name}</div>;
     }
     const root = document.createElement("div");
-    expect(() => mount(root, () => createElement(AsyncPage as any, null)))
-      .toThrow(/AsyncPage.*Promise.*synchronous/s);
-    // The throw must not imbalance the dispose stack — a later scope pops clean.
-    pushDisposeScope();
-    popDisposeScope()();
+    document.body.append(root);
+    const dispose = mount(root, () => (
+      <main>
+        <Profile fallback={() => <p>loading…</p>} />
+      </main>
+    ));
+    expect(root.textContent).toBe("loading…");
+    d.resolve("Ada");
+    await tick();
+    expect(root.textContent).toBe("Ada");
+    expect(root.querySelector("p")).toBeNull(); // fallback removed
+    dispose();
+    expect(root.textContent).toBe("");
   });
 
-  test("as a child it throws too (no [object Promise] text)", () => {
-    const AsyncChild = async () => createElement("span", null, "x");
-    expect(() => createElement("div", null, createElement(AsyncChild as any, null)))
-      .toThrow(/Promise/);
+  test("thunk-created effects are owned and die on teardown", async () => {
+    const dep = signal(0);
+    let runs = 0;
+    async function Live() {
+      await Promise.resolve();
+      return () => {
+        effect(() => { dep.get(); runs++; });
+        return <b>x</b>;
+      };
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <Live />);
+    await tick();
+    expect(runs).toBe(1);
+    dep.set(1);
+    expect(runs).toBe(2);
+    dispose();
+    dep.set(2);
+    expect(runs).toBe(2); // disposed with the component — the whole contract
+  });
+
+  test("pre-await effects are scoped; dispose before resolution drops the thunk", async () => {
+    const dep = signal(0);
+    let preRuns = 0;
+    let thunkRuns = 0;
+    const d = defer<void>();
+    async function Widget() {
+      effect(() => { dep.get(); preRuns++; }); // sync prefix — component scope
+      await d.promise;
+      return () => { thunkRuns++; return <i>late</i>; };
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <Widget fallback={() => <p>…</p>} />);
+    expect(preRuns).toBe(1);
+    expect(root.textContent).toBe("…");
+    dispose(); // before resolution
+    dep.set(1);
+    expect(preRuns).toBe(1); // pre-await effect died with the scope
+    d.resolve();
+    await tick();
+    expect(thunkRuns).toBe(0); // resolution after dispose builds nothing
+    expect(root.textContent).toBe("");
+  });
+
+  test("a bare-Node resolution errors pointedly and renders nothing", async () => {
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    async function Wrong() {
+      await Promise.resolve();
+      return (<div>oops</div>) as any; // Node, not a thunk — the old footgun
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <Wrong fallback={() => <p>…</p>} />);
+    await tick();
+    expect(root.textContent).toBe(""); // fallback cleared, node not inserted
+    expect(
+      errorSpy.mock.calls.some((c) => String(c[0]).includes("resolve to a thunk")),
+    ).toBe(true);
+    errorSpy.mockRestore();
+    dispose();
+  });
+
+  test("a rejecting async component clears its fallback and reports", async () => {
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const d = defer<never>();
+    async function Doomed() {
+      await d.promise;
+      return () => <span>never</span>;
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <Doomed fallback={() => <p>loading…</p>} />);
+    expect(root.textContent).toBe("loading…");
+    d.reject(new Error("boom"));
+    await tick();
+    expect(root.textContent).toBe(""); // no stuck spinner hiding the failure
+    expect(
+      errorSpy.mock.calls.some((c) => String(c[0]).includes("rejected")),
+    ).toBe(true);
+    errorSpy.mockRestore();
+    dispose();
+  });
+
+  test("async components as keyed list() rows: resolved content travels on reorder", async () => {
+    const rows = signal([{ id: 1, label: "one" }, { id: 2, label: "two" }]);
+    async function Title(props: { label: string }) {
+      await Promise.resolve();
+      return () => <span>{props.label}</span>;
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () =>
+      list(rows, (r) => r.id, (r$) => <Title label={r$.peek().label} />),
+    );
+    await tick(); // list sync, then each row's resolution
+    expect(root.textContent).toBe("onetwo");
+    rows.set([{ id: 2, label: "two" }, { id: 1, label: "one" }]);
+    expect(root.textContent).toBe("twoone"); // row brackets carry async content
+    dispose();
+    expect(root.textContent).toBe("");
+  });
+
+  test("a non-thunk fallback warns and is ignored", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    async function P() {
+      await Promise.resolve();
+      return () => <span>ok</span>;
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <P fallback={(<p>eager</p>) as any} />);
+    expect(root.textContent).toBe(""); // eager Node ignored, not inserted
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes("fallback must be a thunk")),
+    ).toBe(true);
+    await tick();
+    expect(root.textContent).toBe("ok");
+    warnSpy.mockRestore();
+    dispose();
   });
 });
 

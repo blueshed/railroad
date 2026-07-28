@@ -4,6 +4,10 @@
  * createElement(tag, props, ...children)
  *   - tag: string → creates HTML element (or SVG element inside <svg>)
  *   - tag: function → calls component function(props)
+ *   - tag: async function → placeholder now, content when it resolves — the
+ *     component must resolve to a THUNK (`return () => <div>…</div>`) so its
+ *     post-await effects get an owner scope; optional `fallback` prop (a
+ *     thunk) renders until settlement. See the async-components section.
  *   - props: attributes, event handlers (onclick etc), ref
  *   - children: string, number, Node, Signal<T>, () => any, arrays, null/undefined
  *
@@ -173,22 +177,27 @@ export function createElement(
   ...children: any[]
 ): Node {
   if (typeof tag === "function") {
-    const componentProps = { ...props, children };
+    const componentProps: Record<string, any> = { ...props, children };
     pushDisposeScope();
     // finally (not a trailing pop) so a throwing component still balances the
     // dispose stack — otherwise the leaked scope corrupts every later push/pop.
     try {
       const result = tag(componentProps);
-      // An async component can never render: as a child it stringifies to
-      // "[object Promise]", at a mount()/when()/list() root it crashes inside
-      // appendChild with an error that names neither components nor promises.
-      // Fail here, where the component is identifiable, with the way out.
       if (result instanceof Promise) {
-        throw new Error(
-          `[railroad/jsx] <${tag.name || "anonymous"}> returned a Promise — ` +
-            "components are synchronous. Do async work in an effect that sets " +
-            "a signal, or in a routes() handler (handlers may return Promise<Node>).",
-        );
+        // Async component. Its synchronous prefix (before the first await) ran
+        // under this component scope and is captured by the finally below; the
+        // continuation's creations are owned via the thunk contract — see
+        // asyncComponent(). Called here, inside the scope, so its teardown
+        // registers with the component and disposes with the parent.
+        const name = tag.name || "anonymous";
+        const fb = componentProps.fallback;
+        if (fb != null && typeof fb !== "function") {
+          console.warn(
+            `[railroad/jsx] <${name}> fallback must be a thunk ` +
+              `(fallback={() => <p>…</p>}) — got ${fb instanceof Node ? "a Node" : `a ${typeof fb}`}; ignoring.`,
+          );
+        }
+        return asyncComponent(name, result, typeof fb === "function" ? fb : undefined);
       }
       return result;
     } finally {
@@ -292,6 +301,120 @@ function adoptIntoSvg(result: Node, parent: Node | null): Node {
     return adoptSvg(result);
   }
   return result;
+}
+
+// === Async components — thunk resolution ===
+//
+// A function component may be async. Its synchronous prefix (before the first
+// await) runs under the component's dispose scope like any component. The
+// continuation is the hard part: browser JS has no AsyncContext, so no library
+// can re-establish "current owner scope" around code that resumes after an
+// await — which is why a bare `Promise<Node>` resolution can never have its
+// post-await effects torn down. The contract that is correct today: the
+// component RESOLVES TO A THUNK, giving railroad a synchronous moment it owns:
+//
+//   async function Profile() {
+//     const user = await fetchUser();          // async work — no scope needed
+//     return () => <div>{user.name}</div>;     // runs under a railroad scope
+//   }
+//   <Profile fallback={() => <p>loading…</p>} />
+//
+// createElement returns a bracketed placeholder immediately (rendering the
+// optional `fallback` thunk until settlement). On resolution the thunk runs
+// inside a fresh scope whose disposer joins the component's cleanup, so
+// teardown is correct no matter when it happens — including before the
+// promise settles (the thunk then never runs). A resolution that is a bare
+// Node gets a pointed console.error naming the one-word fix.
+
+function asyncComponent(
+  name: string,
+  pending: Promise<unknown>,
+  fallback: (() => Node) | undefined,
+): Node {
+  const start = document.createComment(`async:${name}`);
+  const end = document.createComment(`/async:${name}`);
+  let currentDispose: Dispose | null = null;
+  let disposed = false;
+
+  // Content lives between the bracket comments (list()-row trick), so removal
+  // stays correct even when SVG adoption swaps node identities after capture.
+  const contentNodes = (): Node[] => {
+    const nodes: Node[] = [];
+    for (let n = start.nextSibling; n && n !== end; n = n.nextSibling) nodes.push(n);
+    return nodes;
+  };
+  const clear = () => {
+    if (currentDispose) currentDispose();
+    currentDispose = null;
+    for (const n of contentNodes()) n.parentNode?.removeChild(n);
+  };
+
+  const frag = document.createDocumentFragment();
+  frag.appendChild(start);
+  if (fallback) {
+    // Own sub-scope so the fallback's effects die at the swap, not with the
+    // whole component.
+    pushDisposeScope();
+    try {
+      frag.appendChild(fallback());
+    } finally {
+      currentDispose = popDisposeScope();
+    }
+  }
+  frag.appendChild(end);
+
+  pending.then(
+    (resolution) => {
+      if (disposed) return;
+      clear(); // the fallback goes on every settlement path
+      if (typeof resolution !== "function") {
+        console.error(
+          `[railroad/jsx] <${name}> resolved to ${resolution instanceof Node ? "a Node" : "a non-thunk value"} — ` +
+            "an async component must resolve to a thunk: `return () => <div>…</div>`. " +
+            "Effects created after an await have no owner scope; the thunk gives railroad " +
+            "a synchronous moment to provide one.",
+        );
+        return;
+      }
+      pushDisposeScope();
+      let result: unknown;
+      try {
+        result = (resolution as () => unknown)();
+      } catch (err) {
+        popDisposeScope()();
+        console.error(`[railroad/jsx] <${name}> async thunk threw:`, err);
+        return;
+      }
+      currentDispose = popDisposeScope();
+      if (!(result instanceof Node)) {
+        currentDispose();
+        currentDispose = null;
+        console.error(`[railroad/jsx] <${name}> async thunk returned a non-Node — return DOM from the thunk.`);
+        return;
+      }
+      const parent = end.parentNode;
+      if (parent) {
+        parent.insertBefore(adoptIntoSvg(result, parent), end);
+      } else {
+        // Brackets left the DOM without a dispose (out-of-contract removal) —
+        // drop the built branch rather than leak it.
+        currentDispose();
+        currentDispose = null;
+      }
+    },
+    (err) => {
+      if (disposed) return;
+      clear(); // a stuck fallback would hide the failure
+      console.error(`[railroad/jsx] <${name}> async component rejected:`, err);
+    },
+  );
+
+  trackDispose(() => {
+    disposed = true;
+    clear();
+  });
+
+  return frag;
 }
 
 // === Child rendering ===
@@ -668,6 +791,15 @@ export function list<T>(
 declare global {
   namespace JSX {
     type Element = globalThis.Node;
+    // Admits async components (thunk resolution) as JSX tags — TS 5.1+.
+    type ElementType =
+      | string
+      | ((props: any) => globalThis.Node | Promise<() => globalThis.Node>);
+    interface IntrinsicAttributes {
+      /** Loading view for an async component — rendered immediately, swapped
+       *  out when the component's promise settles. Sync components ignore it. */
+      fallback?: () => globalThis.Node;
+    }
     interface IntrinsicElements {
       [tag: string]: any;
     }
