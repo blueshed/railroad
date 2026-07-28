@@ -1,4 +1,4 @@
-// Regression tests for the v0.9.x fix sets — each pins a bug found in a deep
+// Regression tests for the review fix sets — each pins a bug found in a deep
 // review (and several load-bearing invariants that previously had no test).
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { createElement, Fragment, when, list, mount } from "./jsx";
@@ -258,6 +258,182 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     const p = svg.querySelector("p.note")!;
     expect(p).not.toBeNull();
     expect(p.namespaceURI).not.toBe(SVG_NS);
+  });
+});
+
+// ============================================================ deferred-swap dispose guard & row bracket ranges
+
+describe("when()/list(): post-dispose deferred swaps and row brackets", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  test("when(): a scope disposed before the deferred first swap never builds the branch", async () => {
+    const cond = signal(true);
+    const dep = signal(0);
+    let builds = 0;
+    let branchRuns = 0;
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () =>
+      when(cond, () => {
+        builds++;
+        effect(() => { dep.get(); branchRuns++; });
+        return document.createElement("span");
+      }),
+    );
+    dispose(); // same tick — the first swap() microtask is still queued
+    await flush();
+    expect(builds).toBe(0); // the queued swap must be a no-op after dispose
+    dep.set(1); // and no orphaned branch effect can be left responding
+    expect(branchRuns).toBe(0);
+  });
+
+  test("list(): a scope disposed before the deferred first sync never builds rows", async () => {
+    const rows = signal([{ id: 1 }, { id: 2 }]);
+    let builds = 0;
+    const root = document.createElement("div");
+    document.body.append(root);
+    // Nested one element deep: after dispose the list anchor still has a
+    // (detached) parent, so only the disposed guard prevents the rebuild.
+    const dispose = mount(root, () => (
+      <ul>{list(rows, (r) => r.id, () => { builds++; return <li />; })}</ul>
+    ));
+    dispose();
+    await flush();
+    expect(builds).toBe(0);
+  });
+
+  test("list(): reordering rows whose root is a when() moves the branch nodes too", async () => {
+    const rows = signal([
+      { id: 1, label: "one" },
+      { id: 2, label: "two" },
+    ]);
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () =>
+      list(rows, (r) => r.id, (r$) =>
+        when(signal(true), () => {
+          const s = document.createElement("span");
+          s.textContent = r$.peek().label;
+          return s;
+        }),
+      ),
+    );
+    await tick(); // list sync, then each row's deferred when() swap
+    expect(root.textContent).toBe("onetwo");
+
+    rows.set([{ id: 2, label: "two" }, { id: 1, label: "one" }]);
+    expect(root.textContent).toBe("twoone");
+
+    // Removal tears the whole row range (when anchor + branch) out of the DOM.
+    rows.set([{ id: 1, label: "one" }]);
+    expect(root.textContent).toBe("one");
+    expect(root.querySelectorAll("span")).toHaveLength(1);
+    dispose();
+  });
+
+  test("list(): multi-node fragment rows stay grouped through reorder", async () => {
+    const rows = signal([{ id: "a" }, { id: "b" }]);
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () =>
+      list(rows, (r) => r.id, (r$) => (
+        <>
+          <b>{r$.peek().id}</b>
+          <i>{r$.peek().id}</i>
+        </>
+      )),
+    );
+    await tick();
+    expect(root.textContent).toBe("aabb");
+    rows.set([{ id: "b" }, { id: "a" }]);
+    expect(root.textContent).toBe("bbaa");
+    dispose();
+  });
+
+  test("list(): index-based rows rebuild in place between their brackets", async () => {
+    const rows = signal(["x", "y"]);
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () =>
+      list(rows, (item) => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        return li;
+      }),
+    );
+    await tick();
+    expect(root.textContent).toBe("xy");
+    rows.set(["y", "x"]);
+    expect(root.textContent).toBe("yx");
+    dispose();
+    expect(root.querySelectorAll("li")).toHaveLength(0);
+  });
+});
+
+// ============================================================ list() item-signal equality (in-place patch streams)
+
+describe("list(): item-signal equals option for in-place patch streams", () => {
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  type Card = { id: number; title: string };
+  const makeDoc = () =>
+    signal<{ cards: Record<string, Card> }>({
+      cards: { "1": { id: 1, title: "one" }, "2": { id: 2, title: "two" } },
+    });
+
+  const mountCards = (
+    doc: ReturnType<typeof makeDoc>,
+    root: HTMLElement,
+    options?: { equals: (a: Card, b: Card) => boolean },
+  ) => {
+    const cards = doc.map((d) => Object.values(d.cards));
+    return mount(root, () =>
+      list(cards, (c) => c.id, (c$) => {
+        const li = document.createElement("li");
+        effect(() => { li.textContent = c$.get().title; });
+        return li;
+      }, options),
+    );
+  };
+
+  test("default Object.is: in-place row mutation + touch() leaves the row stale (why the option exists)", async () => {
+    const doc = makeDoc();
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mountCards(doc, root);
+    await tick();
+    expect(root.textContent).toBe("onetwo");
+
+    // delta-style field-level op: mutate the row object in place, touch().
+    // The sync re-delivers the SAME reference, so the item signal bails —
+    // the immutable-update contract. { equals } exists for the other case.
+    doc.peek().cards["1"]!.title = "ONE";
+    doc.touch();
+    expect(root.textContent).toBe("onetwo");
+    dispose();
+  });
+
+  test("{ equals: () => false }: in-place mutation + touch() updates row DOM", async () => {
+    const doc = makeDoc();
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mountCards(doc, root, { equals: () => false });
+    await tick();
+    expect(root.textContent).toBe("onetwo");
+
+    doc.peek().cards["1"]!.title = "ONE";
+    doc.touch();
+    expect(root.textContent).toBe("ONEtwo");
+
+    // Whole-row replacement and removal keep working under the option.
+    doc.peek().cards["2"] = { id: 2, title: "TWO" };
+    doc.touch();
+    expect(root.textContent).toBe("ONETWO");
+
+    delete doc.peek().cards["1"];
+    doc.touch();
+    expect(root.textContent).toBe("TWO");
+    dispose();
   });
 });
 

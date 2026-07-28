@@ -30,7 +30,7 @@
  * Reactive helpers:
  *   mount(target, render)         — root dispose scope; returns the disposer
  *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
- *   list(signal, keyFn, render)   — keyed reactive list, render receives Signal<T>
+ *   list(signal, keyFn, render, options?) — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
  *
  * when() and list() warn if created outside a dispose scope (a component,
@@ -39,7 +39,7 @@
  */
 
 import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
-import type { Dispose, ReadonlySignal } from "./signals";
+import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
 
@@ -378,12 +378,22 @@ export function when(
   let currentNodes: Node[] = [];
   let currentDispose: Dispose | null = null;
   let wasTruthy: boolean | undefined = undefined;
+  let disposed = false;
 
   const sig: ReadonlySignal<any> = typeof condition === "function"
     ? computed(condition)
     : condition;
 
   function swap() {
+    // The first swap is always deferred (the anchor has no parent until the
+    // returned fragment is appended), so a queued microtask can fire after the
+    // owning scope tore down — e.g. a keyed list row added and removed in the
+    // same flush. Without this guard it would rebuild the branch and leak its
+    // effects: their disposer lands in currentDispose, which nothing reads
+    // after the scope cleanup has run. An anchor.parentNode check is not
+    // enough — after a routes() teardown the anchor can still sit in a
+    // detached-but-parented subtree.
+    if (disposed) return;
     const val = sig.get();
     const isTruthy = !!val;
 
@@ -423,6 +433,7 @@ export function when(
   // truthiness swap — without this, effects inside the branch outlive the
   // parent scope (route/component teardown) and keep writing to detached DOM.
   trackDispose(() => {
+    disposed = true; // makes any still-queued swap() microtask a no-op
     if (currentDispose) currentDispose();
     currentDispose = null;
     for (const n of currentNodes) n.parentNode?.removeChild(n);
@@ -443,12 +454,18 @@ export function when(
 //
 // Non-keyed form (index-based, raw values):
 //   list(items, (item, index) => <li>{item}</li>)
-
-function collectNodes(result: Node): Node[] {
-  return result instanceof DocumentFragment
-    ? [...result.childNodes]
-    : [result];
-}
+//
+// Each row is bracketed by <!--row--> / <!--/row--> comment markers, so nodes
+// that a when() (or nested list()) at the row's top level inserts beside its
+// anchor after render time still move and remove with the row.
+//
+// options (keyed form) forwards SignalOptions to each row's item signal. The
+// default Object.is is right for immutable updates (a changed row is a new
+// object), but a patch stream that MUTATES row objects in place and notifies
+// via touch() (delta docs, hand-rolled applyPatch) re-delivers the same
+// reference — which Object.is swallows, leaving row DOM stale. Pass
+// { equals: () => false } to force per-row re-projection; the row's own
+// .map() computeds still bail on unchanged values, so DOM writes stay minimal.
 
 // Keyed form — render receives Signal<T> / Signal<number>. Real overloads (not
 // a union-typed param) so the keyFn's item parameter is inferred from T; the
@@ -457,6 +474,7 @@ export function list<T>(
   items: ReadonlySignal<T[]>,
   keyFn: (item: T) => string | number,
   render: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
+  options?: SignalOptions<T>,
 ): Node;
 // Index-based form — render receives raw T.
 export function list<T>(
@@ -467,35 +485,58 @@ export function list<T>(
   items: ReadonlySignal<T[]>,
   keyFnOrRender: ((item: T) => string | number) | ((item: T, index: number) => Node),
   maybeRender?: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
+  options?: SignalOptions<T>,
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("list");
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
 
-  type Entry = { nodes: Node[]; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
+  // A row's node array snapshotted at render time goes stale: a when() (or
+  // nested list()) at the row's top level inserts nodes NEXT TO its anchor
+  // later (deferred first swap, branch changes), and moving just the snapshot
+  // would strand them. The bracket range [start..end] is the row's live DOM —
+  // it is what reorders move and removals delete.
+  type Entry = { start: Comment; end: Comment; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
   const anchor = document.createComment("list");
   let entries: Map<string | number, Entry> = new Map();
   let order: (string | number)[] = [];
+  let disposed = false;
+
+  function rangeOf(entry: Entry): Node[] {
+    const nodes: Node[] = [];
+    for (let n: Node | null = entry.start; n; n = n.nextSibling) {
+      nodes.push(n);
+      if (n === entry.end) break;
+    }
+    return nodes;
+  }
 
   function removeEntry(key: string | number) {
     const entry = entries.get(key);
     if (entry) {
+      const range = rangeOf(entry); // snapshot before dispose mutates the row
       entry.dispose();
-      for (const n of entry.nodes) n.parentNode?.removeChild(n);
+      for (const n of range) n.parentNode?.removeChild(n);
       entries.delete(key);
     }
   }
 
   function clearAll() {
     for (const [, entry] of entries) {
+      const range = rangeOf(entry);
       entry.dispose();
-      for (const n of entry.nodes) n.parentNode?.removeChild(n);
+      for (const n of range) n.parentNode?.removeChild(n);
     }
     entries = new Map();
     order = [];
   }
 
   function sync() {
+    // Same guard as when()'s swap: the deferred first sync must not rebuild
+    // rows after the owning scope disposed. The parent check below doesn't
+    // cover an anchor still sitting in a detached-but-parented subtree after
+    // a routes()/component teardown.
+    if (disposed) return;
     const arr = items.get();
     const parent = anchor.parentNode;
     if (!parent) return;
@@ -524,54 +565,54 @@ export function list<T>(
       let entry = entries.get(key);
 
       if (!entry) {
-        // New item — create
+        // New item — render between fresh brackets in a detached fragment;
+        // the shared move step below inserts the whole range into position.
+        const start = document.createComment("row");
+        const end = document.createComment("/row");
         pushDisposeScope();
         let result: Node;
         if (hasKeyFn) {
-          const itemSig = signal(arr[i]!);
+          const itemSig = signal(arr[i]!, options);
           const indexSig = signal(i);
           result = maybeRender!(itemSig, indexSig);
           result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
-          entry = { nodes: collectNodes(result), dispose, item: itemSig, index: indexSig };
+          entry = { start, end, dispose, item: itemSig, index: indexSig };
         } else {
           result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
           result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
-          entry = { nodes: collectNodes(result), dispose };
+          entry = { start, end, dispose };
         }
+        const frag = document.createDocumentFragment();
+        frag.appendChild(start);
+        frag.appendChild(result);
+        frag.appendChild(end);
         entries.set(key, entry);
       } else if (hasKeyFn) {
         // Existing keyed item — push new value into its signal
         entry.item!.set(arr[i]!);
         entry.index!.set(i);
       } else {
-        // Index-based — dispose old, recreate with new item
-        const oldNodes = entry.nodes;
+        // Index-based — dispose the old content and rebuild it between the
+        // same brackets, which keeps the row's position without re-inserting.
+        const { start, end } = entry;
+        const oldContent = rangeOf(entry).filter((n) => n !== start && n !== end);
         entry.dispose();
+        for (const n of oldContent) n.parentNode?.removeChild(n);
         pushDisposeScope();
         let result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
         result = adoptIntoSvg(result, parent);
-        const dispose = popDisposeScope();
-        const nodes = collectNodes(result);
-        entry = { nodes, dispose };
-        entries.set(key, entry);
-        const ref = oldNodes[oldNodes.length - 1]?.nextSibling ?? null;
-        const oldParent = oldNodes[0]?.parentNode;
-        for (const n of oldNodes) n.parentNode?.removeChild(n);
-        if (oldParent) {
-          for (const n of nodes) oldParent.insertBefore(n, ref);
-        }
+        entry.dispose = popDisposeScope();
+        end.parentNode?.insertBefore(result, end);
       }
 
-      // Move or insert into correct position
-      const lastNode = entry.nodes[entry.nodes.length - 1];
-      if (lastNode?.nextSibling !== insertBefore) {
-        for (const n of entry.nodes) {
-          parent.insertBefore(n, insertBefore);
-        }
+      // Move or insert into correct position — the whole bracket range, so
+      // nodes a when()/list() inserted beside its anchor travel with the row.
+      if (entry.end.nextSibling !== insertBefore) {
+        for (const n of rangeOf(entry)) parent.insertBefore(n, insertBefore);
       }
-      insertBefore = entry.nodes[0] ?? insertBefore;
+      insertBefore = entry.start;
     }
 
     order = newKeys;
@@ -586,7 +627,10 @@ export function list<T>(
     }
   });
 
-  trackDispose(() => clearAll());
+  trackDispose(() => {
+    disposed = true; // makes any still-queued sync() microtask a no-op
+    clearAll();
+  });
 
   const frag = document.createDocumentFragment();
   frag.appendChild(anchor);

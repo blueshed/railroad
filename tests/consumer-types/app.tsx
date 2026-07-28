@@ -46,6 +46,10 @@ function App() {
         {list(rows, (r) => r.id, (r$) => (
           <li>{r$.map((r) => r.text)}</li>
         ))}
+        {/* 4-arg keyed overload — options.equals must infer a/b as Row */}
+        {list(rows, (r) => r.id, (r$) => (
+          <li>{r$.map((r) => r.text)}</li>
+        ), { equals: (a, b) => a.id === b.id && a.text === b.text })}
       </ul>
       {/* index-based overload — `item` is raw Row */}
       {list(rows, (item, i) => (

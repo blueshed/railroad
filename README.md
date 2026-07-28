@@ -152,7 +152,7 @@ const dispose = mount(document.getElementById("root")!, () => <Greeting />);
 {when(loggedIn, () => <Dashboard />, () => <Login />)}
 ```
 
-### `list(items, keyFn?, render)` — keyed reactive list
+### `list(items, keyFn?, render, options?)` — keyed reactive list
 
 ```tsx
 {list(todos, t => t.id, (todo$, idx$) => (
@@ -161,6 +161,11 @@ const dispose = mount(document.getElementById("root")!, () => <Greeting />);
   </li>
 ))}
 ```
+
+`options` (keyed form only) forwards `SignalOptions` to each row's item
+signal. The default `Object.is` is right when a changed row is a new object;
+pass `{ equals: () => false }` when a patch stream mutates row objects **in
+place** and notifies via `.touch()` — see the realtime section below.
 
 SVG works transparently — SVG tags (`circle`, `g`, `linearGradient`, `clipPath`, filter primitives, …) are created in the SVG namespace outright, including inside `when()` and `list()`, with camelCase preserved. `<foreignObject>` children stay HTML.
 
@@ -220,11 +225,19 @@ function App() {
           <input type="checkbox" checked={row$.map(r => r.done)} />
           {row$.map(r => r.text)}
         </li>
-      ))}
+      ), { equals: () => false })}
     </ul>
   );
 }
 ```
+
+The `{ equals: () => false }` matters: `list()` pushes each sync into the
+row's item signal, and an in-place patch re-delivers the **same row
+reference** — which the default `Object.is` swallows, leaving that row's DOM
+stale. Forcing the notify makes every row re-project; the row's own `.map()`
+computeds still bail on unchanged values, so actual DOM writes stay minimal.
+Streams that replace whole row objects (delta's SQLite/Postgres backends do
+this) can keep the default.
 
 ### Delta-doc — turnkey JSON-Patch sync, signal-backed
 
@@ -352,6 +365,7 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
 - **SVG tags get their namespace at creation** (0.10+) — refs fire once and manual listeners survive. Only the four HTML/SVG-ambiguous tags (`a`, `script`, `style`, `title`) still go through adoption when appended inside `<svg>`: on that path a `ref` fires twice (use the last call) and hand-attached listeners don't carry over — use `on*` props.
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
+- **In-place row mutation + `.touch()` needs `list()`'s `equals` option.** A keyed `list()` pushes updates into each row's item signal; a patch stream that mutates row objects in place re-delivers the same reference, which the default `Object.is` swallows — the row's DOM goes silently stale. Pass `{ equals: () => false }` as the fourth argument for such streams. Same-reference projections have the same trap: `doc.map(d => d.settings)` returns the same ref after a `.touch()`, so the computed bails — project to fresh values (`Object.values(...)`, primitives) or pass `{ equals: () => false }` to `.map()`.
 
 It's the smallest correct reactive layer for the workflow Bun 1.3 actually ships: HTML imports, TSX bundling, HMR, and `--compile` to a single binary. That's the niche, and it's a real one.
 

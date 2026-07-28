@@ -1,6 +1,6 @@
 ---
 name: railroad
-version: 0.10.0
+version: 0.10.1
 description: "Railroad — reactive UI for the Bun fullstack runtime. Signals, JSX, hash router, DI, logger. Use when writing JSX with signals, when()/list()/routes(), or any import from @blueshed/railroad. Pair with @blueshed/delta for WebSocket document sync."
 ---
 
@@ -58,6 +58,14 @@ A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B
 Index-based form (no keyFn) gets raw values and recreates the row on change — fine for static lists, wasteful for editable ones.
 
 `keyFn` must return a **unique** key per item. Duplicate keys collapse to a single row and silently drop the others (railroad warns on the console) — key by a stable unique id (`r => r.id`), not by a value that can repeat.
+
+When rows arrive by **in-place mutation + `.touch()`** (a hand-rolled patch stream, delta's JSON-file backend), pass `{ equals: () => false }` as the keyed form's fourth argument — the sync re-delivers the *same row reference*, and the default `Object.is` swallows it, leaving that row's DOM silently stale:
+
+```tsx
+{list(rows, r => r.id, (row$) => <li>{row$.map(r => r.text)}</li>, { equals: () => false })}
+```
+
+Row-level `.map()` computeds still bail on unchanged values, so DOM writes stay minimal. Streams that replace whole row objects (delta's SQLite/Postgres backends) keep the default.
 
 ### 3. SVG is first-class — tags get the SVG namespace at creation
 
@@ -127,7 +135,7 @@ doc.mutate(d => { d.items.push(newRow); });
 filter.patch({ color: "blue" });
 ```
 
-`.touch()` propagates to effects and primitive-returning computeds. A computed that returns the same reference (`computed(() => doc.get().items)`) bails via its own `equals` guard — by design.
+`.touch()` propagates to effects and primitive-returning computeds. A computed that returns the same reference (`computed(() => doc.get().items)`) bails via its own `equals` guard — by design. Two consequences: project to fresh values (`Object.values(...)`, primitives) or pass `{ equals: () => false }` to `.map()`; and a keyed `list()` fed by an in-place stream needs `{ equals: () => false }` as its fourth argument (see §2), or edited rows go stale.
 
 ### 6. Event handlers are lowercase HTML, not React PascalCase
 

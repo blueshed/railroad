@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.10.1
+
+A cross-library hardening pass with `@blueshed/delta`: two `when()`/`list()`
+lifecycle bugs found in an adversarial review, and an escape hatch for
+in-place patch streams. Every fix is pinned by a regression test, and the
+delta repo gains an integration suite that drives the pairing — real server,
+real WebSocket, real DOM — end to end.
+
+### Added
+
+- **Keyed `list()` takes a fourth `options` argument** (`SignalOptions<T>`,
+  forwarded to each row's item signal). Patch streams that mutate row objects
+  in place and notify via `.touch()` (delta's JSON-file backend, hand-rolled
+  `applyPatch` loops) re-deliver the same reference on sync, which the default
+  `Object.is` equality swallowed — edited rows went silently stale. Pass
+  `{ equals: () => false }` to force per-row re-projection; row-level `.map()`
+  computeds still prune unchanged values, so DOM writes stay minimal.
+
+### Fixed
+
+- **`when()`/`list()` no longer build content after disposal.** Their first
+  render is always deferred by a microtask (the anchor has no parent until the
+  returned fragment is appended), so disposing the owning scope in that window
+  — e.g. a keyed row added and removed in the same flush of a realtime patch
+  stream — let the queued swap/sync run anyway: it rebuilt the branch/rows and
+  leaked their effects, whose disposers were captured after the scope cleanup
+  had already run. Both helpers now latch a `disposed` flag in their scope
+  cleanup and the deferred callback is a no-op after it. (`list()` was only
+  shielded when its anchor had left the DOM entirely; an anchor still sitting
+  in a detached-but-parented subtree rebuilt every row.)
+- **Keyed `list()` reorders no longer strand `when()` branch nodes.** A row
+  whose top-level content is a `when()` (or a fragment containing one) kept
+  only the `when` anchor comment in the list's node bookkeeping — the branch
+  nodes it inserts beside that anchor later were left behind on reorder,
+  silently scrambling row content. Each row is now bracketed by
+  `<!--row-->`/`<!--/row-->` comment markers and reorders/removals operate on
+  the whole live range, so nodes that `when()` (or a nested `list()`) inserts
+  next to its anchor travel with the row. Rows therefore contribute two extra
+  comment nodes each — invisible to CSS and `children`, but visible to code
+  that walks `childNodes` by index.
+
 ## 0.10.0
 
 SVG promoted to first-class and the two long-standing core caveats removed:
