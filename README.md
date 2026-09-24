@@ -26,6 +26,8 @@ Add three files.
     "jsx": "react-jsx",
     "jsxImportSource": "@blueshed/railroad",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "target": "esnext",
     "moduleResolution": "bundler",
     "strict": true
   }

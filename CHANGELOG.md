@@ -111,6 +111,19 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
+- **The README's `tsconfig.json` compiles.** It set `moduleResolution:
+  "bundler"` without `module`, which TypeScript rejects (TS5095), and
+  without `target`, so railroad's own source failed on iteration (TS2802).
+  It (and the manual's copy) now sets `module` and `target` to `esnext`, as
+  `check:consumer` does.
+- **The skill says what bites today.** It no longer tells delta users to
+  pass `{ equals: () => false }` to `list()` (every delta backend broadcasts
+  whole rows); it adds §9, that `when()` rebuilds only on a truthiness flip
+  and a handler's `params` stay the first match (pass signals; read
+  `params$`), fixes its wildcard-layout example accordingly, and covers the
+  changes above: untracked render bodies, effect writes and return values,
+  `onchange` on text inputs, event handlers not being scopes, and local
+  development across repos. The unrelated "no `transition-all`" item is gone.
 - **"Glitch-free" now says where it stops.** Propagation is glitch-free
   while each computed reads the same signals every run. A computed that
   switches what it reads (`flag.get() ? b.get() : a.get() * 2`) can end up

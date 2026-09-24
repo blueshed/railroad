@@ -46,7 +46,8 @@
  *
  * Reactive helpers:
  *   mount(target, render)         — root dispose scope; returns the disposer
- *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
+ *   when(signal, truthy, falsy?)  — conditional rendering; rebuilds the branch
+ *                                   only when the condition's truthiness flips
  *   list(signal, keyFn, render, options?) — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
  *
