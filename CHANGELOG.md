@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Function props were stringified.** `<div class={() => open.get() ? "a" : "b"} />`
+  wrote the function's source into the attribute. Function props (other than
+  `ref` and `on*`) are now reactive, exactly like function children — for
+  `class`, `style`, `value`/`checked`/…, `innerHTML`, and plain attributes.
+- **`style={Signal<string>}` threw** "Attempted to assign to readonly
+  property": the reactive path assumed an object and indexed the string. A
+  style value may now be a CSS string or an object, static or reactive, and a
+  reactive style can switch between the two forms; `null`/`false` removes it.
+- **`class={Signal<undefined>}` wrote the string `"undefined"`.** `null`,
+  `undefined` and `false` now remove the `class` attribute.
+- **Effects didn't own what their body created.** A computed, nested effect,
+  `when()`, `list()` or component created inside an `effect()`/`computed()`
+  landed in the *enclosing* scope, so every re-run stacked another live copy
+  until the whole scope tore down (5 writes → 20 inner evaluations instead of
+  5, growing quadratically). Each run is now an owner scope, disposed before
+  the next run and on dispose — the Solid model.
+  Note for anything that registers with `trackDispose()` — e.g.
+  `@blueshed/delta`'s `openDoc()` — called inside an effect body: it is now
+  released when that effect re-runs. Open long-lived resources outside the
+  effect.
+
+### Changed
+
+- **`when()` and `list()` render synchronously.** Their first render was
+  deferred to a microtask, so after `mount()` returned the DOM held only
+  `<!--when-->` / `<!--list-->` — a `ref` that measured or focused, or a test
+  asserting straight after mount, saw nothing. The anchors are now placed in
+  their fragment before the driving effect runs. `when()` keeps its branch
+  between `<!--when-->` / `<!--/when-->` brackets (like `list()` rows), so
+  removal stays correct when SVG adoption swaps node identities. Code that
+  awaited a tick before reading `when()`/`list()` output keeps working.
+
 ## 0.11.0
 
 Async, made honest. The 0.10.2 guard said "components are synchronous"; the

@@ -47,7 +47,8 @@
  *   nested effects inside components / route handlers / when() / list() /
  *   mount() tear down with their parent. No manual trackDispose needed in
  *   app code — mount UI through routes() or jsx's mount() so a root scope
- *   exists.
+ *   exists. Each effect/computed run is itself an owner scope: anything its
+ *   body creates is disposed before the next run and when it is disposed.
  */
 
 // Listeners carry their topological level (derivation depth) so the flush
@@ -273,6 +274,10 @@ export class Signal<T> implements ReadonlySignal<T> {
 
 export function effect(fn: () => void | (() => void)): () => void {
   let cleanup: (() => void) | void;
+  // Owner scope for whatever this run creates (effects, computeds, when/list,
+  // components). Disposed before the next run and on dispose — otherwise each
+  // re-run would stack a fresh set of children into the enclosing scope.
+  let children: Dispose | null = null;
   let deps = new Set<Signal<any>>();
   let disposed = false;
 
@@ -283,6 +288,8 @@ export function effect(fn: () => void | (() => void)): () => void {
     // relying on the listener Set having been mutated. Keeps the batch and
     // non-batch paths consistent.
     if (disposed) return;
+    if (children) children();
+    children = null;
     if (cleanup) cleanup();
 
     const prevListener = currentListener;
@@ -291,9 +298,11 @@ export function effect(fn: () => void | (() => void)): () => void {
     currentListener = execute;
     currentDeps = nextDeps;
 
+    pushDisposeScope();
     try {
       cleanup = fn();
     } finally {
+      children = popDisposeScope();
       currentListener = prevListener;
       currentDeps = prevDeps;
       // Swap dep sets even when fn() throws: signals read before the throw
@@ -314,6 +323,8 @@ export function effect(fn: () => void | (() => void)): () => void {
   const dispose = () => {
     if (disposed) return; // idempotent — safe to call more than once
     disposed = true;
+    if (children) children();
+    children = null;
     if (cleanup) cleanup();
     for (const dep of deps) dep.unsubscribe(execute);
     deps.clear();

@@ -14,7 +14,13 @@
  * When a Signal is used as a child, an effect auto-updates the text node.
  * When a function is used as a child, it auto-tracks dependencies:
  *   <span>{() => count.get() > 5 ? "High" : "Low"}</span>
- * When a Signal is used as a prop value, an effect auto-updates the attribute.
+ * When a Signal or a function is used as a prop value (other than ref and
+ * on*), an effect auto-updates the attribute — same rule as children:
+ *   <div class={() => open.get() ? "open" : ""} />
+ * style accepts a CSS string or an object of properties, static or reactive.
+ *
+ * when() and list() render their initial content synchronously: it is in the
+ * DOM as soon as the returned fragment is appended.
  *
  * Components are auto-scoped — effects/computeds inside are disposed when
  * the parent scope (route, when, list) tears down. No manual dispose needed.
@@ -95,50 +101,38 @@ export function Fragment(props: any): DocumentFragment {
 
 // === Props application ===
 
+// Apply a style value: a CSS string (cssText) or an object of properties.
+// `prev` carries what the last reactive value set — the object keys, or null
+// after a string — so the next value can clear what it no longer names.
+type StyleState = { keys: Set<string> | null };
+
+function applyStyle(el: Element, v: unknown, prev: StyleState): void {
+  const elStyle = (el as HTMLElement).style;
+  if (v == null || v === false || typeof v === "string") {
+    prev.keys = null;
+    if (v == null || v === false || v === "") el.removeAttribute("style");
+    else el.setAttribute("style", v);
+    return;
+  }
+  // Coming from a string (or the first run), start from a clean attribute so
+  // properties set by the old cssText don't linger under the object form.
+  if (prev.keys === null) el.removeAttribute("style");
+  const next = v as Record<string, string>;
+  for (const k of prev.keys ?? []) {
+    if (!(k in next)) elStyle[k as any] = "";
+  }
+  prev.keys = new Set(Object.keys(next));
+  for (const [k, val] of Object.entries(next)) elStyle[k as any] = val;
+}
+
 function applyProps(el: Element, props: Record<string, any>): void {
   const disposers: Dispose[] = [];
   for (const [key, value] of Object.entries(props)) {
     if (key === "ref") {
       if (typeof value === "function") value(el);
-    } else if (key === "innerHTML") {
-      if (value instanceof Signal) {
-        disposers.push(effect(() => { el.innerHTML = value.get(); }));
-      } else {
-        el.innerHTML = value;
-      }
-    } else if (key === "className" || key === "class") {
-      if (value instanceof Signal) {
-        disposers.push(effect(() => { el.setAttribute("class", value.get()); }));
-      } else {
-        el.setAttribute("class", value);
-      }
-    } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
-      // Coerce null/undefined to "" so a cleared signal doesn't write the
-      // literal string "null"/"undefined" into the DOM property.
-      if (value instanceof Signal) {
-        disposers.push(effect(() => { (el as any)[key] = value.get() ?? ""; }));
-      } else {
-        (el as any)[key] = value ?? "";
-      }
-    } else if (key === "style" && value instanceof Signal) {
-      const oldKeys = new Set<string>();
-      disposers.push(effect(() => {
-        const nextStyle = (value.get() || {}) as Record<string, string>;
-        const elStyle = (el as HTMLElement).style;
-        for (const k of oldKeys) {
-          if (!(k in nextStyle)) {
-            elStyle[k as any] = "";
-          }
-        }
-        oldKeys.clear();
-        for (const [k, v] of Object.entries(nextStyle)) {
-          elStyle[k as any] = v;
-          oldKeys.add(k);
-        }
-      }));
-    } else if (key === "style" && typeof value === "object") {
-      Object.assign((el as HTMLElement).style, value);
-    } else if (key.startsWith("on")) {
+      continue;
+    }
+    if (key.startsWith("on")) {
       // A non-function here (a Signal, or an accidentally-invoked handler)
       // would be silently ignored by addEventListener — the element just
       // doesn't respond, with nothing to say why. null/undefined stay legal:
@@ -154,16 +148,40 @@ function applyProps(el: Element, props: Record<string, any>): void {
             ". No listener was attached.",
         );
       }
+      continue;
+    }
+
+    // Every other prop is reactive when given a Signal or a function — the
+    // same rule as children, so `class={() => …}` tracks like `{() => …}`.
+    // Anything else is applied once.
+    let apply: (v: any) => void;
+    if (key === "innerHTML") {
+      apply = (v) => { el.innerHTML = v ?? ""; };
+    } else if (key === "className" || key === "class") {
+      apply = (v) => {
+        if (v == null || v === false) el.removeAttribute("class");
+        else el.setAttribute("class", String(v));
+      };
+    } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
+      // Coerce null/undefined to "" so a cleared signal doesn't write the
+      // literal string "null"/"undefined" into the DOM property.
+      apply = (v) => { (el as any)[key] = v ?? ""; };
+    } else if (key === "style") {
+      const prev: StyleState = { keys: null };
+      apply = (v) => applyStyle(el, v, prev);
     } else {
-      if (value instanceof Signal) {
-        disposers.push(effect(() => {
-          const v = value.get();
-          if (v === false || v == null) el.removeAttribute(key);
-          else el.setAttribute(key, String(v));
-        }));
-      } else if (value !== false && value != null) {
-        el.setAttribute(key, String(value));
-      }
+      apply = (v) => {
+        if (v === false || v == null) el.removeAttribute(key);
+        else el.setAttribute(key, String(v));
+      };
+    }
+
+    if (value instanceof Signal) {
+      disposers.push(effect(() => apply(value.get())));
+    } else if (typeof value === "function") {
+      disposers.push(effect(() => apply(value())));
+    } else {
+      apply(value);
     }
   }
   if (disposers.length) propEffectDisposers.set(el, disposers);
@@ -523,74 +541,70 @@ export function when(
   falsy?: () => Node,
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("when");
+  // The branch lives between two bracket comments (the list()-row trick), so
+  // removal stays correct even when SVG adoption swaps node identities after
+  // render, and nodes a nested when()/list() inserts later travel with it.
   const anchor = document.createComment("when");
-  let currentNodes: Node[] = [];
+  const end = document.createComment("/when");
   let currentDispose: Dispose | null = null;
   let wasTruthy: boolean | undefined = undefined;
   let disposed = false;
+
+  // Brackets go into the fragment BEFORE the effect runs, so the first branch
+  // renders synchronously — it is in the DOM when mount()/appendChild returns.
+  const frag = document.createDocumentFragment();
+  frag.appendChild(anchor);
+  frag.appendChild(end);
 
   const sig: ReadonlySignal<any> = typeof condition === "function"
     ? computed(condition)
     : condition;
 
+  function clear() {
+    if (currentDispose) currentDispose();
+    currentDispose = null;
+    for (let n = anchor.nextSibling; n && n !== end; n = anchor.nextSibling) {
+      n.parentNode!.removeChild(n);
+    }
+  }
+
   function swap() {
-    // The first swap is always deferred (the anchor has no parent until the
-    // returned fragment is appended), so a queued microtask can fire after the
-    // owning scope tore down — e.g. a keyed list row added and removed in the
-    // same flush. Without this guard it would rebuild the branch and leak its
-    // effects: their disposer lands in currentDispose, which nothing reads
-    // after the scope cleanup has run. An anchor.parentNode check is not
-    // enough — after a routes() teardown the anchor can still sit in a
-    // detached-but-parented subtree.
+    // An anchor.parentNode check is not enough to detect teardown — after a
+    // routes() teardown the anchor can still sit in a detached-but-parented
+    // subtree — so a disposed when() refuses to rebuild explicitly.
     if (disposed) return;
-    const val = sig.get();
-    const isTruthy = !!val;
+    const parent = anchor.parentNode;
+    if (!parent) return; // brackets removed out of contract — nowhere to render
+    const isTruthy = !!sig.get();
 
     // Only swap when truthiness actually changes
     if (isTruthy === wasTruthy) return;
     wasTruthy = isTruthy;
 
-    if (currentDispose) currentDispose();
-    for (const n of currentNodes) n.parentNode?.removeChild(n);
-    currentNodes = [];
-
+    clear();
     pushDisposeScope();
-    const result = isTruthy ? truthy() : (falsy ? falsy() : null);
-    currentDispose = popDisposeScope();
-
-    if (result && anchor.parentNode) {
-      // Adopt into SVG namespace before capturing node refs — adoptSvg
-      // returns fresh elements, so capture must happen post-adoption.
-      const adopted = adoptIntoSvg(result, anchor.parentNode);
-      currentNodes = adopted instanceof DocumentFragment
-        ? [...adopted.childNodes]
-        : [adopted];
-      anchor.parentNode.insertBefore(adopted, anchor.nextSibling);
+    let result: Node | null;
+    try {
+      result = isTruthy ? truthy() : (falsy ? falsy() : null);
+    } finally {
+      currentDispose = popDisposeScope();
     }
+    if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
   }
 
   effect(() => {
     sig.get(); // track
-    if (!anchor.parentNode) {
-      queueMicrotask(swap);
-    } else {
-      swap();
-    }
+    swap();
   });
 
   // The active branch's scope is otherwise only disposed on the next
   // truthiness swap — without this, effects inside the branch outlive the
   // parent scope (route/component teardown) and keep writing to detached DOM.
   trackDispose(() => {
-    disposed = true; // makes any still-queued swap() microtask a no-op
-    if (currentDispose) currentDispose();
-    currentDispose = null;
-    for (const n of currentNodes) n.parentNode?.removeChild(n);
-    currentNodes = [];
+    disposed = true;
+    clear();
   });
 
-  const frag = document.createDocumentFragment();
-  frag.appendChild(anchor);
   return frag;
 }
 
@@ -642,11 +656,15 @@ export function list<T>(
 
   // A row's node array snapshotted at render time goes stale: a when() (or
   // nested list()) at the row's top level inserts nodes NEXT TO its anchor
-  // later (deferred first swap, branch changes), and moving just the snapshot
+  // later (branch changes), and moving just the snapshot
   // would strand them. The bracket range [start..end] is the row's live DOM —
   // it is what reorders move and removals delete.
   type Entry = { start: Comment; end: Comment; dispose: Dispose; item?: Signal<T>; index?: Signal<number> };
   const anchor = document.createComment("list");
+  // Anchor goes into the fragment BEFORE the effect runs, so the first sync
+  // renders rows synchronously (into the fragment, which the caller appends).
+  const frag = document.createDocumentFragment();
+  frag.appendChild(anchor);
   let entries: Map<string | number, Entry> = new Map();
   let order: (string | number)[] = [];
   let disposed = false;
@@ -681,10 +699,9 @@ export function list<T>(
   }
 
   function sync() {
-    // Same guard as when()'s swap: the deferred first sync must not rebuild
-    // rows after the owning scope disposed. The parent check below doesn't
-    // cover an anchor still sitting in a detached-but-parented subtree after
-    // a routes()/component teardown.
+    // Same guard as when()'s swap: a disposed list must not rebuild rows. The
+    // parent check below doesn't cover an anchor still sitting in a
+    // detached-but-parented subtree after a routes()/component teardown.
     if (disposed) return;
     const arr = items.get();
     const parent = anchor.parentNode;
@@ -769,20 +786,14 @@ export function list<T>(
 
   effect(() => {
     items.get(); // track
-    if (!anchor.parentNode) {
-      queueMicrotask(sync);
-    } else {
-      sync();
-    }
+    sync();
   });
 
   trackDispose(() => {
-    disposed = true; // makes any still-queued sync() microtask a no-op
+    disposed = true;
     clearAll();
   });
 
-  const frag = document.createDocumentFragment();
-  frag.appendChild(anchor);
   return frag;
 }
 
