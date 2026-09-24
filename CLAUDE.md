@@ -103,8 +103,6 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   a scope railroad owns.
 - **`routes()` dispose is idempotent** and releases the shared `hashchange`
   refcount exactly once.
-- Conventions in code and docs: HTML-flavoured JSX (`class`, `onclick`); no
-  `.get()` in JSX children.
 
 ## Docs
 
