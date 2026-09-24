@@ -6,6 +6,10 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+A minor release. The five entries under Breaking change what some working
+code does, or whether it compiles; each says who is affected and the one
+move across. Most code needs none of them.
+
 ### Breaking
 
 - **Render bodies are untracked.** A `.get()` in a component body, a
@@ -23,6 +27,30 @@ All notable changes to `@blueshed/railroad`. The format follows
   **How to move across:** bind the signal instead of reading it:
   `class={() => sel.get() === it ? "on" : ""}`; or read it in the effect
   itself: `effect(() => { const v = x.get(); el.replaceChildren(<View v={v} />); })`.
+- **An effect's first run defers its writes, as every later run already
+  did.** Writes made inside an effect body reach other listeners after the
+  body returns. Before, only the first run (at mount, in an event handler, a
+  timer) propagated them synchronously, so the same effect saw a computed of
+  what it had just written fresh on its first run and stale on later ones
+  (and could re-enter itself: see Fixed).
+  **How to move across:** code that wrote a signal in an effect and then read
+  something derived from it in the same body (a computed, or DOM another
+  effect updates) now reads the old value there. An effect that read a
+  computed re-runs once the write settles; for anything else, read the
+  signal you wrote.
+- **Props are applied after an element's children.** A `ref` now sees the
+  element with its children, and a `<select>`'s value finds its options
+  (see Fixed).
+  **How to move across:** a `ref` that appends nodes of its own to an element
+  that also has JSX children now appends them after those children, not
+  before; insert with `el.prepend(…)` for the old order. `innerHTML` and JSX
+  children on one element: `innerHTML` now replaces the children (give one
+  or the other).
+- **A signal or function child holding a boolean renders nothing,** as a
+  static `{true}`/`{false}` always did. Before, `{flag}` printed "true" or
+  "false", and so did `{() => flag.get()}`.
+  **How to move across:** to show a boolean as text, map it:
+  `{flag.map(String)}`.
 - **Two types that let bugs compile are narrower (types only).**
   `.patch(partial)` takes `Partial<T>`, so `filter.patch({ colr: "blue" })`
   no longer compiles (it took any key). A route handler's `params$` is a
@@ -46,33 +74,14 @@ All notable changes to `@blueshed/railroad`. The format follows
   file is not reported. Only copies that include this check take part, so
   both copies must be this version or later.
 
-### Changed
-
-- **An effect's first run defers its writes, as every later run already
-  did.** Writes made inside an effect body reach other listeners after the
-  body returns. Before, only the first run (at mount, in an event handler, a
-  timer) propagated them synchronously, so the same effect saw a computed of
-  what it had just written fresh on its first run and stale on later ones.
-  **How to move across:** code that wrote a signal in an effect and then read
-  something derived from it in the same body (a computed, or DOM another
-  effect updates) now reads the old value there. An effect that read a
-  computed re-runs once the write settles; for anything else, read the
-  signal you wrote.
-- **The browser suite skips when there is no browser** (development only).
-  On Linux with no Chrome/Chromium on `$PATH` and no `BUN_CHROME_PATH`, e.g. a
-  fresh sandbox, `tests/webview.test.ts` is skipped with a warning, so the
-  release gate `bun test --coverage` passed or failed on the unit tests alone
-  instead of failing on "Failed to spawn Chrome". In CI it is never skipped.
-- **Props are applied after an element's children.** A `ref` now sees the
-  element with its children, as a `<select>`'s value needs (below).
-  **How to move across:** a `ref` that appends nodes of its own to an element
-  that also has JSX children now appends them after those children, not
-  before; insert with `el.prepend(…)` for the old order. `innerHTML` and JSX
-  children on one element: `innerHTML` now replaces the children (give one
-  or the other).
-
 ### Fixed
 
+- **An effect that wrote its own dependency on its first run leaked.** A
+  clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`
+  ran again *inside* itself, and the outer run then overwrote the inner
+  run's cleanup and children, so they were never disposed: a timer the
+  effect started kept running after unmount. It now runs again after its
+  current run, and every run's cleanup and children are disposed.
 - **An effect's return value broke the next write.** Whatever the body
   returned was kept as its cleanup, so `effect(async () => …)` or an
   expression body such as `effect(() => (el.textContent = s.get()))` made
@@ -93,21 +102,20 @@ All notable changes to `@blueshed/railroad`. The format follows
   `style={{ "--accent": "red", color: "var(--accent)" }}` assigned `--accent`
   as a declaration property, which doesn't exist; it now goes through
   `style.setProperty`, and a later object that omits it removes it.
-- **A signal child holding `null` rendered the text "null".** A signal or
-  function child now renders `null`, `undefined`, `true` and `false` as
-  nothing, as a static child always did; before, a signal child printed all
-  four and a function child printed the booleans. To show a boolean as
-  text, map it: `{flag.map(String)}`. A signal holding a DOM Node now gets
-  the same console warning a function child returning one gets.
+- **A signal child holding `null` or `undefined` rendered "null" or
+  "undefined".** It now renders nothing, as a static child and a function
+  child did. A signal holding a DOM Node now gets the same console warning a
+  function child returning one gets.
 - **`<label htmlFor="x">` wrote an attribute named `htmlfor`.** It now writes
   `for`, as `className` already wrote `class`.
 
-- **An effect that wrote its own dependency on its first run leaked.** A
-  clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`
-  ran again *inside* itself, and the outer run then overwrote the inner
-  run's cleanup and children, so they were never disposed: a timer the
-  effect started kept running after unmount. It now runs again after its
-  current run, and every run's cleanup and children are disposed.
+### Changed
+
+- **The browser suite skips when there is no browser** (development only).
+  On Linux with no Chrome/Chromium on `$PATH` and no `BUN_CHROME_PATH`, e.g. a
+  fresh sandbox, `tests/webview.test.ts` is skipped with a warning, so the
+  release gate `bun test --coverage` passes or fails on the unit tests alone
+  instead of failing on "Failed to spawn Chrome". In CI it is never skipped.
 
 ### Docs
 
