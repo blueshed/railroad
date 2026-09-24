@@ -1,126 +1,115 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and humans) working in this repository.
+For a Claude session starting work in this repository. What railroad is and
+why: [README.md](README.md). How to use it: the `railroad` skill.
 
-## What this is
+## Which skill to load
 
-`@blueshed/railroad` — the smallest reactive layer for Bun realtime apps:
-signals, a real-DOM JSX runtime, a hash router, typed DI, and a logger. Zero
-runtime dependencies, ~1.6KLOC. Each module is independent and importable on its
-own (`@blueshed/railroad/signals`, `/jsx`, `/routes`, `/shared`, `/logger`).
+- **`railroad`** (`.claude/skills/railroad/SKILL.md`, manual in
+  `reference.md` beside it) — before changing behaviour, writing examples, or
+  touching docs. Both files ship to users; keep them true to the code on
+  `main`.
+- **`bun-route`** (`.claude/skills/bun-route/`) — Bun HTML routes and
+  `Bun.WebView` test patterns.
+- **`/publish`** (`.claude/commands/publish.md`) — the release procedure,
+  shared with delta and eta. Only run it when asked to release. npm publishing
+  happens in CI (`.github/workflows/publish.yml`) on a published GitHub
+  release; never publish by hand.
 
-| File | Exports | Depends on |
-|---|---|---|
-| `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` | — |
-| `jsx.ts` | `createElement` `Fragment` `when` `list` `mount` | signals |
-| `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals |
-| `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
-| `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
-| `index.ts` | re-exports the public surface | all of the above |
-| `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment` | jsx |
-
-This package is **Bun-/bundler-only**: it ships TypeScript source with no build
-step and uses extensionless imports, so consumers must use `moduleResolution:
-"bundler"` (or `"bun"`). It does not resolve under `node16`/`nodenext`.
-
-Every source file has a JSDoc header that is the authoritative API reference —
-read it before changing behaviour. `.claude/skills/railroad/SKILL.md` documents
-the usage gotchas.
-
-## Commands
+## Commands and gates
 
 ```sh
-bun install          # install dev deps
-bun test             # unit suite (happy-dom)
-bun run test:webview # real-browser WebView integration tests (explicit)
-bun run check        # bunx tsc --noEmit — strict, noUncheckedIndexedAccess
-bun run check:consumer # tsc against the documented consumer config (react-jsx, no @types/bun)
+bun install              # dev deps only; bun.lock is committed
+bun run check            # tsc --noEmit: strict, noUncheckedIndexedAccess, jsx: react
+bun run check:consumer   # tsc over tests/consumer-types/ as a consumer compiles
+bun test --coverage      # unit suite (happy-dom) + coverage table
+bun run test:webview     # real-browser suite, by explicit path
 ```
 
-Unit tests run against happy-dom (preloaded via `bunfig.toml`). The integration
-tests in `tests/webview.test.ts` drive a real headless browser via `Bun.WebView`
-and need a one-time environment setup on Linux — see below.
+The release gate is `bun run check && bun run check:consumer && bun test --coverage`.
+CI (`.github/workflows/`) also runs `bun run test:webview` on its own step,
+because bare `bun test` can drop files under `tests/` from discovery — never
+take the bare count as proof the browser tests ran.
 
-Run the WebView suite via `bun run test:webview` (an explicit path). Bare
-`bun test` discovers files under `tests/` non-deterministically and can silently
-drop the WebView layer, so CI runs it as its own step — never rely on the bare
-`bun test` count to tell you the browser tests ran.
+`check:consumer` compiles `tests/consumer-types/app.tsx` under the config the
+README's example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`, **no
+`@types/bun`**). It is the only gate on the automatic JSX runtime path users
+compile against.
 
-`bun run check:consumer` type-checks `tests/consumer-types/` under the exact
-config the README tells consumers to use (`jsx: react-jsx`, `jsxImportSource`,
-`strict`, **no `@types/bun`**). The main `bun run check` uses `jsx: react`, so
-this is the only gate on the automatic-runtime path consumers actually compile
-against — keep it green.
+Bun only: `bun`, `bunx`, `bun run`. Coverage has no enforced threshold; don't
+let lines a change touches go uncovered. CI installs with `--frozen-lockfile`,
+so after a dependency change run `bun install` and commit `bun.lock`.
 
-## Testing in the Claude Code web sandbox
+## Where the contracts live
 
-The default web sandbox could not run the WebView tests out of the box. Two
-things had to be adapted; both are reproducible and do not change the library.
+- **The JSDoc header of each source file** is the authoritative API. Read it
+  before changing behaviour, and update it with the behaviour.
 
-### 1. Bun version
+  | File | Exports | Depends on |
+  |---|---|---|
+  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` | — |
+  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount` | signals |
+  | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals |
+  | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
+  | `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
+  | `index.ts` | the public surface | all of the above |
+  | `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment`, the `JSX` namespace | jsx |
 
-`Bun.WebView` requires **Bun >= 1.3.12**. The image shipped 1.3.11, which made
-all 5 WebView tests fail with `new Bun.WebView(...)` being `undefined is not a
-constructor`. Upgrade via npm (the npm registry is reachable):
+- **Tests pin the behaviour.** `signals.test.ts`, `jsx.test.tsx`,
+  `routes.test.ts`, `shared.test.ts`, `logger.test.ts` per module;
+  `fixes.test.tsx` holds one regression test per fixed bug — add yours there.
+  `tests/webview.test.ts` drives `tests/server.ts` + `tests/fixtures/` in a
+  real browser.
+- **`CHANGELOG.md`** — Keep a Changelog. Add to `## [Unreleased]` as work
+  lands, breaking changes first, each with how to move across. `/publish`
+  promotes it.
 
-```sh
-npm install -g bun@latest   # 1.3.14+ — provides Bun.WebView
-```
+## Invariants that must not break
 
-### 2. A Chrome/Chromium backend
+- **Zero runtime dependencies; TypeScript source, no build step.** Imports are
+  extensionless (`moduleResolution: "bundler"`). Nothing may reference a
+  Bun ambient type (`globalThis.Bun`, `Bun.*`) without a cast — consumers
+  compile railroad's source without `@types/bun`.
+- **The dispose stack stays balanced.** Every `pushDisposeScope()` is popped
+  on every path, throws included (`try/finally`), and never across an
+  `await`. An imbalance corrupts every later scope.
+- **Every `effect()`/`computed()` run is an owner scope.** What the body
+  creates is disposed before the next run and on dispose.
+- **Components run once.** A Signal or a function child/prop (other than `ref`
+  and `on*`) is reactive; anything else is applied once. `on*` must be a
+  function (non-function warns, attaches nothing).
+- **`when()` and `list()` render synchronously**, keep their content between
+  bracket comments, and never rebuild after disposal (the `disposed` latch).
+  Outside a dispose scope they warn.
+- **Propagation is glitch-free**: topologically ordered, each listener at most
+  once per settled pass; a true cycle throws.
+- **SVG tags get their namespace at creation.** Only `a`, `script`, `style`,
+  `title` are adopted on append, and adoption disposes the old element's prop
+  effects before re-applying them.
+- **Async components and async route handlers resolve to a thunk**, run under
+  a scope railroad owns.
+- **`routes()` dispose is idempotent** and releases the shared `hashchange`
+  refcount exactly once.
+- Conventions in code and docs: HTML-flavoured JSX (`class`, `onclick`); no
+  `.get()` in JSX children.
 
-On Linux, `Bun.WebView` doesn't bundle a browser — it speaks CDP to an installed
-Chrome/Chromium, located via `$BUN_CHROME_PATH` or a `$PATH` search. The sandbox
-has no browser, Ubuntu's apt `chromium` is only a snap stub, and the usual
-browser download hosts (`cdn.playwright.dev`, `googlechromelabs.github.io`,
-`dl.google.com`, `storage.googleapis.com`) are blocked by the egress allowlist.
+## Docs
 
-The npm registry and GitHub *are* reachable, so the binary comes from the
-`@sparticuz/chromium` npm package, which bundles a real headless Chromium build
-*inside the tarball* rather than fetching it from a CDN.
+- `README.md` is for someone deciding whether to use railroad: the pitch, one
+  example that runs, what it pairs with, where to go next. Keep it short, and
+  run the example if you change it.
+- The manual is `.claude/skills/railroad/reference.md`; the checklist of what
+  bites is `SKILL.md`. Don't copy either into this file or the README.
+- Skills carry `version:` in frontmatter. Leave the number alone; `/publish`
+  stamps it.
 
-All of this — the Bun upgrade, `bun install`, and staging the browser — is
-handled automatically by the `.claude/hooks/session-start.sh` SessionStart hook
-(wired up in `.claude/settings.json`). It runs only when `CLAUDE_CODE_REMOTE`
-is `true`, so it's a no-op on your local machine, and it's self-contained:
-copy that one file plus the hook entry into any Bun project to get the same
-setup. What it does, in order:
+## The Claude Code web sandbox
 
-1. Upgrades Bun to >= 1.3.12 if the image is older (npm registry, no CDN).
-2. `bun install` for dev dependencies.
-3. Parks two preinstalled PPAs (deadsnakes, ondrej/php) that `403` and abort
-   `apt update`, then installs Chromium's system libraries with
-   `npx playwright install-deps chromium` (apt only — no CDN).
-4. `npm pack @sparticuz/chromium`, brotli-decompresses `bin/chromium.br` into
-   `/opt/chromium/chromium`, and unpacks the swiftshader (software GL) libs
-   alongside it.
-5. Writes `/opt/chromium/chrome-shim.sh`, a launcher that adds `--no-sandbox`
-   `--disable-dev-shm-usage` `--disable-gpu` — without `--no-sandbox` a
-   root-owned Chromium aborts at startup and Bun reports
-   `Chrome process closed the pipe` — and persists `BUN_CHROME_PATH` to it for
-   the session.
-
-The unit tests need none of this and run anywhere with `bun test`.
-
-## Conventions
-
-- HTML-flavoured JSX: `class` not `className`, `onclick` not `onClick`.
-- Never call `.get()` in JSX children — pass the bare signal (`{count}`), a
-  function child (`{() => ...}`), or `.map()`. See SKILL.md §1.
-- Effects/computeds auto-dispose only inside a parent scope (a component, a
-  `routes()` handler, `when`, `list`, or `mount()`); a top-level `effect()`
-  leaks unless you keep its disposer, and `when`/`list` outside any scope warn
-  on the console. Root non-routed apps with `mount()`, which brackets a scope
-  and returns its disposer. Each `effect()`/`computed()` run is itself a scope:
-  what its body creates is disposed before the next run. `route()` (singular)
-  returns a `ReadonlySignal`; it does not push a scope for children.
-- Props follow the same rule as children: a Signal or a function (other than
-  `ref` and `on*`) is reactive; anything else is applied once.
-- TypeScript is strict with `noUncheckedIndexedAccess`. Keep both `bun run check`
-  and `bun run check:consumer` clean.
-- `bun.lock` is committed; CI/publish install with `--frozen-lockfile`. Keep it
-  in sync (`bun install` after a dependency change) and commit the result.
-- Publishing is release-driven: `.github/workflows/publish.yml` runs
-  `bun test` + the WebView suite + `bunx tsc --noEmit` + `bun run check:consumer`
-  then `npm publish --provenance` on a published GitHub release. Don't publish by
-  hand.
+Locally nothing is needed. In the web sandbox (`CLAUDE_CODE_REMOTE=true`) the
+SessionStart hook `.claude/hooks/session-start.sh` (wired in
+`.claude/settings.json`) upgrades Bun to ≥ 1.3.12, runs `bun install`, and
+stages a headless Chromium from the `@sparticuz/chromium` npm tarball with a
+`--no-sandbox` launch shim at `BUN_CHROME_PATH`, because the browser download
+hosts (`cdn.playwright.dev`, `googlechromelabs.github.io`, `dl.google.com`,
+`storage.googleapis.com`) are blocked there while npm and GitHub are not.
+The hook's comments explain each step. Unit tests need none of it.
