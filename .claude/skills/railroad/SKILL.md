@@ -299,7 +299,7 @@ If a route handler throws synchronously or rejects asynchronously, the `onError`
 
 For WebSocket document sync over JSON-Patch use [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). Delta declares `@blueshed/railroad` as a peer dependency and `delta/client.ts` imports `signal` directly — `openDoc("name")` returns a `Doc<T>` whose `data` field **is a railroad `Signal<T | null>`**, not a wrapper. It drops straight into JSX / `when()` / `list()` with no glue.
 
-Three backends: JSON file, SQLite (temporal), Postgres (RLS + LISTEN/NOTIFY).
+A document lives where its truth does: a JSON file, SQLite (temporal), Postgres (RLS + LISTEN/NOTIFY), memory, an outside source, or static. The client is the same for all of them.
 
 ### Server — one Bun.serve hosting both the HTML route and the WebSocket
 
@@ -367,7 +367,7 @@ await doc.send([{ op: "add", path: "/cards/-",
 | Vanilla DOM (no railroad) | `applyOpsToCollection(parent, "coll", ops, { create, update })` from `@blueshed/delta/dom-ops` |
 | Railroad in deps | `list(doc.data.map(d => Object.values(d.coll)), r => r.id, (r$) => …)` |
 
-The `delta-doc` skill (installed with `@blueshed/delta`) has the full API surface, the three-backend graduation table, and the canonical recipe for non-railroad projects.
+The `delta-doc` skill (installed with `@blueshed/delta`) has the full API surface, the backends side by side, and the canonical recipe for non-railroad projects.
 
 ## Local development across repos
 
