@@ -1140,3 +1140,54 @@ describe("when()/list(): content is in the DOM when mount() returns", () => {
     expect(svg.querySelector("circle")).toBeNull();
   });
 });
+
+describe("props: remaining 0.12 paths (static style, innerHTML, SVG adoption)", () => {
+  test("static style accepts a CSS string or an object; empty/false/null leave no attribute", () => {
+    const str = <div style="color: red; font-weight: bold" /> as HTMLElement;
+    expect(str.style.color).toBe("red");
+    expect(str.style.fontWeight).toBe("bold");
+    const obj = <div style={{ color: "blue" }} /> as HTMLElement;
+    expect(obj.style.color).toBe("blue");
+    for (const empty of ["", false, null]) {
+      expect((<div style={empty as any} /> as HTMLElement).hasAttribute("style")).toBe(false);
+    }
+  });
+
+  test("innerHTML={() => …} is reactive and null clears it", () => {
+    const html = signal<string | null>("<b>hi</b>");
+    const el = <div innerHTML={() => html.get()} /> as HTMLElement;
+    expect(el.innerHTML).toBe("<b>hi</b>");
+    html.set(null);
+    expect(el.innerHTML).toBe("");
+  });
+
+  test("a function prop on an SVG-adopted tag keeps exactly one live effect", () => {
+    const href = signal("#a");
+    let reads = 0;
+    const root = document.createElement("div");
+    // Hand-built, so it has attributes but no stored props.
+    const handTitle = document.createElement("title");
+    handTitle.setAttribute("id", "t");
+    const dispose = mount(root, () => (
+      <svg>
+        <a href={() => { reads++; return href.get(); }}><text>link</text></a>
+        {handTitle}
+      </svg>
+    ));
+    const a = root.querySelector("a")!;
+    const title = root.querySelector("title")!;
+    expect(a.namespaceURI).toBe(SVG_NS);
+    expect(title.namespaceURI).toBe(SVG_NS); // no props: attributes copied across
+    expect(title.getAttribute("id")).toBe("t");
+    expect(a.getAttribute("href")).toBe("#a");
+    reads = 0;
+    href.set("#b");
+    // The discarded HTML <a>'s effect was disposed during adoption — only the
+    // SVG element's effect re-runs.
+    expect(reads).toBe(1);
+    expect(a.getAttribute("href")).toBe("#b");
+    dispose();
+    href.set("#c");
+    expect(reads).toBe(1);
+  });
+});
