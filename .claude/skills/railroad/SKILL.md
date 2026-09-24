@@ -14,7 +14,7 @@ Read `${CLAUDE_SKILL_DIR}/reference.md` for the full manual: setup, the signals/
 
 Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.WebView`. Railroad adds:
 
-- **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39). Glitch-free: propagation is topologically ordered, so diamonds settle in one consistent pass.
+- **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39). Propagation is topologically ordered, so a diamond settles in one consistent pass. The one exception: a computed that switches *which* signals it reads can let an effect run once on half-updated values, then again on the settled ones.
 - **JSX runtime** — components run once, return real DOM nodes, signals and functions bind to text and attributes automatically; `style` takes a CSS string or an object (static or reactive), and a reactive object style clears keys the next value omits.
 - **`when()` / `list()` / `mount()`** — reactive conditionals, keyed lists, and a root scope helper, all with auto-disposal.
 - **Hash router** — `routes(target, table, options)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting; supports `options.onError` boundary callback.

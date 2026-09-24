@@ -6,14 +6,18 @@
  * internal effect. Designed to be small enough to fit in your head and
  * predictable enough to write correctly without re-reading the source.
  *
- * Glitch-free by topological scheduling. A write (or a batch of writes)
- * enqueues the affected computeds and effects and runs them ordered by
- * derivation depth, each at most once per settled pass — in a diamond
- * (a -> b, a -> c, an effect reading both b and c) the effect re-runs once
- * and never observes half-updated state. Two bounds to know: siblings at the
- * same depth run in subscription order, and an effect that writes signals
- * re-queues their consumers within the same pass (a true cycle throws after
- * the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
+ * Topological scheduling. A write (or a batch of writes) enqueues the
+ * affected computeds and effects and runs them ordered by derivation depth,
+ * each at most once per settled pass — in a diamond (a -> b, a -> c, an
+ * effect reading both b and c) the effect re-runs once and never observes
+ * half-updated state. That holds while each computed reads the same signals
+ * every run. A computed that switches what it reads (`flag.get() ? b.get() :
+ * a.get()`) can move to a greater depth than its readers were ordered for, so
+ * on a later write one of them may run once on half-updated values before it
+ * re-runs on the settled ones: every write still settles consistently. Two
+ * more bounds: siblings at the same depth run in subscription order, and an
+ * effect that writes signals re-queues their consumers within the same pass
+ * (a true cycle throws after the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
  * multi-write transaction) so subscribers see one consistent snapshot.
  *
  * Writes made inside an effect body, its first run included, reach other

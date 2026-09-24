@@ -90,6 +90,17 @@ All notable changes to `@blueshed/railroad`. The format follows
   effect started kept running after unmount. It now runs again after its
   current run, and every run's cleanup and children are disposed.
 
+### Docs
+
+- **"Glitch-free" now says where it stops.** Propagation is glitch-free
+  while each computed reads the same signals every run. A computed that
+  switches what it reads (`flag.get() ? b.get() : a.get() * 2`) can end up
+  deeper than its readers were ordered for, and on a later write one of them
+  can run once on half-updated values before it re-runs on the settled ones.
+  Every write still settles consistently, within the same synchronous pass,
+  so bindings never paint the half-updated value. The signals header, the
+  README, the skill and its manual said it could not happen.
+
 ## [0.12.0] - 2026-09-24
 
 A minor release (0.12.0). The JSX runtime gets three fixes, `when()`/`list()`

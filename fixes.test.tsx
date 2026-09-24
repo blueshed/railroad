@@ -1533,3 +1533,22 @@ describe("effect(): only a returned function is a cleanup", () => {
     expect(calls).toBe(1); // before: 2, the thrown run left the old cleanup in place
   });
 });
+
+// ============================================================ what "glitch-free" promises
+
+describe("scheduling: a computed that switches what it reads", () => {
+  // Pins the documented bound. Glitch-free holds for fixed dependencies (signals.test.ts); a
+  // computed that moves to a deeper source can let an effect run once on half-updated values,
+  // but every write still settles consistently.
+  test("every write settles on consistent values", () => {
+    const a = signal(1);
+    const flag = signal(false);
+    const b = computed(() => a.get() * 2);
+    const c = computed(() => (flag.get() ? b.get() : a.get() * 2));
+    const seen: string[] = [];
+    effect(() => { seen.push(`a=${a.get()} c=${c.get()}`); });
+    flag.set(true);
+    a.set(2);
+    expect(seen.at(-1)).toBe("a=2 c=4");
+  });
+});
