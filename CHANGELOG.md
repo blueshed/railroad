@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-24
+
 A minor release (0.12.0). The JSX runtime gets three fixes, `when()`/`list()`
 render synchronously, and effects now own what they create. That last change
 can break code that keeps something built inside an effect body; the fix is
