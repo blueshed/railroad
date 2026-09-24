@@ -1,6 +1,65 @@
 # Changelog
 
-## Unreleased
+All notable changes to `@blueshed/railroad`. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/), where a 0.x minor release may break.
+
+## [Unreleased]
+
+A minor release (0.12.0). The JSX runtime gets three fixes, `when()`/`list()`
+render synchronously, and effects now own what they create. That last change
+can break code that keeps something built inside an effect body; the fix is
+one move, below.
+
+### Breaking
+
+- **Each `effect()`/`computed()` run owns what its body creates.** A
+  computed (including `.map()`), nested effect, `when()`, `list()`,
+  component, or anything registered with `trackDispose()` that is created
+  inside an effect body is now disposed before that effect's next run and
+  when the effect is disposed — the Solid model. Before, it landed in the
+  *enclosing* scope, so every re-run stacked another live copy until the
+  whole scope tore down (5 writes → 20 inner evaluations instead of 5,
+  growing quadratically).
+  **Who is affected:** code that creates something inside an effect body and
+  keeps using it after the effect re-runs — a cached `.map()` or `computed()`,
+  a nested effect meant to outlive the run, or `@blueshed/delta`'s
+  `openDoc()` (it registers with `trackDispose()`, so the doc is now closed
+  when the effect re-runs).
+  **How to move across:** create long-lived things outside the effect body —
+  in the component, or at module level with the disposer kept:
+
+  ```ts
+  // before — `doc` and `title` die on the effect's second run under 0.12
+  effect(() => { filter.get(); doc ??= openDoc("board:1"); title ??= name.map(f); });
+  // after
+  const doc = openDoc("board:1");
+  const title = name.map(f);
+  effect(() => { filter.get(); /* use doc, title */ });
+  ```
+
+  Opening a fresh resource on every run (`` openDoc(`room:${room.get()}`) ``)
+  keeps working, and the previous run's resource is now released for you.
+
+### Changed
+
+- **`when()` and `list()` render synchronously.** Their first render was
+  deferred to a microtask, so when `mount()` returned the DOM held only
+  `<!--when-->` / `<!--list-->`: code that ran straight after mount —
+  focusing or measuring an element, a test assertion — found nothing. The
+  anchors are now placed in their fragment before the driving effect runs,
+  so the content is in the DOM as soon as the fragment is appended. (A `ref`
+  still fires when its element is created, before it is connected, as for
+  any element.) `when()` keeps its branch between `<!--when-->` /
+  `<!--/when-->` brackets, like `list()` rows, so removal stays correct when
+  SVG adoption swaps node identities. Code that awaited a tick before
+  reading `when()`/`list()` output keeps working.
+  One edge: the first render is built before the fragment has a parent, so
+  if you append a `when()`/`list()` fragment into an `<svg>` element *by
+  hand* (`svg.appendChild(when(…))`, or a `routes()` target that is an SVG
+  element), an `a`, `script`, `style` or `title` in that first render stays
+  in the HTML namespace. Appending through JSX, `mount()`, or a parent
+  `when()`/`list()` adopts it as before.
 
 ### Fixed
 
@@ -11,30 +70,22 @@
 - **`style={Signal<string>}` threw** "Attempted to assign to readonly
   property": the reactive path assumed an object and indexed the string. A
   style value may now be a CSS string or an object, static or reactive, and a
-  reactive style can switch between the two forms; `null`/`false` removes it.
+  reactive style can switch between the two forms; `null`, `false` and `""`
+  remove the attribute.
 - **`class={Signal<undefined>}` wrote the string `"undefined"`.** `null`,
   `undefined` and `false` now remove the `class` attribute.
-- **Effects didn't own what their body created.** A computed, nested effect,
-  `when()`, `list()` or component created inside an `effect()`/`computed()`
-  landed in the *enclosing* scope, so every re-run stacked another live copy
-  until the whole scope tore down (5 writes → 20 inner evaluations instead of
-  5, growing quadratically). Each run is now an owner scope, disposed before
-  the next run and on dispose — the Solid model.
-  Note for anything that registers with `trackDispose()` — e.g.
-  `@blueshed/delta`'s `openDoc()` — called inside an effect body: it is now
-  released when that effect re-runs. Open long-lived resources outside the
-  effect.
 
-### Changed
+### Docs
 
-- **`when()` and `list()` render synchronously.** Their first render was
-  deferred to a microtask, so after `mount()` returned the DOM held only
-  `<!--when-->` / `<!--list-->` — a `ref` that measured or focused, or a test
-  asserting straight after mount, saw nothing. The anchors are now placed in
-  their fragment before the driving effect runs. `when()` keeps its branch
-  between `<!--when-->` / `<!--/when-->` brackets (like `list()` rows), so
-  removal stays correct when SVG adoption swaps node identities. Code that
-  awaited a tick before reading `when()`/`list()` output keeps working.
+- The README is now a short introduction: what railroad is, one example that
+  runs, what it pairs with, where to go next. The manual it held moved,
+  intact, to `.claude/skills/railroad/reference.md`, which ships with the
+  package and is linked from the `railroad` skill.
+- The `railroad` skill describes the 0.12 behaviour: effects owning their
+  run, synchronous `when()`/`list()`, reactive function props, string styles.
+- `CLAUDE.md` lists the gates, invariants and contracts for working in the
+  repo; `.claude/commands/publish.md` is the release procedure shared with
+  delta and eta (neither ships in the package).
 
 ## 0.11.0
 
