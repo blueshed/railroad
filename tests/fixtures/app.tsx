@@ -57,6 +57,7 @@ function ListPage() {
   const renameFirst = () =>
     rows.update((r) => r.length ? [{ ...r[0]!, text: r[0]!.text + "!" }, ...r.slice(1)] : r);
   const clear = () => rows.set([]);
+  const rotate = () => rows.update((r) => (r.length ? [r[r.length - 1]!, ...r.slice(0, -1)] : r));
   return (
     <section data-route="list">
       <h1>list</h1>
@@ -64,9 +65,10 @@ function ListPage() {
       <button data-testid="remove-first" onclick={removeFirst}>remove first</button>
       <button data-testid="rename-first" onclick={renameFirst}>rename first</button>
       <button data-testid="clear" onclick={clear}>clear</button>
+      <button data-testid="rotate" onclick={rotate}>last to first</button>
       <ul data-testid="rows">
         {list(rows, (r: Row) => r.id, (r$) => (
-          <li data-testid={`row-${r$.peek().id}`}>{r$.map((r) => r.text)}</li>
+          <li data-testid={`row-${r$.peek().id}`}>{r$.map((r) => r.text)}<input data-testid={`input-${r$.peek().id}`} /></li>
         ))}
       </ul>
       {when(

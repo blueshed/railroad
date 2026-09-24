@@ -67,6 +67,11 @@ All notable changes to `@blueshed/railroad`. The format follows
   `console.error` saying effects must be synchronous and what to do instead.
 - **A cleanup ran twice when the next run threw.** The thrown run left the
   old cleanup in place, so dispose called it again.
+- **A keyed `list()` reorder moved rows that hadn't moved, and they lost
+  focus.** Moving the last row to the front moved every other row instead,
+  so an `<input>` being typed into in one of them lost focus when another
+  user's change reordered the list. Rows outside the longest run already in
+  order now move, and only those.
 - **`<select value="b">` showed the first option.** The value was set
   before any `<option>` existed, so the browser had nothing to select;
   static and reactive values alike. Props now follow the children.

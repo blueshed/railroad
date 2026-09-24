@@ -1552,3 +1552,44 @@ describe("scheduling: a computed that switches what it reads", () => {
     expect(seen.at(-1)).toBe("a=2 c=4");
   });
 });
+
+// ============================================================ keyed list(): reorders move only what moved
+
+describe("list(): a reorder moves only the rows that moved", () => {
+  // The right-to-left pass moved every row whose successor changed, so moving the last row to
+  // the front moved all the others instead, and a focused <input> in one of them lost focus.
+  const setup = (ids: number[]) => {
+    const items = signal(ids.map((id) => ({ id })));
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <ul>{list(items, (r) => r.id, (r$) => <li id={`r${r$.peek().id}`} />)}</ul>);
+    const ul = root.querySelector("ul")!;
+    const moved = new Set<string>();
+    const insertBefore = ul.insertBefore.bind(ul);
+    ul.insertBefore = ((node: Node, ref: Node | null) => {
+      if (node instanceof Element) moved.add(node.id);
+      return insertBefore(node, ref);
+    }) as typeof ul.insertBefore;
+    const ids$ = () => [...ul.querySelectorAll("li")].map((li) => li.id);
+    return { items, moved, ids$, dispose };
+  };
+
+  test("last to first moves one row", () => {
+    const { items, moved, ids$, dispose } = setup([1, 2, 3, 4]);
+    items.set([4, 1, 2, 3].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r4", "r1", "r2", "r3"]);
+    expect([...moved]).toEqual(["r4"]); // before: r3, r2, r1
+    dispose();
+  });
+
+  test("a swap, a reversal, inserts and removals land in order", () => {
+    const { items, moved, ids$, dispose } = setup([1, 2, 3, 4, 5]);
+    items.set([1, 4, 3, 2, 5].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r1", "r4", "r3", "r2", "r5"]);
+    expect(moved.size).toBe(2);
+    items.set([5, 4, 3, 2, 1].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r5", "r4", "r3", "r2", "r1"]);
+    items.set([6, 4, 2, 7, 5].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r6", "r4", "r2", "r7", "r5"]);
+    dispose();
+  });
+});

@@ -158,6 +158,28 @@ describe("Bun.WebView — railroad fixture app", () => {
     )).toBe(0);
   });
 
+  test("keyed list — a reorder leaves focus in a row that didn't move", async () => {
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate(url);
+    await waitFor(
+      () => evalBool(view, `document.querySelector('[data-testid=to-list]') != null`),
+      (v) => v === true,
+    );
+    await navHash(view, "#/list");
+    await view.click("[data-testid=add]"); // rows 1, 2, 3
+    await waitFor(() => evalNum(view, `document.querySelectorAll('[data-testid=rows] li').length`), (n) => n === 3);
+    // Focus row 2's input, then move the last row to the front (a JS click keeps focus).
+    const focused = await evalStr(view, `(() => {
+      document.querySelector('[data-testid=input-2]').focus();
+      document.querySelector('[data-testid=rotate]').click();
+      return document.activeElement.getAttribute('data-testid');
+    })()`);
+    expect(await evalStr(view,
+      `[...document.querySelectorAll('[data-testid=rows] li')].map(li => li.dataset.testid).join(',')`,
+    )).toBe("row-3,row-1,row-2");
+    expect(focused).toBe("input-2");
+  });
+
   test("hash navigation + params$ reactivity (no remount)", async () => {
     await using view = new Bun.WebView({ width: 800, height: 600 });
     await view.navigate(url);

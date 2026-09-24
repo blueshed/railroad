@@ -625,7 +625,9 @@ export function when(
 }
 
 // === list() — keyed reactive list rendering ===
-// Diffs by key to preserve DOM nodes across updates.
+// Diffs by key to preserve DOM nodes across updates. A reorder moves only the
+// rows outside the longest run already in order, so a row that didn't move
+// keeps its focus, selection and scroll position.
 //
 // Keyed form — render receives Signal<T> and Signal<number> so item
 // updates flow into existing DOM without re-creating nodes:
@@ -740,6 +742,12 @@ export function list<T>(
       if (!newKeySet.has(key)) removeEntry(key);
     }
 
+    // Rows already in order relative to each other (the longest such run)
+    // stay where they are; only the others move, so a row that didn't move
+    // keeps its focus, selection and scroll.
+    const oldPos = new Map(order.map((k, i) => [k, i]));
+    const stay = longestIncreasing(newKeys.map((k) => oldPos.get(k) ?? -1));
+
     // Add or reorder entries
     let insertBefore: Node = anchor;
     for (let i = newKeys.length - 1; i >= 0; i--) {
@@ -791,7 +799,7 @@ export function list<T>(
 
       // Move or insert into correct position — the whole bracket range, so
       // nodes a when()/list() inserted beside its anchor travel with the row.
-      if (entry.end.nextSibling !== insertBefore) {
+      if (!stay.has(i) && entry.end.nextSibling !== insertBefore) {
         for (const n of rangeOf(entry)) parent.insertBefore(n, insertBefore);
       }
       insertBefore = entry.start;
@@ -813,6 +821,29 @@ export function list<T>(
   });
 
   return frag;
+}
+
+// The positions of a longest strictly increasing run in `seq`, skipping
+// negative entries (rows that are new). Patience sorting, O(n log n).
+function longestIncreasing(seq: number[]): Set<number> {
+  const tails: number[] = []; // tails[k]: position ending the best run of length k+1
+  const prev: number[] = [];
+  for (let i = 0; i < seq.length; i++) {
+    const v = seq[i]!;
+    if (v < 0) continue;
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (seq[tails[mid]!]! < v) lo = mid + 1;
+      else hi = mid;
+    }
+    prev[i] = lo > 0 ? tails[lo - 1]! : -1;
+    tails[lo] = i;
+  }
+  const run = new Set<number>();
+  for (let i = tails.length ? tails[tails.length - 1]! : -1; i >= 0; i = prev[i]!) run.add(i);
+  return run;
 }
 
 // === JSX namespace for TypeScript ===
