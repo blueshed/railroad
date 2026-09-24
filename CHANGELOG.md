@@ -58,6 +58,11 @@ All notable changes to `@blueshed/railroad`. The format follows
   effect updates) now reads the old value there. An effect that read a
   computed re-runs once the write settles; for anything else, read the
   signal you wrote.
+- **The browser suite skips when there is no browser** (development only).
+  On Linux with no Chrome/Chromium on `$PATH` and no `BUN_CHROME_PATH`, e.g. a
+  fresh sandbox, `tests/webview.test.ts` is skipped with a warning, so the
+  release gate `bun test --coverage` passed or failed on the unit tests alone
+  instead of failing on "Failed to spawn Chrome". In CI it is never skipped.
 - **Props are applied after an element's children.** A `ref` now sees the
   element with its children, as a `<select>`'s value needs (below).
   **How to move across:** a `ref` that appends nodes of its own to an element

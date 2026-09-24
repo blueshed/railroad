@@ -57,7 +57,19 @@ const evalStr = (view: Bun.WebView, script: string) => view.evaluate<string | nu
 const evalNum = (view: Bun.WebView, script: string) => view.evaluate<number>(script);
 const evalBool = (view: Bun.WebView, script: string) => view.evaluate<boolean>(script);
 
-describe("Bun.WebView — railroad fixture app", () => {
+// On Linux, Bun.WebView drives an installed Chrome/Chromium ($BUN_CHROME_PATH or
+// $PATH). With none, e.g. a fresh sandbox, the suite is skipped and says so, so
+// `bun test` stays a unit gate there. Never in CI, where no browser must fail.
+const noBrowser =
+  !process.env.CI &&
+  process.platform === "linux" &&
+  !process.env.BUN_CHROME_PATH &&
+  !["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"].some((n) => Bun.which(n));
+if (noBrowser) {
+  console.warn("[webview.test] no Chrome/Chromium found (set BUN_CHROME_PATH): the browser tests are skipped");
+}
+
+describe.skipIf(noBrowser)("Bun.WebView — railroad fixture app", () => {
   test("home route mounts and shows DI greeting + reactive count", async () => {
     await using view = new Bun.WebView({ width: 800, height: 600 });
     await view.navigate(url);
