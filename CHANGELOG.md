@@ -6,6 +6,28 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **An effect's first run defers its writes, as every later run already
+  did.** Writes made inside an effect body reach other listeners after the
+  body returns. Before, only the first run (at mount, in an event handler, a
+  timer) propagated them synchronously, so the same effect saw a computed of
+  what it had just written fresh on its first run and stale on later ones.
+  **How to move across:** code that wrote a signal in an effect and then read
+  something derived from it in the same body (a computed, or DOM another
+  effect updates) now reads the old value there. An effect that read a
+  computed re-runs once the write settles; for anything else, read the
+  signal you wrote.
+
+### Fixed
+
+- **An effect that wrote its own dependency on its first run leaked.** A
+  clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`
+  ran again *inside* itself, and the outer run then overwrote the inner
+  run's cleanup and children, so they were never disposed: a timer the
+  effect started kept running after unmount. It now runs again after its
+  current run, and every run's cleanup and children are disposed.
+
 ## [0.12.0] - 2026-09-24
 
 A minor release (0.12.0). The JSX runtime gets three fixes, `when()`/`list()`

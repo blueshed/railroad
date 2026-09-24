@@ -1253,3 +1253,75 @@ describe("when(): a branch that throws", () => {
     expect(hasActiveDisposeScope()).toBe(hadScope);
   });
 });
+
+// ============================================================ effect(): a first run that writes its own dependency
+
+describe("effect(): a first run that writes its own dependency", () => {
+  // The first run used to start a flush of its own when it wrote a signal it had read, so the
+  // effect ran again INSIDE itself; the outer run then overwrote the inner run's cleanup and
+  // children, which were never disposed. The first run now defers its writes like batch().
+  test("re-runs after its body, and loses no cleanup or child", () => {
+    const a = signal(0);
+    const b = signal(0);
+    let bodies = 0, cleanups = 0, innerRuns = 0, depth = 0, maxDepth = 0;
+    const dispose = effect(() => {
+      maxDepth = Math.max(maxDepth, ++depth);
+      const v = a.get();
+      if (v < 2) a.set(v + 1); // e.g. clamp or default a selection
+      bodies++;
+      effect(() => { b.get(); innerRuns++; });
+      depth--;
+      return () => { cleanups++; };
+    });
+    expect(maxDepth).toBe(1); // never re-entered
+    expect(bodies).toBe(3);
+    expect(cleanups).toBe(2); // every earlier run cleaned up
+    innerRuns = 0;
+    b.set(1);
+    expect(innerRuns).toBe(1); // one live child, not one per run
+    dispose();
+    expect(cleanups).toBe(3);
+    innerRuns = 0;
+    b.set(2);
+    expect(innerRuns).toBe(0);
+  });
+
+  test("a clamping effect in a component leaves no timer behind after unmount", () => {
+    const page = signal(5);
+    const pageCount = signal(3);
+    let live = 0;
+    function Pager() {
+      effect(() => {
+        if (page.get() > pageCount.get()) page.set(pageCount.get());
+        live++;
+        return () => { live--; };
+      });
+      return <p>{page}</p>;
+    }
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <Pager />);
+    expect(root.textContent).toBe("3");
+    expect(live).toBe(1);
+    dispose();
+    expect(live).toBe(0);
+  });
+
+  test("reads its own writes the same way on every run: stale, then re-run", () => {
+    const a = signal(1);
+    const b = computed(() => a.get() * 10);
+    const trigger = signal(0);
+    const log: string[] = [];
+    effect(() => { const t = trigger.get(); a.set(t + 100); log.push(`t=${t} b=${b.get()}`); });
+    trigger.set(1);
+    // before: the first run saw b fresh (1000) and later runs saw it stale
+    expect(log).toEqual(["t=0 b=10", "t=0 b=1000", "t=1 b=1000", "t=1 b=1010"]);
+  });
+
+  test("writes made before a first run throws still propagate, and the error surfaces", () => {
+    const other = signal(0);
+    let seen = -1;
+    effect(() => { seen = other.get(); });
+    expect(() => effect(() => { other.set(7); throw new Error("first run failed"); })).toThrow("first run failed");
+    expect(seen).toBe(7);
+  });
+});

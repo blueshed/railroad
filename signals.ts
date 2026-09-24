@@ -16,6 +16,12 @@
  * the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
  * multi-write transaction) so subscribers see one consistent snapshot.
  *
+ * Writes made inside an effect body, its first run included, reach other
+ * listeners after the body returns. So an effect that writes `a` and then
+ * reads a computed of `a` sees the old value, and re-runs once it settles;
+ * an effect that writes its own dependency runs again after, never inside,
+ * its current run.
+ *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
  *   computed<T>(fn, opts?)    — derive a read-only signal from other signals
@@ -331,7 +337,11 @@ export function effect(fn: () => void | (() => void)): () => void {
   };
 
   trackDispose(dispose);
-  execute();
+  // The first run defers its writes like a batch, as later runs (inside a
+  // flush) already do. Otherwise a write to one of its own dependencies would
+  // run the effect again inside itself, and this run would then overwrite the
+  // inner run's cleanup and children, which would never be disposed.
+  batch(execute);
 
   return dispose;
 }
