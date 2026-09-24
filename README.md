@@ -146,6 +146,8 @@ const dispose = mount(document.getElementById("root")!, () => <Greeting />);
 <span>{() => count.get() > 5 ? "High" : "Low"}</span>      // function child auto-tracks
 <input value={name} />                                      // signal as prop
 <div class={visible.map(v => v ? "show" : "hide")} />       // .map() for derived attrs
+<div class={() => visible.get() ? "show" : "hide"} />       // function prop auto-tracks too
+<div style={() => ({ width: `${w.get()}px` })} />           // style: CSS string or object
 ```
 
 ### `when(condition, truthy, falsy?)`
@@ -361,6 +363,7 @@ cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
 ## Sharp edges to know
 
 - **Propagation is glitch-free and topologically ordered** (0.10+). One write — or one `batch()` of writes — runs each affected computed/effect at most once per settled pass, upstream before downstream, so a diamond (`a → b`, `a → c`, an effect reads both) never observes half-updated state. Siblings at the same depth run in subscription order; an effect that *writes* signals re-queues their consumers in the same pass (a true cycle throws).
+- **Effects own what they create.** Anything an `effect()` or `computed()` body creates — computeds, nested effects, `when()`/`list()`, components — is disposed before the next run and when the effect is disposed (0.12+). Keep long-lived state outside the effect body.
 - **`when()`/`list()` need a dispose scope.** Created outside a component, `routes()` handler, or `mount()`, their internal effects are unreachable — railroad warns on the console. Mount roots via `mount()` or `routes()`.
 - **Routes match in declaration order.** The first pattern that matches wins — declare `/users/new` before `/users/:id`.
 - **Route matching is segment-based only.** No query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"`), and a trailing slash is a real empty segment (`/users/42/` does not match `/users/:id`).

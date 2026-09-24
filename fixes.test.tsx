@@ -261,12 +261,12 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
   });
 });
 
-// ============================================================ deferred-swap dispose guard & row bracket ranges
+// ============================================================ synchronous first render, dispose guard & row bracket ranges
 
-describe("when()/list(): post-dispose deferred swaps and row brackets", () => {
+describe("when()/list(): synchronous first render, dispose guards, row brackets", () => {
   beforeEach(() => { document.body.innerHTML = ""; });
 
-  test("when(): a scope disposed before the deferred first swap never builds the branch", async () => {
+  test("when(): renders synchronously, and a same-tick dispose leaves nothing live", async () => {
     const cond = signal(true);
     const dep = signal(0);
     let builds = 0;
@@ -280,26 +280,36 @@ describe("when()/list(): post-dispose deferred swaps and row brackets", () => {
         return document.createElement("span");
       }),
     );
-    dispose(); // same tick — the first swap() microtask is still queued
+    expect(builds).toBe(1); // no microtask wait — the branch is already built
+    expect(root.querySelector("span")).not.toBeNull();
+    dispose();
     await flush();
-    expect(builds).toBe(0); // the queued swap must be a no-op after dispose
-    dep.set(1); // and no orphaned branch effect can be left responding
-    expect(branchRuns).toBe(0);
+    expect(builds).toBe(1); // nothing rebuilds after dispose
+    expect(root.querySelector("span")).toBeNull();
+    const runs = branchRuns;
+    dep.set(1); // and no orphaned branch effect is left responding
+    expect(branchRuns).toBe(runs);
+    cond.set(false);
+    cond.set(true);
+    expect(builds).toBe(1);
   });
 
-  test("list(): a scope disposed before the deferred first sync never builds rows", async () => {
+  test("list(): renders synchronously, and a same-tick dispose leaves nothing live", async () => {
     const rows = signal([{ id: 1 }, { id: 2 }]);
     let builds = 0;
     const root = document.createElement("div");
     document.body.append(root);
     // Nested one element deep: after dispose the list anchor still has a
-    // (detached) parent, so only the disposed guard prevents the rebuild.
+    // (detached) parent, so only the disposed guard prevents a rebuild.
     const dispose = mount(root, () => (
       <ul>{list(rows, (r) => r.id, () => { builds++; return <li />; })}</ul>
     ));
+    expect(builds).toBe(2);
+    expect(root.querySelectorAll("li")).toHaveLength(2);
     dispose();
     await flush();
-    expect(builds).toBe(0);
+    rows.set([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(builds).toBe(2);
   });
 
   test("list(): reordering rows whose root is a when() moves the branch nodes too", async () => {
@@ -318,7 +328,6 @@ describe("when()/list(): post-dispose deferred swaps and row brackets", () => {
         }),
       ),
     );
-    await tick(); // list sync, then each row's deferred when() swap
     expect(root.textContent).toBe("onetwo");
 
     rows.set([{ id: 2, label: "two" }, { id: 1, label: "one" }]);
@@ -910,5 +919,224 @@ describe("guard: .patch() refuses array signals", () => {
     const filter = signal({ color: "all", done: false });
     filter.patch({ color: "blue" });
     expect(filter.peek()).toEqual({ color: "blue", done: false });
+  });
+});
+
+// ============================================================ 0.12 review: props, style, effect ownership, sync render
+
+describe("props: functions are reactive like children", () => {
+  test("class={() => …} tracks instead of stringifying the function", () => {
+    const open = signal(false);
+    const el = <div class={() => (open.get() ? "open" : "shut")} /> as HTMLElement;
+    expect(el.getAttribute("class")).toBe("shut");
+    open.set(true);
+    expect(el.getAttribute("class")).toBe("open");
+  });
+
+  test("generic attributes and DOM properties accept functions", () => {
+    const n = signal(1);
+    const el = <input title={() => `n=${n.get()}`} value={() => String(n.get())} disabled={() => n.get() > 1} /> as HTMLInputElement;
+    expect(el.getAttribute("title")).toBe("n=1");
+    expect(el.value).toBe("1");
+    expect(el.disabled).toBe(false);
+    n.set(2);
+    expect(el.getAttribute("title")).toBe("n=2");
+    expect(el.value).toBe("2");
+    expect(el.disabled).toBe(true);
+  });
+
+  test("function props dispose with their scope", () => {
+    const open = signal(false);
+    let reads = 0;
+    let el!: HTMLElement;
+    const dispose = mount(document.createElement("div"), () => {
+      el = <div class={() => { reads++; return open.get() ? "a" : "b"; }} /> as HTMLElement;
+      return el;
+    });
+    dispose();
+    const before = reads;
+    open.set(true);
+    expect(reads).toBe(before);
+    expect(el.getAttribute("class")).toBe("b");
+  });
+
+  test("ref and on* functions are still called / attached, not tracked", () => {
+    const refs: Element[] = [];
+    let clicks = 0;
+    const el = <button ref={(e: Element) => { refs.push(e); }} onclick={() => clicks++} /> as HTMLButtonElement;
+    expect(refs).toEqual([el]);
+    el.click();
+    expect(clicks).toBe(1);
+  });
+});
+
+describe("props: style and class edge values", () => {
+  test("style={Signal<string>} sets cssText instead of throwing", () => {
+    const s = signal("color: red");
+    const el = <div style={s} /> as HTMLElement;
+    expect(el.style.color).toBe("red");
+    s.set("color: blue; font-weight: bold");
+    expect(el.style.color).toBe("blue");
+    expect(el.style.fontWeight).toBe("bold");
+  });
+
+  test("reactive style can switch between string and object forms", () => {
+    const s = signal<string | Record<string, string> | null>("color: red");
+    const el = <div style={s} /> as HTMLElement;
+    s.set({ fontWeight: "bold" });
+    expect(el.style.color).toBe("");
+    expect(el.style.fontWeight).toBe("bold");
+    s.set("color: green");
+    expect(el.style.fontWeight).toBe("");
+    expect(el.style.color).toBe("green");
+    s.set(null);
+    expect(el.hasAttribute("style")).toBe(false);
+  });
+
+  test("style={() => …} is reactive", () => {
+    const w = signal(10);
+    const el = <div style={() => ({ width: `${w.get()}px` })} /> as HTMLElement;
+    expect(el.style.width).toBe("10px");
+    w.set(20);
+    expect(el.style.width).toBe("20px");
+  });
+
+  test("class={null | undefined | false} removes the attribute", () => {
+    const s = signal<string | undefined>(undefined);
+    const el = <div class={s} /> as HTMLElement;
+    expect(el.hasAttribute("class")).toBe(false);
+    s.set("x");
+    expect(el.getAttribute("class")).toBe("x");
+    s.set(undefined);
+    expect(el.hasAttribute("class")).toBe(false);
+    expect((<div class={null} /> as HTMLElement).hasAttribute("class")).toBe(false);
+  });
+});
+
+describe("effect(): each run owns what it creates", () => {
+  test("a computed created inside an effect is disposed on the next run", () => {
+    const a = signal(0);
+    let innerRuns = 0;
+    const dispose = effect(() => {
+      a.get();
+      computed(() => { innerRuns++; return a.get(); });
+    });
+    innerRuns = 0;
+    for (let i = 1; i <= 5; i++) a.set(i);
+    // One fresh inner computed per run; the previous run's is gone, so it
+    // doesn't also re-evaluate (before the fix: 1+2+3+4+5 + 5 = 20).
+    expect(innerRuns).toBe(5);
+    dispose();
+    a.set(99);
+    expect(innerRuns).toBe(5);
+  });
+
+  test("a nested effect is disposed before re-run and on dispose", () => {
+    const outer = signal(0);
+    const inner = signal(0);
+    let innerRuns = 0;
+    const dispose = effect(() => {
+      outer.get();
+      effect(() => { inner.get(); innerRuns++; });
+    });
+    outer.set(1);
+    outer.set(2);
+    innerRuns = 0;
+    inner.set(1);
+    expect(innerRuns).toBe(1); // only the live nested effect responds
+    dispose();
+    inner.set(2);
+    expect(innerRuns).toBe(1);
+  });
+
+  test("a throwing effect body still balances the dispose stack and owns its children", () => {
+    const a = signal(0);
+    let innerRuns = 0;
+    pushDisposeScope();
+    expect(() =>
+      effect(() => {
+        computed(() => { innerRuns++; return a.get(); });
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    const outerDispose = popDisposeScope(); // would throw on imbalance
+    outerDispose();
+    innerRuns = 0;
+    a.set(1);
+    expect(innerRuns).toBe(0);
+  });
+
+  test("a function child that renders a when() does not accumulate branches", () => {
+    const n = signal(0);
+    let builds = 0;
+    let live = 0;
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <div>{() => {
+        n.get();
+        const probe = signal(0);
+        effect(() => { probe.get(); live++; return () => { live--; }; });
+        builds++;
+        return "";
+      }}</div>
+    ));
+    for (let i = 1; i <= 4; i++) n.set(i);
+    expect(builds).toBe(5);
+    expect(live).toBe(1); // earlier runs' effects were cleaned up
+    dispose();
+    expect(live).toBe(0);
+  });
+});
+
+describe("when()/list(): content is in the DOM when mount() returns", () => {
+  test("when() branch is present synchronously", () => {
+    const root = document.createElement("div");
+    const on = signal(true);
+    const dispose = mount(root, () => <div>{when(on, () => <p>hi</p>, () => <p>bye</p>)}</div>);
+    expect(root.textContent).toBe("hi");
+    on.set(false);
+    expect(root.textContent).toBe("bye");
+    dispose();
+  });
+
+  test("a ref inside a when() branch sees a connected element after mount()", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    let el: Element | null = null;
+    const dispose = mount(root, () => <div>{when(signal(true), () => <input ref={(e: Element) => { el = e; }} />)}</div>);
+    expect(el).not.toBeNull();
+    expect(el!.isConnected).toBe(true);
+    dispose();
+    root.remove();
+  });
+
+  test("list() rows are present synchronously, nested when() included", () => {
+    const root = document.createElement("div");
+    const rows = signal([{ id: 1, t: "a" }, { id: 2, t: "b" }]);
+    const dispose = mount(root, () => (
+      <ul>{list(rows, (r) => r.id, (r$) => <li>{when(signal(true), () => <span>{r$.map((r) => r.t)}</span>)}</li>)}</ul>
+    ));
+    expect(root.textContent).toBe("ab");
+    dispose();
+  });
+
+  test("when() with an SVG-ambiguous tag inside <svg> still swaps cleanly after adoption", () => {
+    const root = document.createElement("div");
+    const on = signal(true);
+    const dispose = mount(root, () => (
+      <svg>{when(on, () => <a href="#x"><text>link</text></a>, () => <circle r="1" />)}</svg>
+    ));
+    const svg = root.querySelector("svg")!;
+    expect(root.querySelector("a")!.namespaceURI).toBe(SVG_NS);
+    on.set(false);
+    expect(root.querySelector("a")).toBeNull();
+    expect(root.querySelectorAll("circle")).toHaveLength(1);
+    on.set(true);
+    expect(root.querySelectorAll("a")).toHaveLength(1);
+    expect(root.querySelector("circle")).toBeNull();
+    dispose();
+    // Only the brackets' removal-by-dispose matters here: no branch survives.
+    expect(svg.querySelector("a")).toBeNull();
+    expect(svg.querySelector("circle")).toBeNull();
   });
 });
