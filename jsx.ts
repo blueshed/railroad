@@ -125,11 +125,15 @@ function applyStyle(el: Element, v: unknown, prev: StyleState): void {
   // properties set by the old cssText don't linger under the object form.
   if (prev.keys === null) el.removeAttribute("style");
   const next = v as Record<string, string>;
+  // A custom property (--x) exists only through setProperty; camelCase keys
+  // are properties of the declaration.
+  const set = (k: string, val: string) =>
+    k.startsWith("--") ? elStyle.setProperty(k, val) : (elStyle[k as any] = val);
   for (const k of prev.keys ?? []) {
-    if (!(k in next)) elStyle[k as any] = "";
+    if (!(k in next)) set(k, "");
   }
   prev.keys = new Set(Object.keys(next));
-  for (const [k, val] of Object.entries(next)) elStyle[k as any] = val;
+  for (const [k, val] of Object.entries(next)) set(k, val);
 }
 
 function applyProps(el: Element, props: Record<string, any>): void {

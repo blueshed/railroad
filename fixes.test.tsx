@@ -1459,4 +1459,15 @@ describe("React habits render what they say", () => {
     expect(seen).toBe(2);
   });
 
+  test("style objects set CSS custom properties, and clear them", () => {
+    const accent = signal<Record<string, string>>({ "--accent": "red", color: "var(--accent)" });
+    const el = createElement("div", { style: accent }) as HTMLElement;
+    expect(el.style.getPropertyValue("--accent")).toBe("red"); // before: "", dropped
+    expect(el.style.color).toBe("var(--accent)");
+    accent.set({ color: "blue" });
+    expect(el.style.getPropertyValue("--accent")).toBe("");
+    const fixed = createElement("div", { style: { "--gap": "4px" } }) as HTMLElement;
+    expect(fixed.style.getPropertyValue("--gap")).toBe("4px");
+  });
+
 });

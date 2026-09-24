@@ -62,6 +62,10 @@ All notable changes to `@blueshed/railroad`. The format follows
 - **`<select value="b">` showed the first option.** The value was set
   before any `<option>` existed, so the browser had nothing to select;
   static and reactive values alike. Props now follow the children.
+- **A CSS custom property in a style object was dropped.**
+  `style={{ "--accent": "red", color: "var(--accent)" }}` assigned `--accent`
+  as a declaration property, which doesn't exist; it now goes through
+  `style.setProperty`, and a later object that omits it removes it.
 
 - **An effect that wrote its own dependency on its first run leaked.** A
   clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`
