@@ -152,7 +152,7 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const div = createElement("div", null, () => document.createElement("span")) as HTMLElement;
     expect(
-      warnSpy.mock.calls.some((c) => String(c[0]).includes("function child returned a DOM Node")),
+      warnSpy.mock.calls.some((c) => String(c[0]).includes("reactive child held a DOM Node")),
     ).toBe(true);
     expect(div.querySelector("span")).toBeNull(); // not inserted as an element
     warnSpy.mockRestore();
@@ -1476,4 +1476,20 @@ describe("React habits render what they say", () => {
     expect(label.htmlFor).toBe("x");
   });
 
+  test("a signal or function child holding null, undefined, true or false renders nothing, as a static one does", () => {
+    const v = signal<string | boolean | null | undefined>(null);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <p><b>{v}</b><i>{() => v.get()}</i></p>);
+    const b = root.querySelector("b")!;
+    const i = root.querySelector("i")!;
+    for (const empty of [null, undefined, false, true]) {
+      v.set(empty);
+      expect([b.textContent, i.textContent]).toEqual(["", ""]); // before: "null"/"false"/"true" for a signal, "false"/"true" for a function
+    }
+    v.set("hi");
+    expect([b.textContent, i.textContent]).toEqual(["hi", "hi"]);
+    v.set(0 as unknown as string);
+    expect([b.textContent, i.textContent]).toEqual(["0", "0"]);
+    dispose();
+  });
 });

@@ -464,27 +464,23 @@ function appendChildren(parent: Node, children: any[]): void {
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === true) continue;
 
-    if (child instanceof Signal) {
-      const text = document.createTextNode(String(child.peek()));
-      effect(() => {
-        text.textContent = String(child.get());
-      });
-      parent.appendChild(text);
-    } else if (typeof child === "function") {
-      const fn = child as () => any;
+    if (child instanceof Signal || typeof child === "function") {
+      // A reactive text node. Its value renders as a static child's would:
+      // null, undefined and booleans as nothing.
+      const read: () => unknown = child instanceof Signal ? () => child.get() : child;
       const textNode = document.createTextNode("");
       let warnedNode = false;
       effect(() => {
-        const v = fn();
+        const v = read();
         if (!warnedNode && v instanceof Node) {
           warnedNode = true;
           console.warn(
-            "[railroad/jsx] A function child returned a DOM Node; it is rendered " +
+            "[railroad/jsx] A reactive child held a DOM Node; it is rendered " +
               "as text, not inserted as an element. To render elements reactively, " +
               "use when() or list().",
           );
         }
-        textNode.textContent = String(v ?? "");
+        textNode.textContent = v == null || typeof v === "boolean" ? "" : String(v);
       });
       parent.appendChild(textNode);
     } else if (child instanceof Node) {

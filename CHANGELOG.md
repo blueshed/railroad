@@ -66,6 +66,12 @@ All notable changes to `@blueshed/railroad`. The format follows
   `style={{ "--accent": "red", color: "var(--accent)" }}` assigned `--accent`
   as a declaration property, which doesn't exist; it now goes through
   `style.setProperty`, and a later object that omits it removes it.
+- **A signal child holding `null` rendered the text "null".** A signal or
+  function child now renders `null`, `undefined`, `true` and `false` as
+  nothing, as a static child always did; before, a signal child printed all
+  four and a function child printed the booleans. To show a boolean as
+  text, map it: `{flag.map(String)}`. A signal holding a DOM Node now gets
+  the same console warning a function child returning one gets.
 - **`<label htmlFor="x">` wrote an attribute named `htmlfor`.** It now writes
   `for`, as `className` already wrote `class`.
 
