@@ -46,7 +46,9 @@
  * Dependency tracking:
  *   Effects auto-track which signals are read during execution. Stale
  *   subscriptions are unsubscribed on re-run; effect() returns a dispose
- *   function. effect() can return a cleanup, called before each re-run.
+ *   function. effect() can return a cleanup function, called once, before
+ *   the next run or on dispose; any other return value is ignored. The
+ *   callback must be synchronous: an async one is reported on the console.
  *
  * Dispose pattern:
  *   effect() and computed() auto-track in the current dispose scope, so
@@ -303,14 +305,31 @@ export class Signal<T> implements ReadonlySignal<T> {
 
 // === effect() ===
 
+const ASYNC_EFFECT =
+  "[railroad/signals] effect callbacks must be synchronous: an async function returns a " +
+  "Promise, not a cleanup, and nothing after its first await is tracked or owned. Do the " +
+  "async work in an async component or route handler (resolve to a thunk), or start it from " +
+  "the effect and write the result into a signal.";
+
 export function effect(fn: () => void | (() => void)): () => void {
-  let cleanup: (() => void) | void;
+  let cleanup: (() => void) | undefined;
   // Owner scope for whatever this run creates (effects, computeds, when/list,
   // components). Disposed before the next run and on dispose — otherwise each
   // re-run would stack a fresh set of children into the enclosing scope.
   let children: Dispose | null = null;
   let deps = new Set<Signal<any>>();
   let disposed = false;
+
+  // Dispose the last run's children and call its cleanup, each exactly once
+  // (cleared first, so a run that throws can't leave them to be called again).
+  const release = () => {
+    const c = children;
+    const k = cleanup;
+    children = null;
+    cleanup = undefined;
+    if (c) c();
+    if (k) k();
+  };
 
   const execute: Listener = () => {
     // A disposed effect must never run its body again. It can still be reached
@@ -319,9 +338,7 @@ export function effect(fn: () => void | (() => void)): () => void {
     // relying on the listener Set having been mutated. Keeps the batch and
     // non-batch paths consistent.
     if (disposed) return;
-    if (children) children();
-    children = null;
-    if (cleanup) cleanup();
+    release();
 
     const prevListener = currentListener;
     const prevDeps = currentDeps;
@@ -331,7 +348,11 @@ export function effect(fn: () => void | (() => void)): () => void {
 
     pushDisposeScope();
     try {
-      cleanup = fn();
+      // Only a function is a cleanup: an expression body's value isn't, and
+      // an async body's Promise would make the next run throw from the writer.
+      const r: unknown = fn();
+      if (typeof r === "function") cleanup = r as () => void;
+      else if (r instanceof Promise) console.error(ASYNC_EFFECT);
     } finally {
       children = popDisposeScope();
       currentListener = prevListener;
@@ -354,9 +375,7 @@ export function effect(fn: () => void | (() => void)): () => void {
   const dispose = () => {
     if (disposed) return; // idempotent — safe to call more than once
     disposed = true;
-    if (children) children();
-    children = null;
-    if (cleanup) cleanup();
+    release();
     for (const dep of deps) dep.unsubscribe(execute);
     deps.clear();
   };

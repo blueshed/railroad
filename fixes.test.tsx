@@ -1493,3 +1493,45 @@ describe("React habits render what they say", () => {
     dispose();
   });
 });
+
+// ============================================================ what an effect returns
+
+describe("effect(): only a returned function is a cleanup", () => {
+  // Whatever the body returned was stored as the cleanup and called before the next run, so the
+  // next write threw "cleanup is not a function" out of the writer's .set().
+  test("an async effect is reported where it is created, and the writer doesn't throw", () => {
+    const s = signal(0);
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // @ts-expect-error -- an async callback is what the check is for
+      const dispose = effect(async () => { s.get(); });
+      expect(errorSpy.mock.calls.some((c) => String(c[0]).includes("must be synchronous"))).toBe(true);
+      expect(() => s.set(1)).not.toThrow(); // before: "cleanup is not a function (… Promise)"
+      dispose();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("an expression body's value is not a cleanup", () => {
+    const s = signal(0);
+    const box = { text: "" };
+    // @ts-expect-error -- tsc rejects it; bun runs it anyway
+    const dispose = effect(() => (box.text = String(s.get())));
+    expect(() => s.set(1)).not.toThrow(); // before: "cleanup is not a function"
+    expect(box.text).toBe("1");
+    dispose();
+  });
+
+  test("a cleanup runs once even when the next run throws", () => {
+    const t = signal(0);
+    let calls = 0;
+    const dispose = effect(() => {
+      if (t.get() === 1) throw new Error("second run");
+      return () => { calls++; };
+    });
+    expect(() => t.set(1)).toThrow("second run");
+    dispose();
+    expect(calls).toBe(1); // before: 2, the thrown run left the old cleanup in place
+  });
+});

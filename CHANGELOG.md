@@ -59,6 +59,14 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Fixed
 
+- **An effect's return value broke the next write.** Whatever the body
+  returned was kept as its cleanup, so `effect(async () => …)` or an
+  expression body such as `effect(() => (el.textContent = s.get()))` made
+  the next `s.set()` throw "cleanup is not a function", from the writer.
+  Only a returned function is a cleanup now; an async callback also gets a
+  `console.error` saying effects must be synchronous and what to do instead.
+- **A cleanup ran twice when the next run threw.** The thrown run left the
+  old cleanup in place, so dispose called it again.
 - **`<select value="b">` showed the first option.** The value was set
   before any `<option>` existed, so the browser had nothing to select;
   static and reactive values alike. Props now follow the children.
