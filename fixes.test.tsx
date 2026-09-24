@@ -1406,3 +1406,28 @@ describe("render bodies are untracked: a .get() there subscribes nothing around 
     dispose();
   });
 });
+
+// ============================================================ a second copy of railroad
+
+describe("a second copy of railroad says so when it loads", () => {
+  // Two copies (a linked checkout bringing its own node_modules/@blueshed/railroad) can't see each
+  // other's signals, scopes or providers: the UI just stops updating, with nothing on the console.
+  test("console.error names both copies and the fix", async () => {
+    const { mkdtempSync, copyFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "railroad-copy-"));
+    copyFileSync(new URL("./signals.ts", import.meta.url), join(dir, "signals.ts"));
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await import(join(dir, "signals.ts"));
+      const msg = errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(msg).toContain("second copy of @blueshed/railroad");
+      expect(msg).toContain(dir); // the new copy
+      expect(msg).toContain(new URL("./signals.ts", import.meta.url).href); // the first
+      expect(msg).toContain("Local development across repos");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});

@@ -346,6 +346,19 @@ await doc.send([{ op: "add", path: "/cards/-",
 
 The `delta-doc` skill (installed with `@blueshed/delta`) has the full API surface, the three-backend graduation table, and the canonical recipe for non-railroad projects.
 
+## Local development across repos
+
+A page must load **one copy** of railroad. Each copy has its own `Signal` class, tracking, scopes and `provide`/`inject` registry, so two copies can't see each other: delta's `doc.data` renders `[object Object]`, `when(doc.data, …)` never switches, `openDoc()` in a component never auto-closes, and `inject(WS)` finds no provider. Railroad says so on the console when the second copy loads: `A second copy of @blueshed/railroad has loaded (…; the first: …)`.
+
+The usual cause is depending on a local checkout: `"@blueshed/delta": "file:../delta"` (or `bun link`) installs the checkout *with its own* `node_modules/@blueshed/railroad`, its dev dependency. Install a packed tarball instead, which carries no `node_modules`, so delta's peer resolves to the app's railroad:
+
+```sh
+cd ../delta && bun pm pack               # writes blueshed-delta-<version>.tgz
+cd ../app   && bun add ../delta/blueshed-delta-<version>.tgz
+```
+
+Repeat both lines after each change to the checkout (`bun install` alone keeps the old tarball's contents).
+
 ## Anti-patterns
 
 1. **No React.** No `useState`, `useEffect`, hooks, lifecycle methods, class components, or `react`/`react-dom` imports. Railroad is its own JSX runtime via `jsxImportSource`.

@@ -55,7 +55,32 @@
  *   app code — mount UI through routes() or jsx's mount() so a root scope
  *   exists. Each effect/computed run is itself an owner scope: anything its
  *   body creates is disposed before the next run and when it is disposed.
+ *
+ * One copy per page: signals, scopes and providers don't cross copies of
+ * railroad, so a second copy logs a console.error naming both when it loads.
  */
+
+// === One copy per page ===
+//
+// Every copy of railroad has its own Signal class, tracking state, scopes and
+// providers, so two copies can't see each other: a signal from one renders as
+// "[object Object]" in the other's JSX, its when() never switches, its effects
+// never re-run. The usual cause is a linked checkout (a `file:` or `bun link`
+// dependency) that brings its own node_modules/@blueshed/railroad. Nothing
+// else would say so, so say it here. The same file evaluated again under the
+// Bun runtime is `bun --hot`, not a copy; in a browser nothing re-evaluates a
+// module, and copies bundled together share one URL.
+const COPY = Symbol.for("@blueshed/railroad");
+const copyUrl = (import.meta as { url?: string }).url ?? "(unknown)";
+const firstCopy = (globalThis as { [COPY]?: string })[COPY];
+if (firstCopy !== undefined && (firstCopy !== copyUrl || !("Bun" in globalThis))) {
+  console.error(
+    `[railroad] A second copy of @blueshed/railroad has loaded (${copyUrl}; the first: ${firstCopy}). ` +
+      "Signals, scopes and provide()/inject() don't cross copies, so the UI will not update. " +
+      "Make it one copy: see the railroad skill, \"Local development across repos\".",
+  );
+}
+(globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
 
 // Listeners carry their topological level (derivation depth) so the flush
 // scheduler can settle upstream computeds before downstream consumers.

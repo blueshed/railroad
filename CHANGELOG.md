@@ -24,6 +24,19 @@ All notable changes to `@blueshed/railroad`. The format follows
   `class={() => sel.get() === it ? "on" : ""}`; or read it in the effect
   itself: `effect(() => { const v = x.get(); el.replaceChildren(<View v={v} />); })`.
 
+### Added
+
+- **A second copy of railroad says so when it loads.** Two copies in one
+  page (typically a `file:` or `bun link` dependency on a local checkout
+  that brings its own `node_modules/@blueshed/railroad`) can't see each
+  other's signals, scopes or providers, so the UI stopped updating with
+  nothing on the console. The second copy now logs a `console.error` naming
+  both files and pointing at the skill's new "Local development across
+  repos" section: install the checkout as a packed tarball instead
+  (`bun pm pack`, then `bun add <tgz>`). `bun --hot` re-evaluating the same
+  file is not reported. Only copies that include this check take part, so
+  both copies must be this version or later.
+
 ### Changed
 
 - **An effect's first run defers its writes, as every later run already
