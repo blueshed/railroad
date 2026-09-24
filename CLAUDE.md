@@ -48,8 +48,8 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   | File | Exports | Depends on |
   |---|---|---|
   | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` | — |
-  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount` | signals |
-  | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals |
+  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount` (and `adoptIntoSvg`, internal: for `routes.ts`) | signals |
+  | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals, jsx (SVG adoption only; loads without a DOM) |
   | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
   | `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
   | `index.ts` | the public surface | all of the above |

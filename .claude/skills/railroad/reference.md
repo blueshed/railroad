@@ -37,8 +37,8 @@ uses extensionless imports, so your toolchain must transpile TS and resolve
 with `moduleResolution: "bundler"` (or `"bun"`). It does **not** resolve under
 Node's `node16`/`nodenext`.
 
-A working app, end to end — the README carries the same files as its
-thirty-second example:
+A working app, end to end, with a router -- a fuller version of the README's thirty-second
+example:
 
 ```json
 // tsconfig.json
@@ -98,7 +98,7 @@ Bun.serve({
 
 ```sh
 bun server.ts                          # dev with HMR
-bun build ./index.html --production    # production assets
+bun build ./index.html --production --outdir=dist   # production assets
 bun build --compile server.ts          # one-binary deploy
 ```
 
@@ -321,11 +321,58 @@ computeds still bail on unchanged values, so actual DOM writes stay minimal.
 Streams that replace whole row objects (delta's SQLite/Postgres backends do
 this) can keep the default.
 
-### Delta-doc — turnkey JSON-Patch sync
+### Delta-doc — turnkey JSON-Patch sync, signal-backed
 
-See SKILL.md › "Realtime — pair with `@blueshed/delta`" for the server and
-client recipe, and why `list()` replaces delta's `applyOpsToCollection` in a
-railroad project.
+(Open a doc in the component or at module level, not inside an `effect()` body: from 0.12 each effect run owns what it creates, so a doc opened there is closed when the effect re-runs.)
+
+For a turnkey WebSocket sync layer use [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). Delta declares railroad as a peer dependency and `delta/client.ts` imports `signal` directly — `openDoc("name")` returns a `Doc<T>` whose `data` field **is** a railroad `Signal<T | null>`, not a wrapper. It drops straight into JSX, `when()`, and `list()` with no glue. Backends: JSON file, SQLite, Postgres (RLS + LISTEN/NOTIFY), and documents held in memory, fixed for a release, or read from outside -- see delta's own README.
+
+```tsx
+// Server — same Bun.serve hosting your JSX routes
+import home from "./index.html";
+import { createWs, registerDoc } from "@blueshed/delta/server";
+
+const ws = createWs();
+await registerDoc(ws, "board:1", {
+  file: "./board.json",
+  empty: { columns: {}, cards: {} },
+});
+
+Bun.serve({
+  routes: { "/": home, [ws.path]: ws.upgrade },
+  websocket: ws.websocket,
+  development: { hmr: true, console: true },
+});
+```
+
+```tsx
+// Client — list() reads doc.data directly, preserving per-row identity
+import { provide, list, when } from "@blueshed/railroad";
+import { connectWs, WS, openDoc } from "@blueshed/delta/client";
+
+provide(WS, connectWs("/ws"));
+
+interface Card { id: number; title: string; column_id: number }
+interface BoardDoc { columns: Record<string, Column>; cards: Record<string, Card> }
+
+const doc = openDoc<BoardDoc>("board:1");
+
+function Board() {
+  const cards = doc.data.map((d) => d ? Object.values(d.cards) : []);
+  return when(doc.data, () => (
+    <ul>
+      {list(cards, c => c.id, (card$) => (
+        <li>{card$.map(c => c.title)}</li>
+      ))}
+    </ul>
+  ), () => <p>loading…</p>);
+}
+
+await doc.send([{ op: "add", path: "/cards/-",
+  value: { column_id: 1, title: "new card", position: 0 } }]);
+```
+
+**One important steering note:** delta also ships `applyOpsToCollection` (in `@blueshed/delta/dom-ops`) for projects without a keyed reactive list primitive. **If you have railroad, use `list()` instead** — the keyed form already does the per-row surgical update that `applyOpsToCollection` exists to provide. They overlap; pick one per project. Use `list(doc.data.map(d => Object.values(d.coll)), r => r.id, ...)` and keep the realtime story in one idiom.
 
 ## Testing — `bun test` does both halves
 
@@ -383,7 +430,7 @@ signals     no deps        Use anywhere: server, CLI, worker, tests
 shared      no deps        Typed DI without prop threading
 logger      no deps        Bun-friendly leveled console output
 jsx         signals        Reactive real-DOM rendering
-routes      signals        Hash router with reactive params
+routes      signals, jsx   Hash router with reactive params (jsx for SVG adoption only; loads without a DOM)
 ```
 
 ```ts

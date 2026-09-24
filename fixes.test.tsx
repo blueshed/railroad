@@ -10,6 +10,7 @@ import {
   pushDisposeScope,
   popDisposeScope,
   trackDispose,
+  hasActiveDisposeScope,
 } from "./signals";
 import type { ReadonlySignal } from "./signals";
 import { routes, navigate, matchRoute } from "./routes";
@@ -1066,7 +1067,7 @@ describe("effect(): each run owns what it creates", () => {
     expect(innerRuns).toBe(0);
   });
 
-  test("a function child that renders a when() does not accumulate branches", () => {
+  test("a function child's effects from earlier runs are cleaned up, not accumulated", () => {
     const n = signal(0);
     let builds = 0;
     let live = 0;
@@ -1230,5 +1231,25 @@ describe("routes() into an <svg> target", () => {
     expect(svg.querySelector("[data-testid=bare]")!.namespaceURI).toBe(SVG_NS);
     dispose();
     svg.remove();
+  });
+});
+
+// ============================================================ when(): a branch that throws
+
+describe("when(): a branch that throws", () => {
+  // The branch renders under a scope of its own; a throw must not leave that scope pushed, or
+  // every later push and pop is off by one (0.11 left it pushed).
+  test("leaves the dispose stack as it found it", () => {
+    const hadScope = hasActiveDisposeScope();
+    pushDisposeScope();
+    try {
+      when(signal(true), () => {
+        throw new Error("branch failed");
+      });
+    } catch {
+      // the throw is the branch's own
+    }
+    popDisposeScope()();
+    expect(hasActiveDisposeScope()).toBe(hadScope);
   });
 });

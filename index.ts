@@ -1,4 +1,4 @@
-// Railroad — Signals, JSX, Routes, and Delta-doc
+// Railroad — Signals, JSX, Routes, shared DI and a logger
 
 export { Signal, signal, computed, effect, batch, untrack } from "./signals";
 // Dispose-scope primitives — for advanced cases that mount UI outside a

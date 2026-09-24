@@ -64,6 +64,10 @@ one move, below.
   places what a handler returns the way `mount()` does: adopted into an
   `<svg>` target's namespace. Before, only a deferred `when()`/`list()`
   render was adopted there, and a plain element never was.
+- **`when()`/`list()` created inside an `effect()` body no longer warn** that
+  they have no dispose scope: the effect's run is their scope now, and they
+  are disposed when it re-runs.
+- **`CHANGELOG.md` ships in the package.**
 
 ### Fixed
 
@@ -78,6 +82,11 @@ one move, below.
   remove the attribute.
 - **`class={Signal<undefined>}` wrote the string `"undefined"`.** `null`,
   `undefined` and `false` now remove the `class` attribute.
+- **`innerHTML={undefined}` wrote the text `"undefined"`.** It now clears the
+  element, as `null` does.
+- **A `when()` branch that threw left its scope pushed**, so every later
+  `pushDisposeScope`/`popDisposeScope` pairing was off by one. The branch now
+  renders under a scope that is popped whatever happens.
 
 ### Docs
 
