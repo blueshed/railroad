@@ -17,8 +17,9 @@
  * re-runs on the settled ones: every write still settles consistently. Two
  * more bounds: siblings at the same depth run in subscription order, and an
  * effect that writes signals re-queues their consumers within the same pass
- * (a true cycle throws after the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
- * multi-write transaction) so subscribers see one consistent snapshot.
+ * (a true cycle throws after the same effect re-runs ~100 times). batch()
+ * coalesces MULTIPLE writes (a multi-write transaction) so subscribers see
+ * one consistent snapshot.
  *
  * Writes made inside an effect body, its first run included, reach other
  * listeners after the body returns. So an effect that writes `a` and then

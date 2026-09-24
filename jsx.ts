@@ -302,7 +302,6 @@ function adoptSvg(node: Node): Node {
     }
   }
 
-
   return svgEl;
 }
 
@@ -743,9 +742,7 @@ export function list<T>(
       if (!newKeySet.has(key)) removeEntry(key);
     }
 
-    // Rows already in order relative to each other (the longest such run)
-    // stay where they are; only the others move, so a row that didn't move
-    // keeps its focus, selection and scroll.
+    // The rows in the longest run already in order stay put (see above).
     const oldPos = new Map(order.map((k, i) => [k, i]));
     const stay = longestIncreasing(newKeys.map((k) => oldPos.get(k) ?? -1));
 
