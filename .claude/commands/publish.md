@@ -1,30 +1,99 @@
 ---
-description: Publish a new version of @blueshed/railroad
+description: "Release a new version of @blueshed/railroad (patch | minor | major)."
 argument-hint: "patch | minor | major"
 ---
 
-# Publish
+# /publish
 
-Publish a new version of `@blueshed/railroad`.
+The release procedure shared by railroad, delta and eta: the same steps in all three, with only
+the table below differing. The bump level is `$ARGUMENTS` (`patch`, `minor` or `major`).
 
-Argument: version bump type — `patch`, `minor`, or `major`. Default: `patch`.
+| | |
+|---|---|
+| Package | `@blueshed/railroad` |
+| Published | npm, public |
+| Gate | `bun run check && bun run check:consumer && bun test --coverage` |
+| Skills stamped with the version | `.claude/skills/railroad/SKILL.md`, `.claude/skills/bun-route/SKILL.md` |
 
-## Steps
+Run the steps in order. Stop at the first failure without changing anything further. Running this
+command is the authorisation to release -- carry it through to the end, the push included, without
+asking again. Bun only: never `npm` or `npx`, and never `npm publish` from here (CI does it).
 
-1. Run `bun test --coverage` and `bun run check`. Stop if either fails.
-2. Read the current version from `package.json`.
-3. Bump the version according to the argument (patch/minor/major).
-4. Write a changelog entry in `CHANGELOG.md` following the existing format. Summarise changes since the last version using `git log`.
-5. Update the version in `package.json` AND in the `version:` frontmatter field of every shipped skill — currently `.claude/skills/railroad/SKILL.md` and `.claude/skills/bun-route/SKILL.md`. They ride along with the package and must stay in lockstep with `package.json`.
-6. Commit with message `v{version} — short description`.
-7. Tag with `git tag v{version}`.
-8. Push commit and tags. (Per global CLAUDE.md, invoking `/publish` is the authorisation — no mid-flight confirmation needed.)
-9. Create a GitHub release via `gh release create v{version}` with notes from the changelog section.
-10. Report the release URL. CI (`.github/workflows/publish.yml`) handles npm publish.
+## 1. Arguments
 
-## Rules
+`$ARGUMENTS` must be exactly `patch`, `minor` or `major`; otherwise stop and print
+`Usage: /publish patch|minor|major`.
 
-- Never use `npm` or `npx`. This is a Bun project — `bun`, `bunx`, `bun run`.
-- Never run `npm publish` locally. CI does it.
-- Always run tests and type check before bumping.
-- If `package.json` is already at the target version (changelog entry already prepared), skip the bump step and ship the existing version as-is.
+## 2. Preflight
+
+1. The branch is `main`: `git rev-parse --abbrev-ref HEAD`.
+2. The working tree is clean: `git status --porcelain` prints nothing.
+3. Not behind origin: `git fetch --quiet origin main`, then `git rev-list --count HEAD..origin/main`
+   is `0`. Commits ahead of origin are fine -- they go out with the release in step 7.
+4. `CHANGELOG.md` has a `## [Unreleased]` section with something under it. It is the record of
+   what is shipping, written as the work landed; if it is missing or empty, stop and say so.
+
+## 3. Gate
+
+Run the gate command in the table. If it fails, stop -- no file has been edited yet.
+
+## 4. Bump
+
+Parse `.version` in `package.json` as strict `x.y.z` (refuse anything else) and compute the next:
+`patch` → `x.y.(z+1)`, `minor` → `x.(y+1).0`, `major` → `(x+1).0.0`. Write it back, keeping the
+2-space indent and the trailing newline.
+
+## 5. Stamp
+
+In each skill listed in the table, replace the frontmatter line `version: x.y.z` with the new
+version (insert it after `name:` if it is missing). Change nothing else in the skill.
+
+## 6. Promote the changelog
+
+Replace the line `## [Unreleased]` with `## [<new version>] - <today, YYYY-MM-DD>`, and put a fresh,
+empty `## [Unreleased]` above it.
+
+## 7. Commit, tag, push
+
+```
+git add package.json CHANGELOG.md .claude/skills/railroad/SKILL.md .claude/skills/bun-route/SKILL.md
+git commit -m "Release v<new version>"
+git tag -a v<new version> -m "Release v<new version>"
+git push origin main --follow-tags
+```
+
+If the push is refused (not a fast-forward, auth, a hook), report the exact error and stop. Never
+retry with `--force`, `--no-verify` or any other bypass: the commit and tag stay local for the
+person to decide.
+
+## 8. GitHub release -- this is what publishes to npm
+
+`.github/workflows/publish.yml` runs on `release: published`, not on a tag. A tag alone publishes
+nothing.
+
+```
+gh release create v<new version> -t v<new version> --notes-from-tag
+```
+
+If `gh` is missing or not signed in, report the exact error and stop: the release needs a person.
+
+## 9. Confirm on npm
+
+```
+gh run watch $(gh run list --workflow=publish.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status
+bun info @blueshed/railroad version
+```
+
+The version npm reports must be the new one. If the workflow fails or npm still has the old
+version, report the run's URL and stop.
+
+## 10. Report
+
+```
+Released @blueshed/railroad@<new version>.
+
+  commit   <short sha>
+  tag      v<new version>
+  release  https://github.com/blueshed/railroad/releases/tag/v<new version>
+  npm      @blueshed/railroad@<new version>
+```
