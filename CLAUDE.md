@@ -27,9 +27,10 @@ bun run test:webview     # real-browser suite, by explicit path
 ```
 
 The release gate is `bun run check && bun run check:consumer && bun test --coverage`.
-CI (`.github/workflows/`) also runs `bun run test:webview` on its own step,
-because bare `bun test` can drop files under `tests/` from discovery — never
-take the bare count as proof the browser tests ran.
+CI (`.github/workflows/`) also runs `bun run test:webview` on its own step.
+Where no browser is found (no `BUN_CHROME_PATH`, nothing on `PATH`) and `CI` is
+unset, the browser tests skip with a warning, so a green bare `bun test` is not
+proof they ran; in CI a missing browser fails them.
 
 `check:consumer` compiles `tests/consumer-types/app.tsx` under the config the
 README's example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`, **no
@@ -63,6 +64,9 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 - **`CHANGELOG.md`** — Keep a Changelog. Add to `## [Unreleased]` as work
   lands, breaking changes first, each with how to move across. `/publish`
   promotes it.
+- **`todo.jsonl`** — what is known and not done, one JSON object per line
+  (`n, status, severity, area, file, summary, detail, note`), the same shape
+  as delta's and eta's. Close an item in the commit that does it.
 
 ## Invariants that must not break
 
@@ -75,14 +79,23 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   `await`. An imbalance corrupts every later scope.
 - **Every `effect()`/`computed()` run is an owner scope.** What the body
   creates is disposed before the next run and on dispose.
-- **Components run once.** A Signal or a function child/prop (other than `ref`
-  and `on*`) is reactive; anything else is applied once. `on*` must be a
-  function (non-function warns, attaches nothing).
+- **Components run once, untracked.** So do `when()` branches, `list()` rows
+  and route handlers: a `.get()` in a render body subscribes nothing. A Signal
+  or a function child/prop (other than `ref` and `on*`) is reactive; anything
+  else is applied once. `on*` must be a function (non-function warns, attaches
+  nothing). Props are applied after children, so `<select value>` finds its
+  option and a `ref` sees the element whole.
 - **`when()` and `list()` render synchronously**, keep their content between
   bracket comments, and never rebuild after disposal (the `disposed` latch).
   Outside a dispose scope they warn.
-- **Propagation is glitch-free**: topologically ordered, each listener at most
-  once per settled pass; a true cycle throws.
+- **Propagation is topologically ordered**: each listener at most once per
+  settled pass, glitch-free while each computed reads the same signals every
+  run (the `signals.ts` header says where that stops); every write settles
+  consistently, and a true cycle throws. An effect's writes, its first run's
+  included, reach other listeners after its body returns, so an effect never
+  re-enters itself.
+- **One copy per page.** A second copy of railroad logs an error naming both;
+  signals, scopes and providers never cross copies.
 - **SVG tags get their namespace at creation.** Only `a`, `script`, `style`,
   `title` are adopted on append, and adoption disposes the old element's prop
   effects before re-applying them.
