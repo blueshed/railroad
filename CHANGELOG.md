@@ -49,8 +49,19 @@ All notable changes to `@blueshed/railroad`. The format follows
   effect updates) now reads the old value there. An effect that read a
   computed re-runs once the write settles; for anything else, read the
   signal you wrote.
+- **Props are applied after an element's children.** A `ref` now sees the
+  element with its children, as a `<select>`'s value needs (below).
+  **How to move across:** a `ref` that appends nodes of its own to an element
+  that also has JSX children now appends them after those children, not
+  before; insert with `el.prepend(…)` for the old order. `innerHTML` and JSX
+  children on one element: `innerHTML` now replaces the children (give one
+  or the other).
 
 ### Fixed
+
+- **`<select value="b">` showed the first option.** The value was set
+  before any `<option>` existed, so the browser had nothing to select;
+  static and reactive values alike. Props now follow the children.
 
 - **An effect that wrote its own dependency on its first run leaked.** A
   clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`

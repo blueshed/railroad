@@ -1431,3 +1431,32 @@ describe("a second copy of railroad says so when it loads", () => {
     }
   });
 });
+
+// ============================================================ React habits that rendered the wrong thing
+
+describe("React habits render what they say", () => {
+  test("<select value> selects its option, static or reactive", () => {
+    const choice = signal("b");
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <div>
+        <select id="s1" value="b"><option value="a">A</option><option value="b">B</option></select>
+        <select id="s2" value={choice}><option value="a">A</option><option value="b">B</option></select>
+      </div>
+    ));
+    const s1 = root.querySelector("#s1") as HTMLSelectElement;
+    const s2 = root.querySelector("#s2") as HTMLSelectElement;
+    expect(s1.value).toBe("b"); // before: "a", the value was set before any <option> existed
+    expect(s2.value).toBe("b");
+    choice.set("a");
+    expect(s2.value).toBe("a");
+    dispose();
+  });
+
+  test("a ref sees the element's children", () => {
+    let seen = -1;
+    createElement("ul", { ref: (el: Element) => { seen = el.childElementCount; } }, <li />, <li />);
+    expect(seen).toBe(2);
+  });
+
+});

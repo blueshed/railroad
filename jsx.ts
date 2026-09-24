@@ -8,7 +8,9 @@
  *     component must resolve to a THUNK (`return () => <div>…</div>`) so its
  *     post-await effects get an owner scope; optional `fallback` prop (a
  *     thunk) renders until settlement. See the async-components section.
- *   - props: attributes, event handlers (onclick etc), ref
+ *   - props: attributes, event handlers (onclick etc), ref — applied after the
+ *     children are appended, so a <select>'s value finds its <option>s and a
+ *     ref sees the element whole
  *   - children: string, number, Node, Signal<T>, () => any, arrays, null/undefined
  *
  * When a Signal is used as a child, an effect auto-updates the text node.
@@ -237,12 +239,13 @@ export function createElement(
     : document.createElement(tag);
   if (el.localName !== tag) authoredTags.set(el, tag);
 
+  // Children first: a <select>'s value names one of its <option>s, and a ref
+  // sees the element whole.
+  appendChildren(el, children);
   if (props) {
     storedProps.set(el, props);
     applyProps(el, props);
   }
-
-  appendChildren(el, children);
   return el;
 }
 
@@ -261,8 +264,16 @@ function adoptSvg(node: Node): Node {
     SVG_NS,
     authoredTags.get(node) ?? node.localName,
   );
-  const props = storedProps.get(node);
+  // Adopt children recursively — except through <foreignObject>, whose
+  // subtree is HTML content by definition and must keep its namespace. They
+  // move before the props are re-applied, as createElement orders them.
+  const isForeign = svgEl.localName === "foreignObject";
+  while (node.firstChild) {
+    const child = node.removeChild(node.firstChild);
+    svgEl.appendChild(isForeign ? child : adoptSvg(child));
+  }
 
+  const props = storedProps.get(node);
   if (props) {
     // Dispose the discarded HTML element's reactive prop effects before
     // re-applying props to the SVG element, so each signal keeps exactly one
@@ -284,13 +295,6 @@ function adoptSvg(node: Node): Node {
     }
   }
 
-  // Adopt children recursively — except through <foreignObject>, whose
-  // subtree is HTML content by definition and must keep its namespace.
-  const isForeign = svgEl.localName === "foreignObject";
-  while (node.firstChild) {
-    const child = node.removeChild(node.firstChild);
-    svgEl.appendChild(isForeign ? child : adoptSvg(child));
-  }
 
   return svgEl;
 }
