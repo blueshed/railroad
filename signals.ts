@@ -445,17 +445,13 @@ export function batch(fn: () => void): void {
     if (batchDepth === 0 && pendingEffects.size > 0) {
       const pending = [...pendingEffects];
       pendingEffects.clear();
-      if (activeFlush) {
-        // batch() exited inside a running flush (called from an effect) —
-        // fold the queued listeners into the pass already draining.
-        enqueue(activeFlush, pending);
-      } else {
-        try {
-          scheduleListeners(pending);
-        } catch (err) {
-          flushThrew = true;
-          flushError = err;
-        }
+      // Inside a running flush (batch() called from an effect) this folds the
+      // queued listeners into the pass already draining.
+      try {
+        scheduleListeners(pending);
+      } catch (err) {
+        flushThrew = true;
+        flushError = err;
       }
     }
   }

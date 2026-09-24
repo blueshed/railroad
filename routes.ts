@@ -306,38 +306,25 @@ export function routes(
   function show(path: string) {
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
-      if (params) {
-        if (pattern === activePattern) {
-          // Same pattern, different params. If a render for the OLD params is
-          // still in flight, updating the signal alone would let the stale
-          // resolution paint outdated content (and a handler that captured the
-          // initial `params` arg would never refresh) — so invalidate it with a
-          // full teardown + re-run. Otherwise just push the new params.
-          if (asyncPending) {
-            teardown();
-            activePattern = pattern;
-            try {
-              run(handler, params);
-            } catch (err) {
-              console.error("[railroad/routes] handler threw:", err);
-            }
-            return;
-          }
-          activeParams!.set(params);
-          return;
-        }
-        teardown();
-        activePattern = pattern;
-        try {
-          run(handler, params);
-        } catch (err) {
-          // Handler errors must not kill the router or leak the dep set on
-          // the hash signal. run()'s try/catch already balanced the dispose
-          // stack and reset state — surface the error so it's visible.
-          console.error("[railroad/routes] handler threw:", err);
-        }
+      if (!params) continue;
+      // Same pattern, new params: push them into params$, no teardown. Unless a
+      // render for the old params is still in flight: its resolution would
+      // paint outdated content, and a handler that captured the initial
+      // `params` would never refresh, so tear down and run it again.
+      if (pattern === activePattern && !asyncPending) {
+        activeParams!.set(params);
         return;
       }
+      teardown();
+      activePattern = pattern;
+      try {
+        run(handler, params);
+      } catch (err) {
+        // A throwing handler must not kill the router. run() already balanced
+        // the dispose stack and reset its state; surface the error.
+        console.error("[railroad/routes] handler threw:", err);
+      }
+      return;
     }
     teardown();
   }
