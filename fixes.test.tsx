@@ -1417,18 +1417,16 @@ describe("a second copy of railroad says so when it loads", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const dir = mkdtempSync(join(tmpdir(), "railroad-copy-"));
-    copyFileSync(new URL("./signals.ts", import.meta.url), join(dir, "signals.ts"));
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
-    try {
-      await import(join(dir, "signals.ts"));
-      const msg = errorSpy.mock.calls.map((c) => c.join(" ")).join("\n");
-      expect(msg).toContain("second copy of @blueshed/railroad");
-      expect(msg).toContain(dir); // the new copy
-      expect(msg).toContain(new URL("./signals.ts", import.meta.url).href); // the first
-      expect(msg).toContain("Local development across repos");
-    } finally {
-      errorSpy.mockRestore();
-    }
+    const first = new URL("./signals.ts", import.meta.url);
+    copyFileSync(first, join(dir, "signals.ts"));
+    // In a child process, so the copy stays out of this one (and its coverage).
+    const run = Bun.spawnSync([process.execPath, "-e",
+      `await import(${JSON.stringify(first.pathname)}); await import(${JSON.stringify(join(dir, "signals.ts"))});`]);
+    const msg = run.stderr.toString();
+    expect(msg).toContain("second copy of @blueshed/railroad");
+    expect(msg).toContain(dir); // the new copy
+    expect(msg).toContain(first.href); // the first
+    expect(msg).toContain("Local development across repos");
   });
 });
 
