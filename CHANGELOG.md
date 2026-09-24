@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-25
+
 A minor release. The five entries under Breaking change what some working
 code does, or whether it compiles; each says who is affected and the one
 move across. Most code needs none of them.
