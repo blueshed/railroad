@@ -66,6 +66,8 @@ All notable changes to `@blueshed/railroad`. The format follows
   `style={{ "--accent": "red", color: "var(--accent)" }}` assigned `--accent`
   as a declaration property, which doesn't exist; it now goes through
   `style.setProperty`, and a later object that omits it removes it.
+- **`<label htmlFor="x">` wrote an attribute named `htmlfor`.** It now writes
+  `for`, as `className` already wrote `class`.
 
 - **An effect that wrote its own dependency on its first run leaked.** A
   clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`

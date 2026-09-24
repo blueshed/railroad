@@ -181,9 +181,11 @@ function applyProps(el: Element, props: Record<string, any>): void {
       const prev: StyleState = { keys: null };
       apply = (v) => applyStyle(el, v, prev);
     } else {
+      // htmlFor is the DOM property's name; the attribute is `for`.
+      const name = key === "htmlFor" ? "for" : key;
       apply = (v) => {
-        if (v === false || v == null) el.removeAttribute(key);
-        else el.setAttribute(key, String(v));
+        if (v === false || v == null) el.removeAttribute(name);
+        else el.setAttribute(name, String(v));
       };
     }
 

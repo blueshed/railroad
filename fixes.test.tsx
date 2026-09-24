@@ -1470,4 +1470,10 @@ describe("React habits render what they say", () => {
     expect(fixed.style.getPropertyValue("--gap")).toBe("4px");
   });
 
+  test("htmlFor writes the for attribute", () => {
+    const label = createElement("label", { htmlFor: "x" }) as HTMLLabelElement;
+    expect(label.getAttribute("for")).toBe("x"); // before: an attribute named "htmlfor"
+    expect(label.htmlFor).toBe("x");
+  });
+
 });
