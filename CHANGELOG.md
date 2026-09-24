@@ -6,6 +6,141 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+A minor release. The five entries under Breaking change what some working
+code does, or whether it compiles; each says who is affected and the one
+move across. Most code needs none of them.
+
+### Breaking
+
+- **Render bodies are untracked.** A `.get()` in a component body, a
+  `when()` branch, a `list()` row or a `routes()` handler ran with the effect
+  around it as the listener, so an unrelated write re-ran that effect: every
+  row of an index-based `list()` was rebuilt, the router re-notified
+  `params$`, and an effect that built a component re-ran on that
+  component's reads. Components run once, as documented, and those reads are
+  now one-shot.
+  **Who is affected:** an index-based `list()` row that reads another signal
+  with `.get()` and relied on the list rebuilding every row to show its new
+  value (`list(items, (it) => <li class={sel.get() === it ? "on" : ""}>…`);
+  and an effect that re-rendered a component by reading signals only inside
+  that component.
+  **How to move across:** bind the signal instead of reading it:
+  `class={() => sel.get() === it ? "on" : ""}`; or read it in the effect
+  itself: `effect(() => { const v = x.get(); el.replaceChildren(<View v={v} />); })`.
+- **An effect's first run defers its writes, as every later run already
+  did.** Writes made inside an effect body reach other listeners after the
+  body returns. Before, only the first run (at mount, in an event handler, a
+  timer) propagated them synchronously, so the same effect saw a computed of
+  what it had just written fresh on its first run and stale on later ones
+  (and could re-enter itself: see Fixed).
+  **How to move across:** code that wrote a signal in an effect and then read
+  something derived from it in the same body (a computed, or DOM another
+  effect updates) now reads the old value there. An effect that read a
+  computed re-runs once the write settles; for anything else, read the
+  signal you wrote.
+- **Props are applied after an element's children.** A `ref` now sees the
+  element with its children, and a `<select>`'s value finds its options
+  (see Fixed).
+  **How to move across:** a `ref` that appends nodes of its own to an element
+  that also has JSX children now appends them after those children, not
+  before; insert with `el.prepend(…)` for the old order. `innerHTML` and JSX
+  children on one element: `innerHTML` now replaces the children (give one
+  or the other).
+- **A signal or function child holding a boolean renders nothing,** as a
+  static `{true}`/`{false}` always did. Before, `{flag}` printed "true" or
+  "false", and so did `{() => flag.get()}`.
+  **How to move across:** to show a boolean as text, map it:
+  `{flag.map(String)}`.
+- **Two types that let bugs compile are narrower (types only).**
+  `.patch(partial)` takes `Partial<T>`, so `filter.patch({ colr: "blue" })`
+  no longer compiles (it took any key). A route handler's `params$` is a
+  `ReadonlySignal`, as the docs already said; writing it would desync it from
+  the URL.
+  **How to move across:** fix the misspelt key; for a key the type really
+  lacks, widen the signal's type. Annotate a handler's second parameter as
+  `ReadonlySignal<Record<string, string>>` (or leave it inferred), and change
+  the route with `navigate()`.
+
+### Added
+
+- **A second copy of railroad says so when it loads.** Two copies in one
+  page (typically a `file:` or `bun link` dependency on a local checkout
+  that brings its own `node_modules/@blueshed/railroad`) can't see each
+  other's signals, scopes or providers, so the UI stopped updating with
+  nothing on the console. The second copy now logs a `console.error` naming
+  both files and pointing at the skill's new "Local development across
+  repos" section: install the checkout as a packed tarball instead
+  (`bun pm pack`, then `bun add <tgz>`). `bun --hot` re-evaluating the same
+  file is not reported. Only copies that include this check take part, so
+  both copies must be this version or later.
+
+### Fixed
+
+- **An effect that wrote its own dependency on its first run leaked.** A
+  clamp such as `effect(() => { if (page.get() > max.get()) page.set(max.get()); … })`
+  ran again *inside* itself, and the outer run then overwrote the inner
+  run's cleanup and children, so they were never disposed: a timer the
+  effect started kept running after unmount. It now runs again after its
+  current run, and every run's cleanup and children are disposed.
+- **An effect's return value broke the next write.** Whatever the body
+  returned was kept as its cleanup, so `effect(async () => …)` or an
+  expression body such as `effect(() => (el.textContent = s.get()))` made
+  the next `s.set()` throw "cleanup is not a function", from the writer.
+  Only a returned function is a cleanup now; an async callback also gets a
+  `console.error` saying effects must be synchronous and what to do instead.
+- **A cleanup ran twice when the next run threw.** The thrown run left the
+  old cleanup in place, so dispose called it again.
+- **A keyed `list()` reorder moved rows that hadn't moved, and they lost
+  focus.** Moving the last row to the front moved every other row instead,
+  so an `<input>` being typed into in one of them lost focus when another
+  user's change reordered the list. Rows outside the longest run already in
+  order now move, and only those.
+- **`<select value="b">` showed the first option.** The value was set
+  before any `<option>` existed, so the browser had nothing to select;
+  static and reactive values alike. Props now follow the children.
+- **A CSS custom property in a style object was dropped.**
+  `style={{ "--accent": "red", color: "var(--accent)" }}` assigned `--accent`
+  as a declaration property, which doesn't exist; it now goes through
+  `style.setProperty`, and a later object that omits it removes it.
+- **A signal child holding `null` or `undefined` rendered "null" or
+  "undefined".** It now renders nothing, as a static child and a function
+  child did. A signal holding a DOM Node now gets the same console warning a
+  function child returning one gets.
+- **`<label htmlFor="x">` wrote an attribute named `htmlfor`.** It now writes
+  `for`, as `className` already wrote `class`.
+
+### Changed
+
+- **The browser suite skips when there is no browser** (development only).
+  On Linux with no Chrome/Chromium on `$PATH` and no `BUN_CHROME_PATH`, e.g. a
+  fresh sandbox, `tests/webview.test.ts` is skipped with a warning, so the
+  release gate `bun test --coverage` passes or fails on the unit tests alone
+  instead of failing on "Failed to spawn Chrome". In CI it is never skipped.
+
+### Docs
+
+- **The README's `tsconfig.json` compiles.** It set `moduleResolution:
+  "bundler"` without `module`, which TypeScript rejects (TS5095), and
+  without `target`, so railroad's own source failed on iteration (TS2802).
+  It (and the manual's copy) now sets `module` and `target` to `esnext`, as
+  `check:consumer` does.
+- **The skill says what bites today.** It no longer tells delta users to
+  pass `{ equals: () => false }` to `list()` (every delta backend broadcasts
+  whole rows); it adds §9, that `when()` rebuilds only on a truthiness flip
+  and a handler's `params` stay the first match (pass signals; read
+  `params$`), fixes its wildcard-layout example accordingly, and covers the
+  changes above: untracked render bodies, effect writes and return values,
+  `onchange` on text inputs, event handlers not being scopes, and local
+  development across repos. The unrelated "no `transition-all`" item is gone.
+- **"Glitch-free" now says where it stops.** Propagation is glitch-free
+  while each computed reads the same signals every run. A computed that
+  switches what it reads (`flag.get() ? b.get() : a.get() * 2`) can end up
+  deeper than its readers were ordered for, and on a later write one of them
+  can run once on half-updated values before it re-runs on the settled ones.
+  Every write still settles consistently, within the same synchronous pass,
+  so bindings never paint the half-updated value. The signals header, the
+  README, the skill and its manual said it could not happen.
+
 ## [0.12.0] - 2026-09-24
 
 A minor release (0.12.0). The JSX runtime gets three fixes, `when()`/`list()`

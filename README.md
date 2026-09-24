@@ -26,6 +26,8 @@ Add three files.
     "jsx": "react-jsx",
     "jsxImportSource": "@blueshed/railroad",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "target": "esnext",
     "moduleResolution": "bundler",
     "strict": true
   }
@@ -90,7 +92,7 @@ binary.
 
 | Import | What it does |
 |---|---|
-| `signal` `computed` `effect` `batch` | Push-based reactive values. Glitch-free: a write settles every dependent once, in order. |
+| `signal` `computed` `effect` `batch` | Push-based reactive values. A write settles every dependent in depth order: once each, with no half-updated reads, while each computed reads the same signals every time. |
 | JSX, `mount` `when` `list` | Real-DOM rendering. Signals and functions bind to text and attributes; `when` swaps branches; `list` keeps keyed rows. |
 | `routes` `route` `navigate` | Hash router with reactive params, so `/users/1` to `/users/2` updates without remounting. |
 | `provide` `inject` | Typed dependency injection without passing props down. |

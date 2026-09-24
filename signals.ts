@@ -6,15 +6,26 @@
  * internal effect. Designed to be small enough to fit in your head and
  * predictable enough to write correctly without re-reading the source.
  *
- * Glitch-free by topological scheduling. A write (or a batch of writes)
- * enqueues the affected computeds and effects and runs them ordered by
- * derivation depth, each at most once per settled pass — in a diamond
- * (a -> b, a -> c, an effect reading both b and c) the effect re-runs once
- * and never observes half-updated state. Two bounds to know: siblings at the
- * same depth run in subscription order, and an effect that writes signals
- * re-queues their consumers within the same pass (a true cycle throws after
- * the same effect re-runs ~100 times). batch() coalesces MULTIPLE writes (a
- * multi-write transaction) so subscribers see one consistent snapshot.
+ * Topological scheduling. A write (or a batch of writes) enqueues the
+ * affected computeds and effects and runs them ordered by derivation depth,
+ * each at most once per settled pass — in a diamond (a -> b, a -> c, an
+ * effect reading both b and c) the effect re-runs once and never observes
+ * half-updated state. That holds while each computed reads the same signals
+ * every run. A computed that switches what it reads (`flag.get() ? b.get() :
+ * a.get()`) can move to a greater depth than its readers were ordered for, so
+ * on a later write one of them may run once on half-updated values before it
+ * re-runs on the settled ones: every write still settles consistently. Two
+ * more bounds: siblings at the same depth run in subscription order, and an
+ * effect that writes signals re-queues their consumers within the same pass
+ * (a true cycle throws after the same effect re-runs ~100 times). batch()
+ * coalesces MULTIPLE writes (a multi-write transaction) so subscribers see
+ * one consistent snapshot.
+ *
+ * Writes made inside an effect body, its first run included, reach other
+ * listeners after the body returns. So an effect that writes `a` and then
+ * reads a computed of `a` sees the old value, and re-runs once it settles;
+ * an effect that writes its own dependency runs again after, never inside,
+ * its current run.
  *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
@@ -40,7 +51,9 @@
  * Dependency tracking:
  *   Effects auto-track which signals are read during execution. Stale
  *   subscriptions are unsubscribed on re-run; effect() returns a dispose
- *   function. effect() can return a cleanup, called before each re-run.
+ *   function. effect() can return a cleanup function, called once, before
+ *   the next run or on dispose; any other return value is ignored. The
+ *   callback must be synchronous: an async one is reported on the console.
  *
  * Dispose pattern:
  *   effect() and computed() auto-track in the current dispose scope, so
@@ -49,7 +62,32 @@
  *   app code — mount UI through routes() or jsx's mount() so a root scope
  *   exists. Each effect/computed run is itself an owner scope: anything its
  *   body creates is disposed before the next run and when it is disposed.
+ *
+ * One copy per page: signals, scopes and providers don't cross copies of
+ * railroad, so a second copy logs a console.error naming both when it loads.
  */
+
+// === One copy per page ===
+//
+// Every copy of railroad has its own Signal class, tracking state, scopes and
+// providers, so two copies can't see each other: a signal from one renders as
+// "[object Object]" in the other's JSX, its when() never switches, its effects
+// never re-run. The usual cause is a linked checkout (a `file:` or `bun link`
+// dependency) that brings its own node_modules/@blueshed/railroad. Nothing
+// else would say so, so say it here. The same file evaluated again under the
+// Bun runtime is `bun --hot`, not a copy; in a browser nothing re-evaluates a
+// module, and copies bundled together share one URL.
+const COPY = Symbol.for("@blueshed/railroad");
+const copyUrl = (import.meta as { url?: string }).url ?? "(unknown)";
+const firstCopy = (globalThis as { [COPY]?: string })[COPY];
+if (firstCopy !== undefined && (firstCopy !== copyUrl || !("Bun" in globalThis))) {
+  console.error(
+    `[railroad] A second copy of @blueshed/railroad has loaded (${copyUrl}; the first: ${firstCopy}). ` +
+      "Signals, scopes and provide()/inject() don't cross copies, so the UI will not update. " +
+      "Make it one copy: see the railroad skill, \"Local development across repos\".",
+  );
+}
+(globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
 
 // Listeners carry their topological level (derivation depth) so the flush
 // scheduler can settle upstream computeds before downstream consumers.
@@ -214,7 +252,7 @@ export class Signal<T> implements ReadonlySignal<T> {
     this.touch();
   }
 
-  patch(partial: Partial<T & Record<string, unknown>>): void {
+  patch(partial: Partial<T>): void {
     // Spreading an array into `{ ... }` yields a plain object keyed by index —
     // silently corrupt data that surfaces far from the call site. Refuse loudly
     // instead; arrays update via .set() / .update() / .mutate().
@@ -272,14 +310,31 @@ export class Signal<T> implements ReadonlySignal<T> {
 
 // === effect() ===
 
+const ASYNC_EFFECT =
+  "[railroad/signals] effect callbacks must be synchronous: an async function returns a " +
+  "Promise, not a cleanup, and nothing after its first await is tracked or owned. Do the " +
+  "async work in an async component or route handler (resolve to a thunk), or start it from " +
+  "the effect and write the result into a signal.";
+
 export function effect(fn: () => void | (() => void)): () => void {
-  let cleanup: (() => void) | void;
+  let cleanup: (() => void) | undefined;
   // Owner scope for whatever this run creates (effects, computeds, when/list,
   // components). Disposed before the next run and on dispose — otherwise each
   // re-run would stack a fresh set of children into the enclosing scope.
   let children: Dispose | null = null;
   let deps = new Set<Signal<any>>();
   let disposed = false;
+
+  // Dispose the last run's children and call its cleanup, each exactly once
+  // (cleared first, so a run that throws can't leave them to be called again).
+  const release = () => {
+    const c = children;
+    const k = cleanup;
+    children = null;
+    cleanup = undefined;
+    if (c) c();
+    if (k) k();
+  };
 
   const execute: Listener = () => {
     // A disposed effect must never run its body again. It can still be reached
@@ -288,9 +343,7 @@ export function effect(fn: () => void | (() => void)): () => void {
     // relying on the listener Set having been mutated. Keeps the batch and
     // non-batch paths consistent.
     if (disposed) return;
-    if (children) children();
-    children = null;
-    if (cleanup) cleanup();
+    release();
 
     const prevListener = currentListener;
     const prevDeps = currentDeps;
@@ -300,7 +353,11 @@ export function effect(fn: () => void | (() => void)): () => void {
 
     pushDisposeScope();
     try {
-      cleanup = fn();
+      // Only a function is a cleanup: an expression body's value isn't, and
+      // an async body's Promise would make the next run throw from the writer.
+      const r: unknown = fn();
+      if (typeof r === "function") cleanup = r as () => void;
+      else if (r instanceof Promise) console.error(ASYNC_EFFECT);
     } finally {
       children = popDisposeScope();
       currentListener = prevListener;
@@ -323,15 +380,17 @@ export function effect(fn: () => void | (() => void)): () => void {
   const dispose = () => {
     if (disposed) return; // idempotent — safe to call more than once
     disposed = true;
-    if (children) children();
-    children = null;
-    if (cleanup) cleanup();
+    release();
     for (const dep of deps) dep.unsubscribe(execute);
     deps.clear();
   };
 
   trackDispose(dispose);
-  execute();
+  // The first run defers its writes like a batch, as later runs (inside a
+  // flush) already do. Otherwise a write to one of its own dependencies would
+  // run the effect again inside itself, and this run would then overwrite the
+  // inner run's cleanup and children, which would never be disposed.
+  batch(execute);
 
   return dispose;
 }
@@ -435,17 +494,13 @@ export function batch(fn: () => void): void {
     if (batchDepth === 0 && pendingEffects.size > 0) {
       const pending = [...pendingEffects];
       pendingEffects.clear();
-      if (activeFlush) {
-        // batch() exited inside a running flush (called from an effect) —
-        // fold the queued listeners into the pass already draining.
-        enqueue(activeFlush, pending);
-      } else {
-        try {
-          scheduleListeners(pending);
-        } catch (err) {
-          flushThrew = true;
-          flushError = err;
-        }
+      // Inside a running flush (batch() called from an effect) this folds the
+      // queued listeners into the pass already draining.
+      try {
+        scheduleListeners(pending);
+      } catch (err) {
+        flushThrew = true;
+        flushError = err;
       }
     }
   }

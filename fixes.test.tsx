@@ -152,7 +152,7 @@ describe("jsx: SVG adoption / list / function-child / prop guards", () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const div = createElement("div", null, () => document.createElement("span")) as HTMLElement;
     expect(
-      warnSpy.mock.calls.some((c) => String(c[0]).includes("function child returned a DOM Node")),
+      warnSpy.mock.calls.some((c) => String(c[0]).includes("reactive child held a DOM Node")),
     ).toBe(true);
     expect(div.querySelector("span")).toBeNull(); // not inserted as an element
     warnSpy.mockRestore();
@@ -1251,5 +1251,374 @@ describe("when(): a branch that throws", () => {
     }
     popDisposeScope()();
     expect(hasActiveDisposeScope()).toBe(hadScope);
+  });
+});
+
+// ============================================================ effect(): a first run that writes its own dependency
+
+describe("effect(): a first run that writes its own dependency", () => {
+  // The first run used to start a flush of its own when it wrote a signal it had read, so the
+  // effect ran again INSIDE itself; the outer run then overwrote the inner run's cleanup and
+  // children, which were never disposed. The first run now defers its writes like batch().
+  test("re-runs after its body, and loses no cleanup or child", () => {
+    const a = signal(0);
+    const b = signal(0);
+    let bodies = 0, cleanups = 0, innerRuns = 0, depth = 0, maxDepth = 0;
+    const dispose = effect(() => {
+      maxDepth = Math.max(maxDepth, ++depth);
+      const v = a.get();
+      if (v < 2) a.set(v + 1); // e.g. clamp or default a selection
+      bodies++;
+      effect(() => { b.get(); innerRuns++; });
+      depth--;
+      return () => { cleanups++; };
+    });
+    expect(maxDepth).toBe(1); // never re-entered
+    expect(bodies).toBe(3);
+    expect(cleanups).toBe(2); // every earlier run cleaned up
+    innerRuns = 0;
+    b.set(1);
+    expect(innerRuns).toBe(1); // one live child, not one per run
+    dispose();
+    expect(cleanups).toBe(3);
+    innerRuns = 0;
+    b.set(2);
+    expect(innerRuns).toBe(0);
+  });
+
+  test("a clamping effect in a component leaves no timer behind after unmount", () => {
+    const page = signal(5);
+    const pageCount = signal(3);
+    let live = 0;
+    function Pager() {
+      effect(() => {
+        if (page.get() > pageCount.get()) page.set(pageCount.get());
+        live++;
+        return () => { live--; };
+      });
+      return <p>{page}</p>;
+    }
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <Pager />);
+    expect(root.textContent).toBe("3");
+    expect(live).toBe(1);
+    dispose();
+    expect(live).toBe(0);
+  });
+
+  test("reads its own writes the same way on every run: stale, then re-run", () => {
+    const a = signal(1);
+    const b = computed(() => a.get() * 10);
+    const trigger = signal(0);
+    const log: string[] = [];
+    effect(() => { const t = trigger.get(); a.set(t + 100); log.push(`t=${t} b=${b.get()}`); });
+    trigger.set(1);
+    // before: the first run saw b fresh (1000) and later runs saw it stale
+    expect(log).toEqual(["t=0 b=10", "t=0 b=1000", "t=1 b=1000", "t=1 b=1010"]);
+  });
+
+  test("writes made before a first run throws still propagate, and the error surfaces", () => {
+    const other = signal(0);
+    let seen = -1;
+    effect(() => { seen = other.get(); });
+    expect(() => effect(() => { other.set(7); throw new Error("first run failed"); })).toThrow("first run failed");
+    expect(seen).toBe(7);
+  });
+});
+
+// ============================================================ render bodies are untracked
+
+describe("render bodies are untracked: a .get() there subscribes nothing around it", () => {
+  // A .get() in a component body, a when() branch, a list() row or a route handler ran with the
+  // surrounding effect as the listener, so an unrelated write re-ran that effect: every
+  // index-based row rebuilt, a router re-notified params$, a user effect re-rendered.
+  beforeEach(async () => { location.hash = "#/users/1"; await tick(); });
+  afterEach(() => { location.hash = ""; });
+
+  const countReads = <T,>(s: ReadonlySignal<T>) => {
+    const get = s.get.bind(s);
+    const counter = { n: 0 };
+    (s as { get: () => T }).get = () => { counter.n++; return get(); };
+    return counter;
+  };
+
+  test("an index-based list() row that reads another signal is not rebuilt when it changes", () => {
+    const items = signal(["a", "b", "c"]);
+    const theme = signal("light");
+    let renders = 0;
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>{list(items, (it) => { renders++; return <li class={theme.get()}>{it}</li>; })}</ul>
+    ));
+    theme.set("dark");
+    expect(renders).toBe(3); // before: 6, every row rebuilt
+    dispose();
+  });
+
+  test("a keyed list() row's reads don't re-run the list", () => {
+    const items = signal([{ id: 1 }, { id: 2 }]);
+    const sel = signal(1);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>{list(items, (r) => r.id, (r$) => <li>{r$.peek().id}{sel.get()}</li>)}</ul>
+    ));
+    const reads = countReads(items);
+    sel.set(2);
+    expect(reads.n).toBe(0);
+    dispose();
+  });
+
+  test("a when() branch's reads don't re-run the when()", () => {
+    const show = signal(true);
+    const other = signal(0);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <div>{when(show, () => <span>{other.get()}</span>)}</div>);
+    const reads = countReads(show);
+    other.set(1);
+    expect(reads.n).toBe(0);
+    dispose();
+  });
+
+  test("a route handler's reads don't re-notify params$", async () => {
+    const target = document.createElement("div");
+    const theme = signal("light");
+    let fires = 0;
+    const dispose = routes(target, {
+      "/users/:id": (_p, params$) => {
+        effect(() => { params$.get(); fires++; });
+        return <p class={theme.get()}>x</p>;
+      },
+    });
+    theme.set("dark");
+    theme.set("light");
+    expect(fires).toBe(1); // before: 3
+    dispose();
+  });
+
+  test("a component built inside an effect doesn't subscribe that effect to its body's reads", () => {
+    const x = signal(0);
+    let runs = 0;
+    function View() { return <b>{x.get()}</b>; }
+    const root = document.createElement("div");
+    const dispose = effect(() => { runs++; root.replaceChildren(<View />); });
+    x.set(1);
+    expect(runs).toBe(1);
+    dispose();
+  });
+});
+
+// ============================================================ a second copy of railroad
+
+describe("a second copy of railroad says so when it loads", () => {
+  // Two copies (a linked checkout bringing its own node_modules/@blueshed/railroad) can't see each
+  // other's signals, scopes or providers: the UI just stops updating, with nothing on the console.
+  test("console.error names both copies and the fix", async () => {
+    const { mkdtempSync, copyFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "railroad-copy-"));
+    const first = new URL("./signals.ts", import.meta.url);
+    copyFileSync(first, join(dir, "signals.ts"));
+    // In a child process, so the copy stays out of this one (and its coverage).
+    const run = Bun.spawnSync([process.execPath, "-e",
+      `await import(${JSON.stringify(first.pathname)}); await import(${JSON.stringify(join(dir, "signals.ts"))});`]);
+    const msg = run.stderr.toString();
+    expect(msg).toContain("second copy of @blueshed/railroad");
+    expect(msg).toContain(dir); // the new copy
+    expect(msg).toContain(first.href); // the first
+    expect(msg).toContain("Local development across repos");
+  });
+});
+
+// ============================================================ React habits that rendered the wrong thing
+
+describe("React habits render what they say", () => {
+  test("<select value> selects its option, static or reactive", () => {
+    const choice = signal("b");
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <div>
+        <select id="s1" value="b"><option value="a">A</option><option value="b">B</option></select>
+        <select id="s2" value={choice}><option value="a">A</option><option value="b">B</option></select>
+      </div>
+    ));
+    const s1 = root.querySelector("#s1") as HTMLSelectElement;
+    const s2 = root.querySelector("#s2") as HTMLSelectElement;
+    expect(s1.value).toBe("b"); // before: "a", the value was set before any <option> existed
+    expect(s2.value).toBe("b");
+    choice.set("a");
+    expect(s2.value).toBe("a");
+    dispose();
+  });
+
+  test("a ref sees the element's children", () => {
+    let seen = -1;
+    createElement("ul", { ref: (el: Element) => { seen = el.childElementCount; } }, <li />, <li />);
+    expect(seen).toBe(2);
+  });
+
+  test("style objects set CSS custom properties, and clear them", () => {
+    const accent = signal<Record<string, string>>({ "--accent": "red", color: "var(--accent)" });
+    const el = createElement("div", { style: accent }) as HTMLElement;
+    expect(el.style.getPropertyValue("--accent")).toBe("red"); // before: "", dropped
+    expect(el.style.color).toBe("var(--accent)");
+    accent.set({ color: "blue" });
+    expect(el.style.getPropertyValue("--accent")).toBe("");
+    const fixed = createElement("div", { style: { "--gap": "4px" } }) as HTMLElement;
+    expect(fixed.style.getPropertyValue("--gap")).toBe("4px");
+  });
+
+  test("htmlFor writes the for attribute", () => {
+    const label = createElement("label", { htmlFor: "x" }) as HTMLLabelElement;
+    expect(label.getAttribute("for")).toBe("x"); // before: an attribute named "htmlfor"
+    expect(label.htmlFor).toBe("x");
+  });
+
+  test("a signal or function child holding null, undefined, true or false renders nothing, as a static one does", () => {
+    const v = signal<string | boolean | null | undefined>(null);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <p><b>{v}</b><i>{() => v.get()}</i></p>);
+    const b = root.querySelector("b")!;
+    const i = root.querySelector("i")!;
+    for (const empty of [null, undefined, false, true]) {
+      v.set(empty);
+      expect([b.textContent, i.textContent]).toEqual(["", ""]); // before: "null"/"false"/"true" for a signal, "false"/"true" for a function
+    }
+    v.set("hi");
+    expect([b.textContent, i.textContent]).toEqual(["hi", "hi"]);
+    v.set(0 as unknown as string);
+    expect([b.textContent, i.textContent]).toEqual(["0", "0"]);
+    dispose();
+  });
+});
+
+// ============================================================ what an effect returns
+
+describe("effect(): only a returned function is a cleanup", () => {
+  // Whatever the body returned was stored as the cleanup and called before the next run, so the
+  // next write threw "cleanup is not a function" out of the writer's .set().
+  test("an async effect is reported where it is created, and the writer doesn't throw", () => {
+    const s = signal(0);
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // @ts-expect-error -- an async callback is what the check is for
+      const dispose = effect(async () => { s.get(); });
+      expect(errorSpy.mock.calls.some((c) => String(c[0]).includes("must be synchronous"))).toBe(true);
+      expect(() => s.set(1)).not.toThrow(); // before: "cleanup is not a function (… Promise)"
+      dispose();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("an expression body's value is not a cleanup", () => {
+    const s = signal(0);
+    const box = { text: "" };
+    // @ts-expect-error -- tsc rejects it; bun runs it anyway
+    const dispose = effect(() => (box.text = String(s.get())));
+    expect(() => s.set(1)).not.toThrow(); // before: "cleanup is not a function"
+    expect(box.text).toBe("1");
+    dispose();
+  });
+
+  test("a cleanup runs once even when the next run throws", () => {
+    const t = signal(0);
+    let calls = 0;
+    const dispose = effect(() => {
+      if (t.get() === 1) throw new Error("second run");
+      return () => { calls++; };
+    });
+    expect(() => t.set(1)).toThrow("second run");
+    dispose();
+    expect(calls).toBe(1); // before: 2, the thrown run left the old cleanup in place
+  });
+});
+
+// ============================================================ what "glitch-free" promises
+
+describe("scheduling: a computed that switches what it reads", () => {
+  // Pins the documented bound. Glitch-free holds for fixed dependencies (signals.test.ts); a
+  // computed that moves to a deeper source can let an effect run once on half-updated values,
+  // but every write still settles consistently.
+  test("every write settles on consistent values", () => {
+    const a = signal(1);
+    const flag = signal(false);
+    const b = computed(() => a.get() * 2);
+    const c = computed(() => (flag.get() ? b.get() : a.get() * 2));
+    const seen: string[] = [];
+    effect(() => { seen.push(`a=${a.get()} c=${c.get()}`); });
+    flag.set(true);
+    a.set(2);
+    expect(seen.at(-1)).toBe("a=2 c=4");
+  });
+});
+
+// ============================================================ keyed list(): reorders move only what moved
+
+describe("list(): a reorder moves only the rows that moved", () => {
+  // The right-to-left pass moved every row whose successor changed, so moving the last row to
+  // the front moved all the others instead, and a focused <input> in one of them lost focus.
+  const setup = (ids: number[]) => {
+    const items = signal(ids.map((id) => ({ id })));
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <ul>{list(items, (r) => r.id, (r$) => <li id={`r${r$.peek().id}`} />)}</ul>);
+    const ul = root.querySelector("ul")!;
+    const moved = new Set<string>();
+    const insertBefore = ul.insertBefore.bind(ul);
+    ul.insertBefore = ((node: Node, ref: Node | null) => {
+      if (node instanceof Element) moved.add(node.id);
+      return insertBefore(node, ref);
+    }) as typeof ul.insertBefore;
+    const ids$ = () => [...ul.querySelectorAll("li")].map((li) => li.id);
+    return { items, moved, ids$, dispose };
+  };
+
+  test("last to first moves one row", () => {
+    const { items, moved, ids$, dispose } = setup([1, 2, 3, 4]);
+    items.set([4, 1, 2, 3].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r4", "r1", "r2", "r3"]);
+    expect([...moved]).toEqual(["r4"]); // before: r3, r2, r1
+    dispose();
+  });
+
+  test("a swap, a reversal, inserts and removals land in order", () => {
+    const { items, moved, ids$, dispose } = setup([1, 2, 3, 4, 5]);
+    items.set([1, 4, 3, 2, 5].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r1", "r4", "r3", "r2", "r5"]);
+    expect(moved.size).toBe(2);
+    items.set([5, 4, 3, 2, 1].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r5", "r4", "r3", "r2", "r1"]);
+    items.set([6, 4, 2, 7, 5].map((id) => ({ id })));
+    expect(ids$()).toEqual(["r6", "r4", "r2", "r7", "r5"]);
+    dispose();
+  });
+});
+
+// ============================================================ types that let bugs through
+
+describe("types: a misspelt patch key and a params$ write don't compile", () => {
+  // Checked by `bun run check` (tsc over this file): each @ts-expect-error must find its error.
+  test(".patch() takes only the signal's own keys", () => {
+    const filter = signal({ color: "all", done: false });
+    // @ts-expect-error -- "colr" is not a key of the value (it compiled before)
+    filter.patch({ colr: "blue" });
+    filter.patch({ color: "blue" });
+    expect(filter.peek().color).toBe("blue");
+  });
+
+  test("a route handler's params$ is read-only", async () => {
+    location.hash = "#/users/1";
+    await tick();
+    const target = document.createElement("div");
+    const dispose = routes(target, {
+      "/users/:id": (_p, params$) => {
+        // @ts-expect-error -- writing params$ would desync it from the URL (it compiled before)
+        void params$.set;
+        return <p>{params$.map((p) => p.id)}</p>;
+      },
+    });
+    expect(target.textContent).toBe("1");
+    dispose();
+    location.hash = "";
   });
 });

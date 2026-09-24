@@ -8,7 +8,9 @@
  *     component must resolve to a THUNK (`return () => <div>…</div>`) so its
  *     post-await effects get an owner scope; optional `fallback` prop (a
  *     thunk) renders until settlement. See the async-components section.
- *   - props: attributes, event handlers (onclick etc), ref
+ *   - props: attributes, event handlers (onclick etc), ref — applied after the
+ *     children are appended, so a <select>'s value finds its <option>s and a
+ *     ref sees the element whole
  *   - children: string, number, Node, Signal<T>, () => any, arrays, null/undefined
  *
  * When a Signal is used as a child, an effect auto-updates the text node.
@@ -25,6 +27,11 @@
  * Components are auto-scoped — effects/computeds inside are disposed when
  * the parent scope (route, when, list) tears down. No manual dispose needed.
  *
+ * Render bodies are untracked: a component body, a when() branch and a list()
+ * row run once, so a .get() there is a one-shot read that subscribes nothing
+ * (not the when()/list() driving it, nor an effect that builds it). Pass the
+ * signal itself, or a function, where the value should stay live.
+ *
  * SVG support:
  *   SVG-only tags (circle, g, linearGradient, foreignObject, fe* filters, …)
  *   are created directly in the SVG namespace — refs fire once, manual
@@ -39,7 +46,8 @@
  *
  * Reactive helpers:
  *   mount(target, render)         — root dispose scope; returns the disposer
- *   when(signal, truthy, falsy?)  — conditional rendering, swaps DOM nodes
+ *   when(signal, truthy, falsy?)  — conditional rendering; rebuilds the branch
+ *                                   only when the condition's truthiness flips
  *   list(signal, keyFn, render, options?) — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
  *
@@ -48,7 +56,7 @@
  * would be impossible to tear down.
  */
 
-import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
+import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -118,11 +126,15 @@ function applyStyle(el: Element, v: unknown, prev: StyleState): void {
   // properties set by the old cssText don't linger under the object form.
   if (prev.keys === null) el.removeAttribute("style");
   const next = v as Record<string, string>;
+  // A custom property (--x) exists only through setProperty; camelCase keys
+  // are properties of the declaration.
+  const set = (k: string, val: string) =>
+    k.startsWith("--") ? elStyle.setProperty(k, val) : (elStyle[k as any] = val);
   for (const k of prev.keys ?? []) {
-    if (!(k in next)) elStyle[k as any] = "";
+    if (!(k in next)) set(k, "");
   }
   prev.keys = new Set(Object.keys(next));
-  for (const [k, val] of Object.entries(next)) elStyle[k as any] = val;
+  for (const [k, val] of Object.entries(next)) set(k, val);
 }
 
 function applyProps(el: Element, props: Record<string, any>): void {
@@ -170,9 +182,11 @@ function applyProps(el: Element, props: Record<string, any>): void {
       const prev: StyleState = { keys: null };
       apply = (v) => applyStyle(el, v, prev);
     } else {
+      // htmlFor is the DOM property's name; the attribute is `for`.
+      const name = key === "htmlFor" ? "for" : key;
       apply = (v) => {
-        if (v === false || v == null) el.removeAttribute(key);
-        else el.setAttribute(key, String(v));
+        if (v === false || v == null) el.removeAttribute(name);
+        else el.setAttribute(name, String(v));
       };
     }
 
@@ -200,7 +214,9 @@ export function createElement(
     // finally (not a trailing pop) so a throwing component still balances the
     // dispose stack — otherwise the leaked scope corrupts every later push/pop.
     try {
-      const result = tag(componentProps);
+      // Untracked: a component runs once, so a .get() in its body is a one-shot
+      // read and must not subscribe whatever effect is building it.
+      const result = untrack(() => tag(componentProps));
       if (result instanceof Promise) {
         // Async component. Its synchronous prefix (before the first await) ran
         // under this component scope and is captured by the finally below; the
@@ -230,12 +246,13 @@ export function createElement(
     : document.createElement(tag);
   if (el.localName !== tag) authoredTags.set(el, tag);
 
+  // Children first: a <select>'s value names one of its <option>s, and a ref
+  // sees the element whole.
+  appendChildren(el, children);
   if (props) {
     storedProps.set(el, props);
     applyProps(el, props);
   }
-
-  appendChildren(el, children);
   return el;
 }
 
@@ -254,8 +271,16 @@ function adoptSvg(node: Node): Node {
     SVG_NS,
     authoredTags.get(node) ?? node.localName,
   );
-  const props = storedProps.get(node);
+  // Adopt children recursively — except through <foreignObject>, whose
+  // subtree is HTML content by definition and must keep its namespace. They
+  // move before the props are re-applied, as createElement orders them.
+  const isForeign = svgEl.localName === "foreignObject";
+  while (node.firstChild) {
+    const child = node.removeChild(node.firstChild);
+    svgEl.appendChild(isForeign ? child : adoptSvg(child));
+  }
 
+  const props = storedProps.get(node);
   if (props) {
     // Dispose the discarded HTML element's reactive prop effects before
     // re-applying props to the SVG element, so each signal keeps exactly one
@@ -275,14 +300,6 @@ function adoptSvg(node: Node): Node {
       const attr = node.attributes[i]!;
       svgEl.setAttribute(attr.name, attr.value);
     }
-  }
-
-  // Adopt children recursively — except through <foreignObject>, whose
-  // subtree is HTML content by definition and must keep its namespace.
-  const isForeign = svgEl.localName === "foreignObject";
-  while (node.firstChild) {
-    const child = node.removeChild(node.firstChild);
-    svgEl.appendChild(isForeign ? child : adoptSvg(child));
   }
 
   return svgEl;
@@ -447,27 +464,23 @@ function appendChildren(parent: Node, children: any[]): void {
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === true) continue;
 
-    if (child instanceof Signal) {
-      const text = document.createTextNode(String(child.peek()));
-      effect(() => {
-        text.textContent = String(child.get());
-      });
-      parent.appendChild(text);
-    } else if (typeof child === "function") {
-      const fn = child as () => any;
+    if (child instanceof Signal || typeof child === "function") {
+      // A reactive text node. Its value renders as a static child's would:
+      // null, undefined and booleans as nothing.
+      const read: () => unknown = child instanceof Signal ? () => child.get() : child;
       const textNode = document.createTextNode("");
       let warnedNode = false;
       effect(() => {
-        const v = fn();
+        const v = read();
         if (!warnedNode && v instanceof Node) {
           warnedNode = true;
           console.warn(
-            "[railroad/jsx] A function child returned a DOM Node; it is rendered " +
+            "[railroad/jsx] A reactive child held a DOM Node; it is rendered " +
               "as text, not inserted as an element. To render elements reactively, " +
               "use when() or list().",
           );
         }
-        textNode.textContent = String(v ?? "");
+        textNode.textContent = v == null || typeof v === "boolean" ? "" : String(v);
       });
       parent.appendChild(textNode);
     } else if (child instanceof Node) {
@@ -593,9 +606,11 @@ export function when(
     if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
   }
 
+  // Only the condition is tracked; the branch renders untracked, so a .get()
+  // inside it doesn't re-run this effect.
   effect(() => {
-    sig.get(); // track
-    swap();
+    sig.get();
+    untrack(swap);
   });
 
   // The active branch's scope is otherwise only disposed on the next
@@ -610,7 +625,9 @@ export function when(
 }
 
 // === list() — keyed reactive list rendering ===
-// Diffs by key to preserve DOM nodes across updates.
+// Diffs by key to preserve DOM nodes across updates. A reorder moves only the
+// rows outside the longest run already in order, so a row that didn't move
+// keeps its focus, selection and scroll position.
 //
 // Keyed form — render receives Signal<T> and Signal<number> so item
 // updates flow into existing DOM without re-creating nodes:
@@ -725,6 +742,10 @@ export function list<T>(
       if (!newKeySet.has(key)) removeEntry(key);
     }
 
+    // The rows in the longest run already in order stay put (see above).
+    const oldPos = new Map(order.map((k, i) => [k, i]));
+    const stay = longestIncreasing(newKeys.map((k) => oldPos.get(k) ?? -1));
+
     // Add or reorder entries
     let insertBefore: Node = anchor;
     for (let i = newKeys.length - 1; i >= 0; i--) {
@@ -776,7 +797,7 @@ export function list<T>(
 
       // Move or insert into correct position — the whole bracket range, so
       // nodes a when()/list() inserted beside its anchor travel with the row.
-      if (entry.end.nextSibling !== insertBefore) {
+      if (!stay.has(i) && entry.end.nextSibling !== insertBefore) {
         for (const n of rangeOf(entry)) parent.insertBefore(n, insertBefore);
       }
       insertBefore = entry.start;
@@ -785,9 +806,11 @@ export function list<T>(
     order = newKeys;
   }
 
+  // Only the items are tracked; rows render untracked, so a .get() inside a
+  // row doesn't re-run the whole list.
   effect(() => {
-    items.get(); // track
-    sync();
+    items.get();
+    untrack(sync);
   });
 
   trackDispose(() => {
@@ -796,6 +819,29 @@ export function list<T>(
   });
 
   return frag;
+}
+
+// The positions of a longest strictly increasing run in `seq`, skipping
+// negative entries (rows that are new). Patience sorting, O(n log n).
+function longestIncreasing(seq: number[]): Set<number> {
+  const tails: number[] = []; // tails[k]: position ending the best run of length k+1
+  const prev: number[] = [];
+  for (let i = 0; i < seq.length; i++) {
+    const v = seq[i]!;
+    if (v < 0) continue;
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (seq[tails[mid]!]! < v) lo = mid + 1;
+      else hi = mid;
+    }
+    prev[i] = lo > 0 ? tails[lo - 1]! : -1;
+    tails[lo] = i;
+  }
+  const run = new Set<number>();
+  for (let i = tails.length ? tails[tails.length - 1]! : -1; i >= 0; i = prev[i]!) run.add(i);
+  return run;
 }
 
 // === JSX namespace for TypeScript ===
