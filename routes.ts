@@ -26,8 +26,13 @@
  * built after the first await are disposed on navigation. A bare Promise<Node>
  * still renders, but its post-await bindings have no owner scope (browser JS
  * has no AsyncContext) and outlive the route.
- *   params  — plain object for destructuring: ({ id }) => ...
- *   params$ — Signal that updates when params change within the same pattern
+ *   params  — the params at the time the pattern was entered. The handler
+ *             runs once per pattern, so `({ id }) => <h1>{id}</h1>` still
+ *             shows the first id after /users/1 → /users/2.
+ *   params$ — ReadonlySignal that updates when params change within the same
+ *             pattern: `(_, p$) => <h1>{p$.map(p => p.id)}</h1>`
+ * A handler, like a component, runs untracked: a .get() in it is a one-shot
+ * read that doesn't subscribe the router.
  *
  * The router manages cleanup automatically. When params change within the
  * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
@@ -50,7 +55,7 @@
  * always a leak; for route() it's a legitimate app-lifetime binding.
  */
 
-import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
+import { Signal, signal, computed, effect, untrack, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
 import { adoptIntoSvg } from "./jsx";
 
@@ -296,8 +301,9 @@ export function routes(
   };
   trackDispose(dispose);
 
-  disposeEffect = effect(() => {
-    const path = hash.get();
+  // Show whatever `path` matches. Runs untracked (below): a handler is a render
+  // body, so a .get() inside it must not subscribe the router.
+  function show(path: string) {
     for (const [pattern, handler] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
       if (params) {
@@ -334,6 +340,11 @@ export function routes(
       }
     }
     teardown();
+  }
+
+  disposeEffect = effect(() => {
+    const path = hash.get();
+    untrack(() => show(path));
   });
 
   return dispose;

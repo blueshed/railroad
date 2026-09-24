@@ -25,6 +25,11 @@
  * Components are auto-scoped — effects/computeds inside are disposed when
  * the parent scope (route, when, list) tears down. No manual dispose needed.
  *
+ * Render bodies are untracked: a component body, a when() branch and a list()
+ * row run once, so a .get() there is a one-shot read that subscribes nothing
+ * (not the when()/list() driving it, nor an effect that builds it). Pass the
+ * signal itself, or a function, where the value should stay live.
+ *
  * SVG support:
  *   SVG-only tags (circle, g, linearGradient, foreignObject, fe* filters, …)
  *   are created directly in the SVG namespace — refs fire once, manual
@@ -48,7 +53,7 @@
  * would be impossible to tear down.
  */
 
-import { Signal, signal, effect, computed, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
+import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -200,7 +205,9 @@ export function createElement(
     // finally (not a trailing pop) so a throwing component still balances the
     // dispose stack — otherwise the leaked scope corrupts every later push/pop.
     try {
-      const result = tag(componentProps);
+      // Untracked: a component runs once, so a .get() in its body is a one-shot
+      // read and must not subscribe whatever effect is building it.
+      const result = untrack(() => tag(componentProps));
       if (result instanceof Promise) {
         // Async component. Its synchronous prefix (before the first await) ran
         // under this component scope and is captured by the finally below; the
@@ -593,9 +600,11 @@ export function when(
     if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
   }
 
+  // Only the condition is tracked; the branch renders untracked, so a .get()
+  // inside it doesn't re-run this effect.
   effect(() => {
-    sig.get(); // track
-    swap();
+    sig.get();
+    untrack(swap);
   });
 
   // The active branch's scope is otherwise only disposed on the next
@@ -785,9 +794,11 @@ export function list<T>(
     order = newKeys;
   }
 
+  // Only the items are tracked; rows render untracked, so a .get() inside a
+  // row doesn't re-run the whole list.
   effect(() => {
-    items.get(); // track
-    sync();
+    items.get();
+    untrack(sync);
   });
 
   trackDispose(() => {

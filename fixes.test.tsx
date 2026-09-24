@@ -1325,3 +1325,84 @@ describe("effect(): a first run that writes its own dependency", () => {
     expect(seen).toBe(7);
   });
 });
+
+// ============================================================ render bodies are untracked
+
+describe("render bodies are untracked: a .get() there subscribes nothing around it", () => {
+  // A .get() in a component body, a when() branch, a list() row or a route handler ran with the
+  // surrounding effect as the listener, so an unrelated write re-ran that effect: every
+  // index-based row rebuilt, a router re-notified params$, a user effect re-rendered.
+  beforeEach(async () => { location.hash = "#/users/1"; await tick(); });
+  afterEach(() => { location.hash = ""; });
+
+  const countReads = <T,>(s: ReadonlySignal<T>) => {
+    const get = s.get.bind(s);
+    const counter = { n: 0 };
+    (s as { get: () => T }).get = () => { counter.n++; return get(); };
+    return counter;
+  };
+
+  test("an index-based list() row that reads another signal is not rebuilt when it changes", () => {
+    const items = signal(["a", "b", "c"]);
+    const theme = signal("light");
+    let renders = 0;
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>{list(items, (it) => { renders++; return <li class={theme.get()}>{it}</li>; })}</ul>
+    ));
+    theme.set("dark");
+    expect(renders).toBe(3); // before: 6, every row rebuilt
+    dispose();
+  });
+
+  test("a keyed list() row's reads don't re-run the list", () => {
+    const items = signal([{ id: 1 }, { id: 2 }]);
+    const sel = signal(1);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>{list(items, (r) => r.id, (r$) => <li>{r$.peek().id}{sel.get()}</li>)}</ul>
+    ));
+    const reads = countReads(items);
+    sel.set(2);
+    expect(reads.n).toBe(0);
+    dispose();
+  });
+
+  test("a when() branch's reads don't re-run the when()", () => {
+    const show = signal(true);
+    const other = signal(0);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <div>{when(show, () => <span>{other.get()}</span>)}</div>);
+    const reads = countReads(show);
+    other.set(1);
+    expect(reads.n).toBe(0);
+    dispose();
+  });
+
+  test("a route handler's reads don't re-notify params$", async () => {
+    const target = document.createElement("div");
+    const theme = signal("light");
+    let fires = 0;
+    const dispose = routes(target, {
+      "/users/:id": (_p, params$) => {
+        effect(() => { params$.get(); fires++; });
+        return <p class={theme.get()}>x</p>;
+      },
+    });
+    theme.set("dark");
+    theme.set("light");
+    expect(fires).toBe(1); // before: 3
+    dispose();
+  });
+
+  test("a component built inside an effect doesn't subscribe that effect to its body's reads", () => {
+    const x = signal(0);
+    let runs = 0;
+    function View() { return <b>{x.get()}</b>; }
+    const root = document.createElement("div");
+    const dispose = effect(() => { runs++; root.replaceChildren(<View />); });
+    x.set(1);
+    expect(runs).toBe(1);
+    dispose();
+  });
+});

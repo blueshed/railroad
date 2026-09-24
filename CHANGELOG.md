@@ -6,6 +6,24 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Breaking
+
+- **Render bodies are untracked.** A `.get()` in a component body, a
+  `when()` branch, a `list()` row or a `routes()` handler ran with the effect
+  around it as the listener, so an unrelated write re-ran that effect: every
+  row of an index-based `list()` was rebuilt, the router re-notified
+  `params$`, and an effect that built a component re-ran on that
+  component's reads. Components run once, as documented, and those reads are
+  now one-shot.
+  **Who is affected:** an index-based `list()` row that reads another signal
+  with `.get()` and relied on the list rebuilding every row to show its new
+  value (`list(items, (it) => <li class={sel.get() === it ? "on" : ""}>…`);
+  and an effect that re-rendered a component by reading signals only inside
+  that component.
+  **How to move across:** bind the signal instead of reading it:
+  `class={() => sel.get() === it ? "on" : ""}`; or read it in the effect
+  itself: `effect(() => { const v = x.get(); el.replaceChildren(<View v={v} />); })`.
+
 ### Changed
 
 - **An effect's first run defers its writes, as every later run already
