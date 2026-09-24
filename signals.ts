@@ -251,7 +251,7 @@ export class Signal<T> implements ReadonlySignal<T> {
     this.touch();
   }
 
-  patch(partial: Partial<T & Record<string, unknown>>): void {
+  patch(partial: Partial<T>): void {
     // Spreading an array into `{ ... }` yields a plain object keyed by index —
     // silently corrupt data that surfaces far from the call site. Refuse loudly
     // instead; arrays update via .set() / .update() / .mutate().

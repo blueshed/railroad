@@ -140,7 +140,7 @@ export function navigate(path: string): void {
 
 type RouteHandler = (
   params: Record<string, string>,
-  params$: Signal<Record<string, string>>,
+  params$: ReadonlySignal<Record<string, string>>,
 ) => Node | Promise<Node | (() => Node)>;
 
 export interface RouterOptions {

@@ -23,6 +23,15 @@ All notable changes to `@blueshed/railroad`. The format follows
   **How to move across:** bind the signal instead of reading it:
   `class={() => sel.get() === it ? "on" : ""}`; or read it in the effect
   itself: `effect(() => { const v = x.get(); el.replaceChildren(<View v={v} />); })`.
+- **Two types that let bugs compile are narrower (types only).**
+  `.patch(partial)` takes `Partial<T>`, so `filter.patch({ colr: "blue" })`
+  no longer compiles (it took any key). A route handler's `params$` is a
+  `ReadonlySignal`, as the docs already said; writing it would desync it from
+  the URL.
+  **How to move across:** fix the misspelt key; for a key the type really
+  lacks, widen the signal's type. Annotate a handler's second parameter as
+  `ReadonlySignal<Record<string, string>>` (or leave it inferred), and change
+  the route with `navigate()`.
 
 ### Added
 

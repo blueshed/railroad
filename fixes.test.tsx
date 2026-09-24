@@ -1593,3 +1593,32 @@ describe("list(): a reorder moves only the rows that moved", () => {
     dispose();
   });
 });
+
+// ============================================================ types that let bugs through
+
+describe("types: a misspelt patch key and a params$ write don't compile", () => {
+  // Checked by `bun run check` (tsc over this file): each @ts-expect-error must find its error.
+  test(".patch() takes only the signal's own keys", () => {
+    const filter = signal({ color: "all", done: false });
+    // @ts-expect-error -- "colr" is not a key of the value (it compiled before)
+    filter.patch({ colr: "blue" });
+    filter.patch({ color: "blue" });
+    expect(filter.peek().color).toBe("blue");
+  });
+
+  test("a route handler's params$ is read-only", async () => {
+    location.hash = "#/users/1";
+    await tick();
+    const target = document.createElement("div");
+    const dispose = routes(target, {
+      "/users/:id": (_p, params$) => {
+        // @ts-expect-error -- writing params$ would desync it from the URL (it compiled before)
+        void params$.set;
+        return <p>{params$.map((p) => p.id)}</p>;
+      },
+    });
+    expect(target.textContent).toBe("1");
+    dispose();
+    location.hash = "";
+  });
+});
