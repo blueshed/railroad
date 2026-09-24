@@ -54,12 +54,16 @@ one move, below.
   `<!--/when-->` brackets, like `list()` rows, so removal stays correct when
   SVG adoption swaps node identities. Code that awaited a tick before
   reading `when()`/`list()` output keeps working.
-  One edge: the first render is built before the fragment has a parent, so
-  if you append a `when()`/`list()` fragment into an `<svg>` element *by
-  hand* (`svg.appendChild(when(…))`, or a `routes()` target that is an SVG
-  element), an `a`, `script`, `style` or `title` in that first render stays
-  in the HTML namespace. Appending through JSX, `mount()`, or a parent
-  `when()`/`list()` adopts it as before.
+  The first render is built before the fragment has a parent, so its
+  namespace is decided where the fragment is placed: JSX, `mount()`,
+  `routes()` and a parent `when()`/`list()` adopt it into `<svg>`. A
+  fragment appended into an `<svg>` *by hand* (`svg.appendChild(when(…))`)
+  keeps an `a`, `script`, `style` or `title` of its first render in the
+  HTML namespace; place it through one of those instead.
+- **`routes()` takes any `Element` as its target**, as `mount()` does, and
+  places what a handler returns the way `mount()` does: adopted into an
+  `<svg>` target's namespace. Before, only a deferred `when()`/`list()`
+  render was adopted there, and a plain element never was.
 
 ### Fixed
 

@@ -1191,3 +1191,44 @@ describe("props: remaining 0.12 paths (static style, innerHTML, SVG adoption)", 
     expect(reads).toBe(1);
   });
 });
+
+// ============================================================ routes() into an SVG target
+
+describe("routes() into an <svg> target", () => {
+  afterEach(() => {
+    location.hash = "";
+  });
+
+  // when()/list() render their first branch synchronously (0.12), into their own fragment, so the
+  // namespace is decided where the fragment is placed. routes() places what a handler returns the
+  // way mount() does: adopted into the target's namespace.
+  test("a handler's when() and its plain elements land in the SVG namespace", async () => {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    document.body.append(svg);
+    location.hash = "#/";
+    await tick();
+    const dispose = routes(svg, {
+      "/": () => (
+        <>
+          <a data-testid="plain" />
+          {when(() => true, () => <a data-testid="branch" />)}
+        </>
+      ),
+    });
+    expect(svg.querySelector("[data-testid=plain]")!.namespaceURI).toBe(SVG_NS);
+    expect(svg.querySelector("[data-testid=branch]")!.namespaceURI).toBe(SVG_NS);
+    dispose();
+    svg.remove();
+  });
+
+  test("a bare when() returned by a handler lands in the SVG namespace", async () => {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    document.body.append(svg);
+    location.hash = "#/";
+    await tick();
+    const dispose = routes(svg, { "/": () => when(() => true, () => <a data-testid="bare" />) });
+    expect(svg.querySelector("[data-testid=bare]")!.namespaceURI).toBe(SVG_NS);
+    dispose();
+    svg.remove();
+  });
+});

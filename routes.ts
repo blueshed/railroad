@@ -52,6 +52,7 @@
 
 import { Signal, signal, computed, effect, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
+import { adoptIntoSvg } from "./jsx";
 
 let hashSignal: Signal<string> | null = null;
 let hashListenerCount = 0;
@@ -142,7 +143,7 @@ export interface RouterOptions {
 }
 
 export function routes(
-  target: HTMLElement,
+  target: Element,
   table: Record<string, RouteHandler>,
   options?: RouterOptions,
 ): Dispose {
@@ -173,7 +174,7 @@ export function routes(
       try {
         const fallback = options.onError(err);
         if (fallback instanceof Node) {
-          target.appendChild(fallback);
+          target.appendChild(adoptIntoSvg(fallback, target));
           return true;
         }
       } catch (boundaryErr) {
@@ -252,11 +253,11 @@ export function routes(
               thunkDispose();
               preAwaitDispose();
             };
-            target.appendChild(built);
+            target.appendChild(adoptIntoSvg(built, target));
             return;
           }
           activeDispose = scopeDispose;
-          target.appendChild(resolved);
+          target.appendChild(adoptIntoSvg(resolved, target));
         },
         (err) => {
           if (myRunId !== runId) {
@@ -273,7 +274,7 @@ export function routes(
       );
     } else {
       activeDispose = scopeDispose;
-      target.appendChild(result);
+      target.appendChild(adoptIntoSvg(result, target));
     }
   }
 

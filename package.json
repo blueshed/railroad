@@ -25,6 +25,7 @@
     "!*.test.tsx",
     "!happy-dom.setup.ts",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     ".claude/skills"
   ],

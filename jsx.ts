@@ -296,7 +296,8 @@ function adoptSvg(node: Node): Node {
  * DocumentFragments are mutated in place; single elements are returned
  * swapped (caller must reassign).
  */
-function adoptIntoSvg(result: Node, parent: Node | null): Node {
+/** @internal -- routes() places a handler's result with it, as mount() does. Not part of the API. */
+export function adoptIntoSvg(result: Node, parent: Node | null): Node {
   // <foreignObject> is an SVG-namespace element whose children are HTML —
   // adoption stops at that boundary.
   if (
