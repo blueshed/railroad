@@ -6,6 +6,27 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Deprecated
+
+- **An async route handler that resolves to a bare `Promise<Node>`.** It
+  still renders, but what it builds after its first `await` has no owner
+  scope and outlives the route. `routes()` given such a handler now resolves
+  to a `@deprecated` overload, so an editor strikes the call through; a later
+  release drops the form from the type.
+  **How to move across:** resolve to a thunk, which railroad runs under a
+  scope it owns: `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
+
+### Fixed
+
+- **`navigate()` updates the route before it returns.** It set
+  `location.hash` and left the route signal to the `hashchange` a tick
+  later, so `route()` read straight after `navigate()` showed the old path.
+  The signal is now set from `location.hash` as the browser stored it
+  (percent-encoded), so the `hashchange` that follows sets the same string
+  and re-runs nothing. A handler that redirects with `navigate()` lands on
+  the target in the same pass. Setting `location.hash` yourself, or following
+  a `#/…` link, still lands a macrotask later.
+
 ## [0.13.0] - 2026-09-25
 
 A minor release. The five entries under Breaking change what some working

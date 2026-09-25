@@ -230,6 +230,30 @@ describe.skipIf(noBrowser)("Bun.WebView — railroad fixture app", () => {
     )).toBe(true);
   });
 
+  test("navigate() is current as it returns, and an encoded path notifies once", async () => {
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate(url);
+    await waitFor(
+      () => evalBool(view, `document.querySelector('[data-testid=to-users]') != null`),
+      (v) => v === true,
+    );
+    await navHash(view, "#/users/42");
+    await waitFor(
+      () => evalStr(view, `document.querySelector('[data-testid=param-runs]')?.textContent`),
+      (v) => v === "1",
+    );
+    await view.click("[data-testid=nav-encoded]");
+    // What the page showed as navigate() returned, before any hashchange.
+    expect(await evalStr(view,
+      `document.querySelector('[data-testid=nav-encoded]').dataset.shown`,
+    )).toBe("a b");
+    await Bun.sleep(150); // the hashchange has landed
+    expect(await evalStr(view, `location.hash`)).toBe("#/users/a%20b");
+    expect(await evalStr(view,
+      `document.querySelector('[data-testid=param-runs]').textContent`,
+    )).toBe("2"); // the hashchange set the same string: no second notify
+  });
+
   test("SVG renders with correct namespace and reactive attribute", async () => {
     await using view = new Bun.WebView({ width: 800, height: 600 });
     await view.navigate(url);

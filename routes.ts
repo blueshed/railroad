@@ -4,7 +4,8 @@
  * API:
  *   routes(target, table)   — declarative hash router, swaps target content
  *   route<T>(pattern)       — reactive route: Signal<T | null>, null when unmatched
- *   navigate(path)          — set location.hash programmatically
+ *   navigate(path)          — set location.hash; route() and routes() are
+ *                             current when it returns (no tick to wait for)
  *   matchRoute(pattern, path) — pure pattern matcher, returns params or null
  *
  * Patterns:
@@ -21,11 +22,14 @@
  * empty segment: "/users/42/" does NOT match "/users/:id".
  *
  * Handlers receive (params, params$) and return a Node, or a Promise of a
- * Node or of a THUNK (() => Node). Async handlers should resolve to the thunk
- * form: railroad runs the thunk under a scope it owns, so reactive bindings
- * built after the first await are disposed on navigation. A bare Promise<Node>
- * still renders, but its post-await bindings have no owner scope (browser JS
- * has no AsyncContext) and outlive the route.
+ * THUNK (() => Node): railroad runs the thunk under a scope it owns, so
+ * reactive bindings built after the first await are disposed on navigation.
+ *   "/users/:id": async ({ id }) => { const u = await load(id); return () => <User u={u} />; }
+ * DEPRECATED: a handler resolving to a bare Promise<Node> still renders, but
+ * its post-await bindings have no owner scope (browser JS has no
+ * AsyncContext) and outlive the route. routes() given such a handler is
+ * marked @deprecated (an editor strikes it through); a later release drops
+ * the form from the type.
  *   params  — the params at the time the pattern was entered. The handler
  *             runs once per pattern, so `({ id }) => <h1>{id}</h1>` still
  *             shows the first id after /users/1 → /users/2.
@@ -36,6 +40,11 @@
  *
  * The router manages cleanup automatically. When params change within the
  * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
+ *
+ * navigate(path) updates the route signal synchronously, so route() and the
+ * router show the new path as navigate() returns, and the hashchange that
+ * follows re-runs nothing. Setting location.hash yourself, or following an
+ * <a href="#/…">, still lands on the next hashchange (a macrotask later).
  *
  * Nested routes — use wildcard to keep a layout mounted:
  *   routes(app, {
@@ -136,9 +145,27 @@ export function route<
 
 export function navigate(path: string): void {
   location.hash = path;
+  // Set the route signal now rather than a tick later on hashchange, so route()
+  // and routes() are current when navigate() returns. Read the hash back rather
+  // than using `path`: the browser percent-encodes it ("a b" → "a%20b"), and
+  // the hashchange that follows sets this same string, so it re-runs nothing.
+  hashSignal?.set(location.hash.slice(1) || "/");
 }
 
+/** A route handler: returns a Node, or a Promise that resolves to a thunk
+ *  (`() => Node`) railroad runs under a scope it owns. */
 type RouteHandler = (
+  params: Record<string, string>,
+  params$: ReadonlySignal<Record<string, string>>,
+) => Node | Promise<() => Node>;
+
+/**
+ * @deprecated A handler whose Promise resolves to a bare Node. What it builds
+ * after its first await has no owner scope and outlives the route. Resolve to
+ * a thunk instead: `async () => { const u = await load(); return () => <User u={u} />; }`.
+ * It still renders; a later release drops it from the type.
+ */
+type DeprecatedRouteHandler = (
   params: Record<string, string>,
   params$: ReadonlySignal<Record<string, string>>,
 ) => Node | Promise<Node | (() => Node)>;
@@ -150,6 +177,21 @@ export interface RouterOptions {
 export function routes(
   target: Element,
   table: Record<string, RouteHandler>,
+  options?: RouterOptions,
+): Dispose;
+/**
+ * @deprecated A handler in this table resolves to a bare `Promise<Node>`, whose
+ * post-await bindings outlive the route. Resolve to a thunk instead:
+ * `async () => { const u = await load(); return () => <User u={u} />; }`.
+ */
+export function routes(
+  target: Element,
+  table: Record<string, DeprecatedRouteHandler>,
+  options?: RouterOptions,
+): Dispose;
+export function routes(
+  target: Element,
+  table: Record<string, DeprecatedRouteHandler>,
   options?: RouterOptions,
 ): Dispose {
   const hash = getHash();
@@ -190,7 +232,7 @@ export function routes(
     return false;
   }
 
-  function run(handler: RouteHandler, params: Record<string, string>) {
+  function run(handler: DeprecatedRouteHandler, params: Record<string, string>) {
     const myRunId = ++runId;
     activeParams = signal(params);
 

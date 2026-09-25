@@ -292,7 +292,7 @@ function SitesLayout() {
   );
 }
 
-navigate("/users/42");
+navigate("/users/42");   // route() and the router are current as it returns
 ```
 
 `/sites` → `/sites/42` → `/sites/99`: `SitesLayout` stays mounted, only the
@@ -426,7 +426,9 @@ itself uses `bun run test:webview`) — bare `bun test` can drop files under
 `tests/` from discovery. The `bun-route` skill's reference has the full
 WebView patterns.
 
-After `navigate(...)` in a test, `hashchange` lands on the next macrotask:
+`navigate(path)` updates the route synchronously, so a unit test needs no
+tick after it. Setting `location.hash` yourself (or following a `#/…` link)
+lands on the next `hashchange`, a macrotask later:
 `await new Promise(r => setTimeout(r, 0))`.
 
 ## Shared (DI) and logger
@@ -483,5 +485,5 @@ import { signal, computed, effect } from "@blueshed/railroad/signals";
 - **`provide`/`inject` is a process-global singleton.** Great for client apps and app-wide services; on the server it is shared across all requests, so don't use it for per-request state.
 - **`.mutate()` uses `structuredClone`** — it only works on plain-data signals (no functions, class instances, or DOM nodes in the value).
 - **In-place row mutation + `.touch()` needs `list()`'s `equals` option.** A keyed `list()` pushes updates into each row's item signal; a patch stream that mutates row objects in place re-delivers the same reference, which the default `Object.is` swallows — the row's DOM goes silently stale. Pass `{ equals: () => false }` as the fourth argument for such streams. (`@blueshed/delta` broadcasts whole rows, so its docs don't need it.) Same-reference projections have the same trap: `doc.map(d => d.settings)` returns the same ref after a `.touch()`, so the computed bails — project to fresh values (`Object.values(...)`, primitives) or pass `{ equals: () => false }` to `.map()`.
-- **Async components resolve to a thunk.** `async function Profile() { const u = await fetchUser(); return () => <div>{u.name}</div>; }` renders a placeholder (plus an optional `fallback={() => <p>loading…</p>}` prop) and fills in on resolution. The `() =>` on the return line is the whole contract: effects created after an `await` have no owner scope (browser JS has no AsyncContext), so the thunk gives railroad a synchronous moment to bracket them — teardown then works no matter when the promise settles. A bare-Node resolution gets a pointed console.error naming the fix. The same contract applies to async `routes()` handlers (`Promise<() => Node>`); a bare `Promise<Node>` still renders, but its post-await bindings outlive the route.
+- **Async components resolve to a thunk.** `async function Profile() { const u = await fetchUser(); return () => <div>{u.name}</div>; }` renders a placeholder (plus an optional `fallback={() => <p>loading…</p>}` prop) and fills in on resolution. The `() =>` on the return line is the whole contract: effects created after an `await` have no owner scope (browser JS has no AsyncContext), so the thunk gives railroad a synchronous moment to bracket them — teardown then works no matter when the promise settles. A bare-Node resolution gets a pointed console.error naming the fix. The same contract applies to async `routes()` handlers (`Promise<() => Node>`); a bare `Promise<Node>` is deprecated: it still renders, but its post-await bindings outlive the route, and a later release drops it from the type.
 - **The index-based `list()` form rebuilds every row on every change.** It disposes and re-renders each row per sync; that's its contract. Use the keyed form (`list(items, keyFn, render)`) for anything that updates — rows then patch in place through their item signals.

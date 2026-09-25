@@ -87,10 +87,23 @@ function usersHandler(
   _p: Record<string, string>,
   params$: { get: () => Record<string, string> },
 ): Node {
+  // How many times params$ has notified: navigate() sets the route at once, and
+  // the hashchange that follows must not notify again.
+  const paramRuns = signal(0);
+  effect(() => { params$.get(); paramRuns.update((n) => n + 1); });
+  // navigate() to a path the browser percent-encodes, recording what the page
+  // shows as navigate() returns (before any hashchange).
+  const navEncoded = (ev: Event) => {
+    navigate("/users/a b");
+    const shown = document.querySelector("[data-testid=user-id]")?.textContent ?? "";
+    (ev.currentTarget as HTMLElement).dataset.shown = shown;
+  };
   return (
     <section data-route="users">
       <h1>user</h1>
       <p>id: <span data-testid="user-id">{() => params$.get().id ?? ""}</span></p>
+      <p>params$ runs: <span data-testid="param-runs">{paramRuns}</span></p>
+      <button data-testid="nav-encoded" onclick={navEncoded}>go to "a b"</button>
       <a data-testid="next-user" href="#/users/99">go to 99</a>
       <a data-testid="back-home" href="#/">home</a>
     </section>
@@ -146,5 +159,3 @@ routes(root, {
   "/slow": () => SlowPage(),
 });
 
-// Eliminate unused-warning for navigate (re-exported for completeness).
-void navigate;

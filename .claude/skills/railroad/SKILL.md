@@ -221,7 +221,7 @@ Why the thunk: effects created after an `await` have no owner scope — browser 
 
 - `fallback` is a thunk too (`fallback={() => <p>…</p>}`) — rendered immediately, swapped out on settlement; a rejection clears it (no stuck spinners) and logs the error.
 - Effects created **before** the first `await` are owned by the component scope as usual.
-- Async `routes()` handlers follow the same contract — resolve to `() => <Node>` so post-await bindings die on navigation. A bare `Promise<Node>` still renders (back-compat), but anything reactive it built after the `await` outlives the route.
+- Async `routes()` handlers follow the same contract — resolve to `() => <Node>` so post-await bindings die on navigation. A bare `Promise<Node>` is **deprecated**: it still renders, but anything reactive it built after the `await` outlives the route, and `routes()` given one is marked `@deprecated` (struck through in the editor). A later release drops it from the type.
 - The effect + signal + `when()` pattern is still right when you want streaming or multi-stage states rather than one fallback→content swap.
 - `effect()` itself must be synchronous. `effect(async () => …)` gets a console error: its Promise is not a cleanup, and nothing after its first `await` is tracked or owned. Start the async work from the effect and write the result into a signal. Only a returned *function* is an effect's cleanup; any other return value is ignored.
 
@@ -270,7 +270,7 @@ function SitesLayout() {
 
 Matching is purely segment-based: there is no query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"` — split on `?` yourself), and a trailing slash is a real empty segment (`/users/42/` does **not** match `/users/:id`).
 
-In tests: `hashchange` is dispatched on the next macrotask in both happy-dom and real browsers. After `navigate(...)`, `await new Promise(r => setTimeout(r, 0))`.
+`navigate(path)` updates the route synchronously: `route()` and the router show the new path as it returns, so a test needs no tick after it. Setting `location.hash` yourself or following an `<a href="#/…">` lands on the next `hashchange`, a macrotask later in both happy-dom and real browsers: `await new Promise(r => setTimeout(r, 0))`.
 
 ### Error Boundaries (`options.onError`)
 

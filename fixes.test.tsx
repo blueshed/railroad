@@ -13,7 +13,7 @@ import {
   hasActiveDisposeScope,
 } from "./signals";
 import type { ReadonlySignal } from "./signals";
-import { routes, navigate, matchRoute } from "./routes";
+import { routes, route, navigate, matchRoute } from "./routes";
 import { key, provide, inject, clearProviders } from "./shared";
 import { createLogger, setLogLevel } from "./logger";
 
@@ -1621,4 +1621,119 @@ describe("types: a misspelt patch key and a params$ write don't compile", () => 
     dispose();
     location.hash = "";
   });
+});
+
+// ============================================================ navigate() is synchronous
+
+describe("navigate(): route() and routes() are current as it returns", () => {
+  // navigate() set location.hash and left the route signal to the hashchange a tick later, so a
+  // route() read straight after navigate() showed the old path.
+  test("route() and the router show the new path before any tick", async () => {
+    location.hash = "#/";
+    await tick();
+    pushDisposeScope();
+    const user = route<{ id: string }>("/users/:id");
+    const target = document.createElement("div");
+    routes(target, {
+      "/": () => <p>home</p>,
+      "/users/:id": (_p, params$) => <p>{params$.map((p) => p.id)}</p>,
+    });
+    navigate("/users/7");
+    expect(user.get()).toEqual({ id: "7" });
+    expect(target.textContent).toBe("7");
+    popDisposeScope()();
+    location.hash = "";
+    await tick();
+  });
+
+  test("the hashchange that follows re-runs nothing", async () => {
+    location.hash = "#/";
+    await tick();
+    pushDisposeScope();
+    let handlerRuns = 0;
+    let paramRuns = 0;
+    const target = document.createElement("div");
+    routes(target, {
+      "/": () => <p>home</p>,
+      "/users/:id": (_p, params$) => {
+        handlerRuns++;
+        effect(() => { params$.get(); paramRuns++; });
+        return <p>user</p>;
+      },
+    });
+    navigate("/users/1");
+    expect([handlerRuns, paramRuns]).toEqual([1, 1]);
+    await tick();
+    expect([handlerRuns, paramRuns]).toEqual([1, 1]);
+    popDisposeScope()();
+    location.hash = "";
+    await tick();
+  });
+
+  test("a handler that redirects with navigate() lands on the target in the same pass", async () => {
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    const dispose = routes(target, {
+      "/": () => { navigate("/home"); return <p>root</p>; },
+      "/home": () => <p>home</p>,
+    });
+    expect(target.textContent).toBe("home");
+    dispose();
+    location.hash = "";
+    await tick();
+  });
+
+  test("a path the browser percent-encodes fires once, with the encoded value", async () => {
+    location.hash = "#/";
+    await tick();
+    pushDisposeScope();
+    const site = route<{ "*": string }>("/sites/*");
+    const seen: (string | undefined)[] = [];
+    effect(() => { seen.push(site.get()?.["*"]); });
+    navigate("/sites/a b");
+    await tick();
+    expect(seen).toEqual([undefined, "a b"]); // not [undefined, "a b", "a b"]
+    popDisposeScope()();
+    location.hash = "";
+    await tick();
+  });
+});
+
+describe("routes(): a handler resolving to a bare Promise<Node> is deprecated", () => {
+  // Its post-await bindings have no owner scope and outlive the route; the thunk form is the
+  // supported one. tsc doesn't print deprecations, so ask the language service, as an editor does.
+  test("the editor strikes through routes() for a bare Promise<Node>, not for a thunk", async () => {
+    const ts = (await import("typescript")).default;
+    const dir = new URL(".", import.meta.url).pathname;
+    const probe = dir + "__deprecation_probe.tsx";
+    const lines = [
+      'import { createElement } from "./jsx";',
+      'import { routes } from "./routes";',
+      "declare const el: Element;",
+      'routes(el, { "/": () => <p />, "/a": async () => { await null; return () => <p />; } });',
+      'routes(el, { "/": () => <p />, "/b": async () => { await null; return <p />; } });',
+    ];
+    const cfg = ts.getParsedCommandLineOfConfigFile(dir + "tsconfig.json", {}, {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: () => {},
+    })!;
+    const service = ts.createLanguageService({
+      getScriptFileNames: () => [probe],
+      getScriptVersion: () => "1",
+      getScriptSnapshot: (f) => f === probe
+        ? ts.ScriptSnapshot.fromString(lines.join("\n"))
+        : ts.sys.fileExists(f) ? ts.ScriptSnapshot.fromString(ts.sys.readFile(f)!) : undefined,
+      getCurrentDirectory: () => dir,
+      getCompilationSettings: () => cfg.options,
+      getDefaultLibFileName: ts.getDefaultLibFilePath,
+      fileExists: (f) => f === probe || ts.sys.fileExists(f),
+      readFile: (f) => f === probe ? lines.join("\n") : ts.sys.readFile(f),
+    });
+    expect(service.getSemanticDiagnostics(probe).map((d) => d.code)).toEqual([]);
+    const deprecated = service.getSuggestionDiagnostics(probe)
+      .filter((d) => d.code === 6387) // "The signature … is deprecated"
+      .map((d) => d.file!.getLineAndCharacterOfPosition(d.start!).line + 1);
+    expect(deprecated).toEqual([5]); // the bare Promise<Node> only
+  }, 30_000);
 });
