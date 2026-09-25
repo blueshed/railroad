@@ -32,10 +32,13 @@ Where no browser is found (no `BUN_CHROME_PATH`, nothing on `PATH`) and `CI` is
 unset, the browser tests skip with a warning, so a green bare `bun test` is not
 proof they ran; in CI a missing browser fails them.
 
-`check:consumer` compiles `tests/consumer-types/app.tsx` under the config the
-README's example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`, **no
-`@types/bun`**). It is the only gate on the automatic JSX runtime path users
-compile against.
+`check:consumer` compiles two programs as a consumer does, **with no
+`@types/bun`**: `tests/consumer-types/app.tsx` under the config the README's
+example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`), beside a
+React-style global `JSX` it must not clash with; and `react-app.tsx` under
+`tsconfig.react.json` (`jsx: react`, `jsxFactory: "createElement"`), which
+proves railroad declares no global `JSX`. They are the only gates on the JSX
+paths users compile against.
 
 Bun only: `bun`, `bunx`, `bun run`. Coverage has no enforced threshold; don't
 let lines a change touches go uncovered. CI installs with `--frozen-lockfile`,
@@ -49,12 +52,12 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   | File | Exports | Depends on |
   |---|---|---|
   | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` | — |
-  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount` (and `adoptIntoSvg`, internal: for `routes.ts`) | signals |
+  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount`, the `JSX` types (on `createElement`, not global; and `adoptIntoSvg`, internal: for `routes.ts`) | signals |
   | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals, jsx (SVG adoption only; loads without a DOM) |
   | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
   | `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
   | `index.ts` | the public surface | all of the above |
-  | `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment`, the `JSX` namespace | jsx |
+  | `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment`, and `JSX` re-exported from jsx | jsx |
 
 - **Tests pin the behaviour.** `signals.test.ts`, `jsx.test.tsx`,
   `routes.test.ts`, `shared.test.ts`, `logger.test.ts` per module;
