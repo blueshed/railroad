@@ -1,0 +1,22 @@
+{
+  "//": "The classic runtime (`jsx: react`, `jsxFactory: createElement`), as a consumer compiles it: strict, NO @types/bun, and no global JSX. TypeScript finds railroad's JSX types on the factory (createElement.JSX). `paths` maps the package name to the repo root.",
+  "compilerOptions": {
+    "jsx": "react",
+    "jsxFactory": "createElement",
+    "jsxFragmentFactory": "Fragment",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "esnext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@blueshed/railroad": ["../../index.ts"],
+      "@blueshed/railroad/*": ["../../*.ts"]
+    }
+  },
+  "include": ["react-app.tsx"]
+}

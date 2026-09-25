@@ -11,6 +11,7 @@ export {
   createElement, Fragment,
   when, list, mount,
 } from "./jsx";
+export type { JSX } from "./jsx";
 
 export { routes, route, navigate, matchRoute } from "./routes";
 

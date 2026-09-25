@@ -31,7 +31,7 @@
   ],
   "scripts": {
     "check": "bunx tsc --noEmit",
-    "check:consumer": "bunx tsc --noEmit -p tests/consumer-types/tsconfig.json",
+    "check:consumer": "bunx tsc --noEmit -p tests/consumer-types/tsconfig.json && bunx tsc --noEmit -p tests/consumer-types/tsconfig.react.json",
     "test": "bun test",
     "test:webview": "bun test ./tests/webview.test.ts"
   },

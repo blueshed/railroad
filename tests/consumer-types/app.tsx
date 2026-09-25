@@ -18,7 +18,8 @@ import {
   inject,
   createLogger,
 } from "@blueshed/railroad";
-import type { Dispose } from "@blueshed/railroad";
+import type { Dispose, JSX } from "@blueshed/railroad";
+import type { JSX as RuntimeJSX } from "@blueshed/railroad/jsx-runtime";
 
 const count = signal(0);
 const doubled = computed(() => count.get() * 2);
@@ -42,7 +43,7 @@ async function AsyncProfile(props: { id: number }) {
   return () => <div>{props.id}</div>;
 }
 
-function App() {
+function App(): JSX.Element {
   return (
     <div class={label}>
       <span>{count}</span>
@@ -71,6 +72,12 @@ function App() {
     </div>
   );
 }
+
+// railroad JSX is a DOM Node, typed from the runtime's JSX namespace even with
+// React's global JSX beside it (react-global.d.ts).
+const node: Node = <App />;
+const el: RuntimeJSX.Element = node;
+void el;
 
 const user = route<{ id: string }>("/users/:id");
 void user.get();

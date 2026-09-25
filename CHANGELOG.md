@@ -6,6 +6,23 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Breaking
+
+- **Railroad declares no global `JSX` namespace (types only).** Importing
+  the root barrel, `/jsx`, `/routes` or `/jsx-runtime` declared
+  `global { namespace JSX }`, which clashed with React's in a mixed app
+  (TS2300 Duplicate identifier 'Element'). The types now live on the factory,
+  `createElement.JSX`, which `jsx: react` with `jsxFactory: "createElement"`
+  looks up before any global, and in `jsx-runtime`'s `JSX` export, which
+  `jsx: react-jsx` uses. JSX in both modes type-checks as before, and `JSX`
+  is exported as a type from the root and `/jsx`.
+  **Who is affected:** code that names the global in an annotation without
+  importing it, such as `function View(): JSX.Element`; it no longer
+  compiles (TS2503 Cannot find namespace 'JSX').
+  **How to move across:** import the type,
+  `import type { JSX } from "@blueshed/railroad"`, or annotate `Node`, which
+  `JSX.Element` is.
+
 ### Deprecated
 
 - **An async route handler that resolves to a bare `Promise<Node>`.** It

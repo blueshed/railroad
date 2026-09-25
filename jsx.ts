@@ -54,6 +54,12 @@
  * when() and list() warn if created outside a dispose scope (a component,
  * routes() handler, when/list render, or mount()) — their internal effects
  * would be impossible to tear down.
+ *
+ * Types: railroad declares no global JSX namespace, so it sits beside React's
+ * types in one app. `jsx: react` with `jsxFactory: "createElement"` finds the
+ * types on the factory (createElement.JSX); `jsx: react-jsx` with
+ * `jsxImportSource: "@blueshed/railroad"` finds jsx-runtime's JSX export. To
+ * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
 import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
@@ -845,21 +851,37 @@ function longestIncreasing(seq: number[]): Set<number> {
 }
 
 // === JSX namespace for TypeScript ===
+//
+// No global JSX: a global one clashes with React's in a mixed app (TS2300
+// Duplicate identifier 'Element'). Each JSX mode finds these types without it:
+//   jsx: react (jsxFactory createElement) — TypeScript looks the namespace up
+//     on the factory, createElement.JSX, before any global;
+//   jsx: react-jsx (jsxImportSource) — the JSX that jsx-runtime.ts exports.
+// To annotate, import it: `import type { JSX } from "@blueshed/railroad"`.
 
-declare global {
-  namespace JSX {
-    type Element = globalThis.Node;
+export declare namespace createElement {
+  export namespace JSX {
+    export type Element = globalThis.Node;
     // Admits async components (thunk resolution) as JSX tags — TS 5.1+.
-    type ElementType =
+    export type ElementType =
       | string
       | ((props: any) => globalThis.Node | Promise<() => globalThis.Node>);
-    interface IntrinsicAttributes {
+    export interface IntrinsicAttributes {
       /** Loading view for an async component — rendered immediately, swapped
        *  out when the component's promise settles. Sync components ignore it. */
       fallback?: () => globalThis.Node;
     }
-    interface IntrinsicElements {
+    export interface IntrinsicElements {
       [tag: string]: any;
     }
   }
+}
+
+/** Railroad's JSX types, the same ones `createElement.JSX` holds:
+ *  `import type { JSX } from "@blueshed/railroad"`. */
+export declare namespace JSX {
+  export type Element = createElement.JSX.Element;
+  export type ElementType = createElement.JSX.ElementType;
+  export interface IntrinsicAttributes extends createElement.JSX.IntrinsicAttributes {}
+  export interface IntrinsicElements extends createElement.JSX.IntrinsicElements {}
 }

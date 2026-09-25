@@ -13,6 +13,7 @@ import {
   hasActiveDisposeScope,
 } from "./signals";
 import type { ReadonlySignal } from "./signals";
+import type { JSX } from "./jsx";
 import { routes, route, navigate, matchRoute } from "./routes";
 import { key, provide, inject, clearProviders } from "./shared";
 import { createLogger, setLogLevel } from "./logger";
@@ -1736,4 +1737,16 @@ describe("routes(): a handler resolving to a bare Promise<Node> is deprecated", 
       .map((d) => d.file!.getLineAndCharacterOfPosition(d.start!).line + 1);
     expect(deprecated).toEqual([5]); // the bare Promise<Node> only
   }, 30_000);
+});
+
+describe("types: railroad declares no global JSX", () => {
+  // jsx.ts declared `global { namespace JSX }`, which clashed with React's in a mixed app (TS2300
+  // Duplicate identifier 'Element'), through the root barrel, /jsx, /routes and /jsx-runtime.
+  // `bun run check` compiles this file under jsx: react; tests/consumer-types covers both modes.
+  test("the factory's namespace types JSX, and the global has none", () => {
+    // @ts-expect-error -- no global JSX namespace; import the type instead
+    type Global = globalThis.JSX.Element;
+    const el: JSX.Element = <p>x</p>;
+    expect(el).toBeInstanceOf(Node);
+  });
 });

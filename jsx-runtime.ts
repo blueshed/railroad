@@ -6,6 +6,9 @@
  *
  * tsconfig.json:
  *   { "jsx": "react-jsx", "jsxImportSource": "@blueshed/railroad" }
+ *
+ * TypeScript finds the JSX types in this module's `JSX` export; railroad
+ * declares no global JSX namespace (see jsx.ts).
  */
 
 import { createElement, Fragment } from "./jsx";
@@ -26,19 +29,6 @@ export function jsx(
 
 export { jsx as jsxs };
 
-// Re-export JSX namespace so TypeScript react-jsx mode finds the types
-export namespace JSX {
-  export type Element = globalThis.Node;
-  // Admits async components (thunk resolution) as JSX tags — TS 5.1+.
-  export type ElementType =
-    | string
-    | ((props: any) => globalThis.Node | Promise<() => globalThis.Node>);
-  export interface IntrinsicAttributes {
-    /** Loading view for an async component — rendered immediately, swapped
-     *  out when the component's promise settles. Sync components ignore it. */
-    fallback?: () => globalThis.Node;
-  }
-  export interface IntrinsicElements {
-    [tag: string]: any;
-  }
-}
+// TypeScript's react-jsx mode finds the JSX types here, on the runtime module;
+// railroad declares no global JSX (see jsx.ts).
+export type { JSX } from "./jsx";

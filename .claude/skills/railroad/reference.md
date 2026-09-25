@@ -108,6 +108,14 @@ No Vite, no webpack, no Rollup config, no `tsx-loader`, no
 `@vitejs/plugin-react`. HMR works, TSX compiles, sourcemaps are emitted, CSS
 bundles, and asset URLs are content-hashed out of the box.
 
+**JSX types.** Railroad declares no global `JSX` namespace, so it sits beside
+React's types in one app. The automatic runtime above (`jsx: react-jsx`,
+`jsxImportSource`) finds them in `@blueshed/railroad/jsx-runtime`; the classic
+runtime (`"jsx": "react"`, `"jsxFactory": "createElement"`,
+`"jsxFragmentFactory": "Fragment"`, importing `createElement` in each file)
+finds them on the factory, `createElement.JSX`. To annotate, import the type:
+`import type { JSX } from "@blueshed/railroad"`; `JSX.Element` is a DOM `Node`.
+
 ## Signals
 
 ```ts
