@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-25
+
 ### Breaking
 
 - **Railroad declares no global `JSX` namespace (types only).** Importing
