@@ -1,30 +1,21 @@
 # Railroad
 
-**railroad makes a page change exactly where the data changed, and nowhere else, with nothing to build and nothing to configure.**
+**railroad changes a page exactly where the data changed, and nowhere else, with no build step:
+a tsconfig is the whole setup.**
 
 You write components in JSX, and each runs once, returning real DOM nodes. The values they show
 are signals: when one changes, only the text and attributes that read it are updated. No virtual
-DOM, no re-rendering, no hooks to get wrong. It also has a hash router, where going from
-`/users/1` to `/users/2` updates the page without remounting it, and typed injection instead of
-passing props down.
+DOM, no re-rendering, no hooks. Lists keep their rows by key, and the hash router hands a page
+its params as a signal, so going from `/users/1` to `/users/2` updates the page in place.
 
-Bun already bundles the TSX, reloads on save, builds one binary and runs headless browser tests.
-railroad is only the small reactive layer Bun was missing: no compiler, no build config, no
-runtime dependencies. It's small enough to read in one sitting, and for an AI to use correctly
-first time. It pairs with delta: an open delta document is a railroad signal, so live shared data
-drops straight into the page.
+Bun already serves HTML imports, bundles the TSX, reloads on save, builds one binary and runs
+headless browser tests. railroad is the small reactive layer Bun was missing: no compiler, no
+build config, no runtime dependencies. It's small enough to read in one sitting, by a person or
+an AI, and the mistakes people actually make fit on one page. It pairs with delta: an open delta
+document is a railroad signal, so live shared data drops straight into the page.
 
-In one line: **the smallest reactive layer for Bun: real DOM, pushed by signals, nothing to
-build, with delta's live documents plugging straight in.**
-
-Signals, JSX and a hash router for Bun apps that change in real time.
-Components run once and return real DOM nodes; a signal pushes each change
-straight to the text and attributes that read it.
-
-It exists because Bun 1.3 already does the rest. HTML imports, TSX bundling,
-HMR, single-binary builds and headless browser tests all ship with Bun. What is
-missing is a small reactive layer on top, so that is all railroad is: no
-virtual DOM, no compiler, no build config, no runtime dependencies.
+In one line: **the smallest reactive layer for Bun: real DOM, pushed by signals, with delta's
+live documents plugging straight in.**
 
 ## Try it
 
