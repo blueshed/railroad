@@ -26,6 +26,8 @@ const doubled = computed(() => count.get() * 2);
 const label = count.map((n) => `count: ${n}`);
 effect(() => void count.get());
 
+const detail = signal<{ id: string } | null>(null);
+
 type Row = { id: number; text: string };
 const rows = signal<Row[]>([{ id: 1, text: "a" }]);
 
@@ -68,6 +70,8 @@ function App(): JSX.Element {
       {when(count.map((c) => c > 0), () => (
         <p>positive</p>
       ))}
+      {/* v$ is the current truthy value, narrowed: no `!` */}
+      {when(detail, (d$) => <p>{d$.map((d) => d.id)}</p>, () => <p>none</p>)}
       <AsyncProfile id={1} fallback={() => <p>loading</p>} />
     </div>
   );
@@ -88,6 +92,15 @@ if (root) {
   void disposeApp;
   routes(root, {
     "/": () => <App />,
+    // keyed: the handler re-runs when the params change; params are inferred
+    "/sites/:id": { keyed: true, handler: ({ id }) => <p>{id}</p> },
+    "/load/:id": {
+      keyed: true,
+      handler: async ({ id }) => {
+        await Promise.resolve();
+        return () => <p>{id}</p>;
+      },
+    },
     "/users/:id": (_p, params$) => {
       const span = document.createElement("span");
       effect(() => {

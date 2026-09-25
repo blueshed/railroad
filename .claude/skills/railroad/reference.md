@@ -237,8 +237,16 @@ Props are applied after the element's children, which is what lets a
 `condition` is a signal or a function (wrapped in a computed). The branch is
 rebuilt only when truthiness flips (falsy ↔ truthy); a value change inside the
 same branch (`"a"` → `"b"`) does not re-render, so a value read with `.get()`
-in the branch stays the first one. Pass a signal into the branch instead:
-`when(user, () => <Profile name={user.map(u => u?.name ?? "")} />)`. The branch renders **synchronously** (0.12+): it is in
+in the branch stays the first one. The truthy branch is given the value
+instead: `v$`, a `ReadonlySignal` of the current truthy value, narrowed to
+`NonNullable<T>` (no `!`), which notifies whenever the condition does while
+it stays truthy (an in-place `.touch()` included):
+
+```tsx
+{when(user, (u$) => <Profile name={u$.map(u => u.name)} />, () => <Login />)}
+```
+
+The branch renders **synchronously** (0.12+): it is in
 the returned fragment, and so in the DOM as soon as `mount()` / the parent
 append returns. The branch lives between `<!--when-->` and `<!--/when-->`
 comments, and each branch gets its own dispose scope.
@@ -279,7 +287,11 @@ Hash-based client router. Handlers receive `(params, params$)` — the second is
 a reactive `ReadonlySignal` that updates when params change within the same
 pattern (`/users/1` → `/users/2` does not re-render). The handler runs once per
 pattern, so `params` is the first match: `({ id }) => <h1>{id}</h1>` still
-shows `1` at `/users/2`. Read anything that changes through `params$`.
+shows `1` at `/users/2`. Read anything that changes through `params$`, or make
+the route **keyed**: a table value `{ handler, keyed: true }` re-runs its
+handler (disposing the old run) whenever the params change, as Solid's
+`<Show keyed>` does. Don't key a wildcard layout: its `params["*"]` changes on
+every sub-path, so it would remount each time.
 
 ```tsx
 import { routes, navigate, route, when } from "@blueshed/railroad";
@@ -287,6 +299,7 @@ import { routes, navigate, route, when } from "@blueshed/railroad";
 routes(app, {
   "/":          () => <Home />,
   "/users/:id": (_p, params$) => <User id={params$.map(p => p.id)} />,
+  "/posts/:id": { keyed: true, handler: ({ id }) => <Post id={id} /> },  // re-runs per id
   "/sites/*":   () => <SitesLayout />,    // wildcard keeps layout mounted
 });
 
@@ -295,7 +308,7 @@ function SitesLayout() {
   return (
     <div>
       <SitesNav />
-      {when(detail, () => <SiteDetail />, () => <SitesList />)}
+      {when(detail, (d$) => <SiteDetail id={d$.map(d => d.id)} />, () => <SitesList />)}
     </div>
   );
 }

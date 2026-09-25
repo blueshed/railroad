@@ -47,7 +47,11 @@
  * Reactive helpers:
  *   mount(target, render)         — root dispose scope; returns the disposer
  *   when(signal, truthy, falsy?)  — conditional rendering; rebuilds the branch
- *                                   only when the condition's truthiness flips
+ *                                   only when the condition's truthiness flips.
+ *                                   truthy receives v$, a ReadonlySignal of the
+ *                                   current truthy value (NonNullable<T>), so the
+ *                                   branch follows a value change without a rebuild:
+ *                                   when(detail, (d$) => <Site id={d$.map(d => d.id)} />)
  *   list(signal, keyFn, render, options?) — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
  *
@@ -551,13 +555,16 @@ function warnScopeless(helper: string): void {
 
 // === when() — conditional rendering ===
 // Swaps DOM nodes only when truthiness transitions (falsy↔truthy).
-// Value changes within the same branch (e.g. "a" → "b") do NOT re-render.
-// Components inside each branch should use signals to react to value changes.
+// Value changes within the same branch (e.g. "a" → "b") do NOT re-render;
+// they reach the truthy branch through its v$ argument, a ReadonlySignal of the
+// current truthy value that notifies whenever the condition does while truthy
+// (an in-place touch() included), so the branch binds to it:
 //   when(isLoggedIn, () => <Dashboard />, () => <Login />)
+//   when(detail, (d$) => <SiteDetail id={d$.map(d => d.id)} />)
 
-export function when(
-  condition: ReadonlySignal<any> | (() => any),
-  truthy: () => Node,
+export function when<T>(
+  condition: ReadonlySignal<T> | (() => T),
+  truthy: (value$: ReadonlySignal<NonNullable<T>>) => Node,
   falsy?: () => Node,
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("when");
@@ -569,6 +576,11 @@ export function when(
   let currentDispose: Dispose | null = null;
   let wasTruthy: boolean | undefined = undefined;
   let disposed = false;
+  // The truthy branch's v$, fresh per build. It never holds a falsy value: a
+  // falsy condition disposes the branch instead of writing v$. equals: () =>
+  // false, so it notifies whenever the condition did (the condition already
+  // decided that), including a touch() that keeps the same reference.
+  let value$: Signal<NonNullable<T>> | null = null;
 
   // Brackets go into the fragment BEFORE the effect runs, so the first branch
   // renders synchronously — it is in the DOM when mount()/appendChild returns.
@@ -576,8 +588,8 @@ export function when(
   frag.appendChild(anchor);
   frag.appendChild(end);
 
-  const sig: ReadonlySignal<any> = typeof condition === "function"
-    ? computed(condition)
+  const sig: ReadonlySignal<T> = typeof condition === "function"
+    ? computed(condition as () => T)
     : condition;
 
   function clear() {
@@ -595,17 +607,22 @@ export function when(
     if (disposed) return;
     const parent = anchor.parentNode;
     if (!parent) return; // brackets removed out of contract — nowhere to render
-    const isTruthy = !!sig.get();
+    const value = sig.get();
+    const isTruthy = !!value;
 
-    // Only swap when truthiness actually changes
-    if (isTruthy === wasTruthy) return;
+    // Only swap when truthiness actually changes; a new truthy value goes to v$.
+    if (isTruthy === wasTruthy) {
+      if (isTruthy) value$!.set(value as NonNullable<T>);
+      return;
+    }
     wasTruthy = isTruthy;
 
     clear();
+    value$ = isTruthy ? signal(value as NonNullable<T>, { equals: () => false }) : null;
     pushDisposeScope();
     let result: Node | null;
     try {
-      result = isTruthy ? truthy() : (falsy ? falsy() : null);
+      result = value$ ? truthy(value$) : (falsy ? falsy() : null);
     } finally {
       currentDispose = popDisposeScope();
     }

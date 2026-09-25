@@ -17,7 +17,7 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 - **Signals** — push-based reactive primitives (Vue/Solid/Preact family; not TC39). Propagation is topologically ordered, so a diamond settles in one consistent pass. The one exception: a computed that switches *which* signals it reads can let an effect run once on half-updated values, then again on the settled ones.
 - **JSX runtime** — components run once, return real DOM nodes, signals and functions bind to text and attributes automatically; `style` takes a CSS string or an object (static or reactive, custom properties such as `"--accent"` included), and a reactive object style clears keys the next value omits. `<select value>`, `htmlFor` and `className` do what React habits expect, and a child holding `null`, `undefined` or a boolean renders nothing, whether static, a signal or a function. There is no global `JSX` namespace (so React's types can sit beside it): annotate with `import type { JSX } from "@blueshed/railroad"`, where `JSX.Element` is a DOM `Node`.
 - **`when()` / `list()` / `mount()`** — reactive conditionals, keyed lists, and a root scope helper, all with auto-disposal.
-- **Hash router** — `routes(target, table, options)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting (the handler itself runs once per pattern, so read ids through `params$`, §9); supports `options.onError` boundary callback.
+- **Hash router** — `routes(target, table, options)`, `route()` for sub-navigation, reactive `params$` so `/users/1` → `/users/2` updates without remounting (the handler itself runs once per pattern, so read ids through `params$`, or mark the route `keyed`, §9); `navigate()` is current as it returns; supports `options.onError` boundary callback.
 - **DI / logger** — typed `provide`/`inject` with phantom-typed keys; leveled console output.
 - **Realtime escape hatches** — `.touch()`, `.mutate()`, `.patch()` for in-place document mutation under WebSocket / CRDT / `LISTEN/NOTIFY` patch streams.
 
@@ -232,14 +232,18 @@ Two React habits show a stale value with no error. `when()` rebuilds its branch 
 ```tsx
 // ❌ /sites/42 → /sites/99 still shows "site 42": detail stays truthy, the branch never rebuilds
 {when(detail, () => <SiteDetail id={detail.get()!.id} />)}
-// ✅ pass a signal into the branch
-{when(detail, () => <SiteDetail id={detail.map(d => d?.id ?? "")} />)}
+// ✅ take the value the branch is given: d$ is the current truthy value, narrowed (no `!`)
+{when(detail, (d$) => <SiteDetail id={d$.map(d => d.id)} />)}
 
 // ❌ /users/1 → /users/2 still shows "user 1": the handler ran once, with { id: "1" }
 routes(app, { "/users/:id": ({ id }) => <h1>user {id}</h1> });
-// ✅ read the id through params$, which updates in place
+// ✅ read the id through params$, which updates in place (nothing remounts)
 routes(app, { "/users/:id": (_, params$) => <h1>user {params$.map(p => p.id)}</h1> });
+// ✅ or mark the route keyed: the handler re-runs when the params change, so destructuring works
+routes(app, { "/users/:id": { keyed: true, handler: ({ id }) => <h1>user {id}</h1> } });
 ```
+
+The `when()` branch's `d$` notifies whenever the condition does while it stays truthy, an in-place `.touch()` included; it is a `ReadonlySignal`, so bind it (`d$.map(…)`, `{d$}`) rather than `.get()` it in the branch body. A keyed route disposes the old run and builds a fresh one, so its state (focus, scroll, local signals) starts over; `params$` keeps it. Don't key a wildcard layout (`"/sites/*"`): its `params["*"]` changes on every sub-path, so it would remount each time.
 
 ## Mental model
 
@@ -260,13 +264,13 @@ function SitesLayout() {
   return (
     <div>
       <SitesNav />
-      {when(detail, () => <SiteDetail id={detail.map(d => d?.id ?? "")} />, () => <SitesList />)}
+      {when(detail, (d$) => <SiteDetail id={d$.map(d => d.id)} />, () => <SitesList />)}
     </div>
   );
 }
 ```
 
-`/sites` → `/sites/42` → `/sites/99`: the layout stays mounted. `when()` swaps between list and detail; `/sites/42` → `/sites/99` keeps the same `SiteDetail`, which follows the id because it got a signal (§9). `route()` is a `ReadonlySignal<T | null>`.
+`/sites` → `/sites/42` → `/sites/99`: the layout stays mounted. `when()` swaps between list and detail; `/sites/42` → `/sites/99` keeps the same `SiteDetail`, which follows the id because it got `d$`, a signal of the current match (§9). `route()` is a `ReadonlySignal<T | null>`.
 
 Matching is purely segment-based: there is no query-string handling (`#/users/42?tab=1` matches `/users/:id` with `id === "42?tab=1"` — split on `?` yourself), and a trailing slash is a real empty segment (`/users/42/` does **not** match `/users/:id`).
 

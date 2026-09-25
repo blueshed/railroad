@@ -1750,3 +1750,112 @@ describe("types: railroad declares no global JSX", () => {
     expect(el).toBeInstanceOf(Node);
   });
 });
+
+// ============================================================ a value change inside one branch or one pattern
+
+describe("when(cond, (v$) => …): the branch reads the current truthy value", () => {
+  // when() rebuilds only when truthiness flips, so a branch that read the value once kept the first
+  // one: /sites/42 → /sites/99 showed 42. The branch now gets the value as a signal.
+  test("a value change inside the truthy branch reaches v$ without a rebuild", () => {
+    const detail = signal<{ id: string } | null>({ id: "42" });
+    let builds = 0;
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <div>
+        {when(detail, (d$) => {
+          builds++;
+          // No `!`: v$ is narrowed to the truthy value.
+          return <p>{d$.map((d) => d.id)}</p>;
+        }, () => <i>none</i>)}
+      </div>
+    ));
+    const p = root.querySelector("p");
+    expect(root.textContent).toBe("42");
+    detail.set({ id: "99" });
+    expect(root.textContent).toBe("99");
+    expect(root.querySelector("p")).toBe(p); // same branch, not rebuilt
+    detail.set(null);
+    expect(root.textContent).toBe("none");
+    detail.set({ id: "7" });
+    expect(root.textContent).toBe("7");
+    expect(builds).toBe(2);
+    dispose();
+  });
+
+  test("v$ follows an in-place touch(), as the condition does", () => {
+    const doc = signal<{ title: string } | null>({ title: "a" });
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <div>{when(doc, (d$) => <p>{d$.map((d) => d.title, { equals: () => false })}</p>)}</div>);
+    doc.peek()!.title = "b";
+    doc.touch();
+    expect(root.textContent).toBe("b");
+    dispose();
+  });
+
+  test("a function condition passes its value, narrowed", () => {
+    const n = signal(1);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <div>{when(() => n.get() > 0 && `n=${n.get()}`, (v$) => <p>{v$}</p>)}</div>);
+    expect(root.textContent).toBe("n=1");
+    n.set(2);
+    expect(root.textContent).toBe("n=2");
+    n.set(0);
+    expect(root.textContent).toBe("");
+    dispose();
+  });
+});
+
+describe("routes(): a keyed route re-runs its handler when the params change", () => {
+  // A handler runs once per pattern, so `({ id }) => …` kept the first id after /users/1 → /users/2.
+  // `{ keyed: true, handler }` re-runs it, as Solid's <Show keyed> does.
+  test("/users/1 → /users/2 re-runs a keyed handler and disposes the old run", async () => {
+    location.hash = "#/users/1";
+    await tick();
+    const target = document.createElement("div");
+    const runs: string[] = [];
+    let live = 0;
+    const dispose = routes(target, {
+      "/users/:id": {
+        keyed: true,
+        handler: ({ id }) => {
+          runs.push(id!);
+          live++;
+          trackDispose(() => live--);
+          return <h1>user {id}</h1>;
+        },
+      },
+      "/plain/:id": { handler: ({ id }) => <h2>{id}</h2> },
+    });
+    expect(target.textContent).toBe("user 1");
+    navigate("/users/2");
+    expect(target.textContent).toBe("user 2");
+    expect(runs).toEqual(["1", "2"]);
+    expect(live).toBe(1);
+    // An entry without keyed runs once per pattern, as a bare handler does.
+    navigate("/plain/1");
+    navigate("/plain/2");
+    expect(target.textContent).toBe("1");
+    dispose();
+    expect(live).toBe(0);
+    location.hash = "";
+    await tick();
+  });
+
+  test("a new path with the same params doesn't re-run it", async () => {
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    let runs = 0;
+    const dispose = routes(target, {
+      "/": () => <p>home</p>,
+      "/tags/:tag": { keyed: true, handler: ({ tag }) => { runs++; return <p>{tag}</p>; } },
+    });
+    navigate("/tags/%zz"); // a malformed escape stays raw: "%zz"
+    navigate("/tags/%25zz"); // decodes to "%zz" too
+    expect(target.textContent).toBe("%zz");
+    expect(runs).toBe(1);
+    dispose();
+    location.hash = "";
+    await tick();
+  });
+});

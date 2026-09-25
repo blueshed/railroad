@@ -2,7 +2,9 @@
  * Routes — Hash-based client router built on signals
  *
  * API:
- *   routes(target, table)   — declarative hash router, swaps target content
+ *   routes(target, table, options?) — declarative hash router, swaps target
+ *                             content; a table value is a handler or
+ *                             { handler, keyed? }
  *   route<T>(pattern)       — reactive route: Signal<T | null>, null when unmatched
  *   navigate(path)          — set location.hash; route() and routes() are
  *                             current when it returns (no tick to wait for)
@@ -30,9 +32,9 @@
  * AsyncContext) and outlive the route. routes() given such a handler is
  * marked @deprecated (an editor strikes it through); a later release drops
  * the form from the type.
- *   params  — the params at the time the pattern was entered. The handler
- *             runs once per pattern, so `({ id }) => <h1>{id}</h1>` still
- *             shows the first id after /users/1 → /users/2.
+ *   params  — the params at the time the handler ran. A handler runs once
+ *             per pattern, so `({ id }) => <h1>{id}</h1>` still shows the
+ *             first id after /users/1 → /users/2 (unless the route is keyed).
  *   params$ — ReadonlySignal that updates when params change within the same
  *             pattern: `(_, p$) => <h1>{p$.map(p => p.id)}</h1>`
  * A handler, like a component, runs untracked: a .get() in it is a one-shot
@@ -40,6 +42,13 @@
  *
  * The router manages cleanup automatically. When params change within the
  * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
+ *
+ * Keyed routes — a table value `{ handler, keyed: true }` re-runs its handler
+ * whenever the matched params change (compared value by value), disposing
+ * the previous run, as Solid's <Show keyed> does. Then destructuring works:
+ *   "/users/:id": { keyed: true, handler: ({ id }) => <User id={id} /> }
+ * Keep a wildcard layout unkeyed, or every sub-path remounts it (its
+ * params["*"] changes). `{ handler }` without keyed is a bare handler.
  *
  * navigate(path) updates the route signal synchronously, so route() and the
  * router show the new path as navigate() returns, and the hashchange that
@@ -127,6 +136,11 @@ export function matchRoute(
   return params;
 }
 
+// Two matches of one pattern have the same keys; compare their values.
+function sameParams(a: Record<string, string>, b: Record<string, string>): boolean {
+  return Object.keys(a).every((k) => a[k] === b[k]);
+}
+
 export function route<
   T extends Record<string, string> = Record<string, string>,
 >(pattern: string): ReadonlySignal<T | null> {
@@ -170,13 +184,18 @@ type DeprecatedRouteHandler = (
   params$: ReadonlySignal<Record<string, string>>,
 ) => Node | Promise<Node | (() => Node)>;
 
+/** A table entry: a handler, or `{ handler, keyed }`. With `keyed: true` the
+ *  handler re-runs (a fresh scope, the old one disposed) whenever the matched
+ *  params change, instead of running once per pattern. */
+type RouteEntry<H> = H | { handler: H; keyed?: boolean };
+
 export interface RouterOptions {
   onError?: (err: unknown) => Node | void;
 }
 
 export function routes(
   target: Element,
-  table: Record<string, RouteHandler>,
+  table: Record<string, RouteEntry<RouteHandler>>,
   options?: RouterOptions,
 ): Dispose;
 /**
@@ -186,12 +205,12 @@ export function routes(
  */
 export function routes(
   target: Element,
-  table: Record<string, DeprecatedRouteHandler>,
+  table: Record<string, RouteEntry<DeprecatedRouteHandler>>,
   options?: RouterOptions,
 ): Dispose;
 export function routes(
   target: Element,
-  table: Record<string, DeprecatedRouteHandler>,
+  table: Record<string, RouteEntry<DeprecatedRouteHandler>>,
   options?: RouterOptions,
 ): Dispose {
   const hash = getHash();
@@ -346,14 +365,19 @@ export function routes(
   // Show whatever `path` matches. Runs untracked (below): a handler is a render
   // body, so a .get() inside it must not subscribe the router.
   function show(path: string) {
-    for (const [pattern, handler] of Object.entries(table)) {
+    for (const [pattern, entry] of Object.entries(table)) {
       const params = matchRoute(pattern, path);
       if (!params) continue;
+      const { handler, keyed } = typeof entry === "function" ? { handler: entry, keyed: false } : entry;
       // Same pattern, new params: push them into params$, no teardown. Unless a
       // render for the old params is still in flight: its resolution would
       // paint outdated content, and a handler that captured the initial
-      // `params` would never refresh, so tear down and run it again.
-      if (pattern === activePattern && !asyncPending) {
+      // `params` would never refresh, so tear down and run it again. A keyed
+      // route runs again whenever the params differ.
+      if (
+        pattern === activePattern && !asyncPending &&
+        !(keyed && !sameParams(params, activeParams!.peek()))
+      ) {
         activeParams!.set(params);
         return;
       }

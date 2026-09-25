@@ -33,6 +33,27 @@ All notable changes to `@blueshed/railroad`. The format follows
   **How to move across:** resolve to a thunk, which railroad runs under a
   scope it owns: `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
 
+### Added
+
+- **`when(cond, (v$) => …)`: the truthy branch gets the current value.**
+  `when()` rebuilds its branch only when truthiness flips, so a branch that
+  read the value once kept the first one (`/sites/42` → `/sites/99` still
+  showed 42). The truthy branch is now passed `v$`, a `ReadonlySignal` of the
+  current truthy value narrowed to `NonNullable<T>`, which notifies whenever
+  the condition does while it stays truthy (an in-place `.touch()`
+  included): `when(detail, (d$) => <SiteDetail id={d$.map(d => d.id)} />)`.
+  No `!` is needed, so `when(doc.data, (d$) => …)` reads a delta document
+  without one. Branches that take no argument are unchanged; one passed by
+  reference, `when(x, View)`, now receives `v$` as its first argument, so
+  write `when(x, () => <View />)`.
+- **Keyed routes.** A table value may be `{ handler, keyed: true }`: the
+  handler re-runs, disposing the previous run, whenever the matched params
+  change (compared value by value), as Solid's `<Show keyed>` does. So
+  `"/users/:id": { keyed: true, handler: ({ id }) => <User id={id} /> }`
+  follows `/users/1` → `/users/2`. A plain handler still runs once per
+  pattern and follows the params through `params$`; don't key a wildcard
+  layout, whose `params["*"]` changes on every sub-path.
+
 ### Fixed
 
 - **`navigate()` updates the route before it returns.** It set
