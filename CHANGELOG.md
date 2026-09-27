@@ -6,6 +6,15 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Docs
+
+- **The skill's repacked-tarball recipe refreshes the app's copy.** It said
+  to repeat `bun pm pack` and `bun add <tgz>` after each change, but
+  `bun add` of the same tarball again keeps the old contents, as does
+  `bun install --force`: `bun.lock` pins the first tarball by its integrity
+  hash. *Local development across repos* now says `bun remove` the package,
+  then `bun add` the tarball (todo #7).
+
 ## [0.14.0] - 2026-09-25
 
 ### Breaking

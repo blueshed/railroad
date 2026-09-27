@@ -384,7 +384,14 @@ cd ../delta && bun pm pack               # writes blueshed-delta-<version>.tgz
 cd ../app   && bun add ../delta/blueshed-delta-<version>.tgz
 ```
 
-Repeat both lines after each change to the checkout (`bun install` alone keeps the old tarball's contents).
+After each change to the checkout, pack again, then remove the package before adding the tarball:
+
+```sh
+cd ../delta && bun pm pack
+cd ../app   && bun remove @blueshed/delta && bun add ../delta/blueshed-delta-<version>.tgz
+```
+
+`bun add` of the same tarball again keeps the old contents, and so do `bun install --force` and deleting `node_modules/@blueshed/delta`: `bun.lock` pins the first tarball by its integrity hash (Bun 1.4.2). Deleting `bun.lock` works too.
 
 ## Anti-patterns
 
