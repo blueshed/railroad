@@ -364,6 +364,20 @@ export function adoptIntoSvg(result: Node, parent: Node | null): Node {
   return result;
 }
 
+// === Bracket comments ===
+//
+// when(), an async component's placeholder and each list() row keep their
+// content between two comments rather than as a node array captured at render,
+// so removal stays correct when SVG adoption swaps node identities after
+// capture, and nodes a nested when()/list() inserts later go with it.
+
+// Remove every node between two bracket comments, leaving the brackets.
+function clearBetween(start: Node, end: Node): void {
+  for (let n = start.nextSibling; n && n !== end; n = start.nextSibling) {
+    n.parentNode!.removeChild(n);
+  }
+}
+
 // === Async components — thunk resolution ===
 //
 // A function component may be async. Its synchronous prefix (before the first
@@ -398,17 +412,11 @@ function asyncComponent(
   let currentDispose: Dispose | null = null;
   let disposed = false;
 
-  // Content lives between the bracket comments (list()-row trick), so removal
-  // stays correct even when SVG adoption swaps node identities after capture.
-  const contentNodes = (): Node[] => {
-    const nodes: Node[] = [];
-    for (let n = start.nextSibling; n && n !== end; n = n.nextSibling) nodes.push(n);
-    return nodes;
-  };
+  // Content lives between the bracket comments (see clearBetween).
   const clear = () => {
     if (currentDispose) currentDispose();
     currentDispose = null;
-    for (const n of contentNodes()) n.parentNode?.removeChild(n);
+    clearBetween(start, end);
   };
 
   const frag = document.createDocumentFragment();
@@ -587,9 +595,7 @@ export function when<T>(
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("when");
   assertOwnSignal(condition);
-  // The branch lives between two bracket comments (the list()-row trick), so
-  // removal stays correct even when SVG adoption swaps node identities after
-  // render, and nodes a nested when()/list() inserts later travel with it.
+  // The branch lives between two bracket comments (see clearBetween).
   const anchor = document.createComment("when");
   const end = document.createComment("/when");
   let currentDispose: Dispose | null = null;
@@ -614,9 +620,7 @@ export function when<T>(
   function clear() {
     if (currentDispose) currentDispose();
     currentDispose = null;
-    for (let n = anchor.nextSibling; n && n !== end; n = anchor.nextSibling) {
-      n.parentNode!.removeChild(n);
-    }
+    clearBetween(anchor, end);
   }
 
   function swap() {
@@ -733,6 +737,8 @@ export function list<T>(
   let order: (string | number)[] = [];
   let disposed = false;
 
+  // The row with its brackets: what a move carries and a removal deletes (a
+  // rebuild clears only what is between them).
   function rangeOf(entry: Entry): Node[] {
     const nodes: Node[] = [];
     for (let n: Node | null = entry.start; n; n = n.nextSibling) {
@@ -852,9 +858,8 @@ export function list<T>(
         // Index-based — dispose the old content and rebuild it between the
         // same brackets, which keeps the row's position without re-inserting.
         const { start, end } = entry;
-        const oldContent = rangeOf(entry).filter((n) => n !== start && n !== end);
         entry.dispose();
-        for (const n of oldContent) n.parentNode?.removeChild(n);
+        clearBetween(start, end);
         const row = scoped(() => renderRow(arr[i]!, i));
         entry.dispose = row?.dispose ?? (() => {}); // the old scope is spent: never run it twice
         if (row) end.parentNode?.insertBefore(row.node, end);
