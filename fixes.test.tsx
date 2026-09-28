@@ -2116,3 +2116,73 @@ describe("a .get() in a render body warns once, in development", () => {
     expect(run("production")).not.toContain("reads once");
   });
 });
+
+// ============================================================ intrinsic elements are typed
+
+describe("types: each tag's props come from the DOM's element types", () => {
+  // IntrinsicElements was `[tag: string]: any`, so a typo, React's onClick, or a handler that was
+  // a string all compiled. Checked by `bun run check` (tsc over this file): each @ts-expect-error
+  // must find its error, and everything else must compile.
+  test("a typo, React casing and a non-function handler don't compile", () => {
+    const els = [
+      // @ts-expect-error -- React's casing: railroad's handlers are the DOM's, lowercase
+      <button onClick={() => {}} />,
+      // @ts-expect-error -- React's casing, on a multi-word event
+      <input onKeyDown={() => {}} />,
+      // @ts-expect-error -- a typo
+      <div clas="x" />,
+      // @ts-expect-error -- a typo, on an element with its own attributes
+      <input valeu="x" />,
+      // @ts-expect-error -- a handler must be a function
+      <button onclick="alert(1)" />,
+      // @ts-expect-error -- an attribute value can't be an object
+      <div title={{ text: "x" }} />,
+      // @ts-expect-error -- a tag that isn't one
+      <dvi />,
+    ];
+    expect(els.every((el) => el instanceof Node)).toBe(true);
+  });
+
+  test("the element types its ref, its events and its attributes", () => {
+    const n = signal(1);
+    const on = signal(false);
+    const maybe: (() => void) | undefined = undefined;
+    let typed = "";
+    const els = [
+      <input
+        ref={(el) => {
+          el.valueAsNumber;
+          // @ts-expect-error -- an <input> has no href
+          el.href;
+        }}
+        oninput={(e) => { typed = e.currentTarget.value; }}
+        onkeydown={(e) => e.key}
+        type="number" value={n} disabled={on} readonly placeholder={n.map(String)}
+        tabindex={0} aria-label="count" data-id={n} list="options" form="f"
+      />,
+      // @ts-expect-error -- a click is a PointerEvent, not a KeyboardEvent
+      <button onclick={(e: KeyboardEvent) => e.key} />,
+      <button onclick={maybe} ondblclick={null} onmousedown={(e: Event) => e.preventDefault()}>go</button>,
+      <label for="x" class={() => (on.get() ? "on" : null)}>x</label>,
+      <label htmlFor="x" className="c" />,
+      <div style={{ color: "red", "--accent": "blue", opacity: 0.5 }} innerHTML="<b>x</b>" hidden />,
+      <div style={() => (on.get() ? "color: red" : null)} role="list" id="d" title={n} />,
+      <td colspan={2} rowspan="1" />,
+      <iframe srcdoc="<p>" sandbox="allow-scripts" />,
+      <form onsubmit={(e) => e.preventDefault()} accept-charset="utf-8" novalidate />,
+      <meta http-equiv="refresh" content="5" />,
+      <button popovertarget="menu" popovertargetaction="toggle" />,
+      <div itemscope itemprop="review" hx-get="/more" x-data="{}" />,
+      <select value={n}><option value="1" selected>one</option></select>,
+      // SVG takes any attribute (its element types don't name them), with typed refs and events
+      <svg viewBox="0 0 10 10" ref={(el) => el.viewBox}>
+        <circle cx={5} cy="5" r={n} stroke-width={2} fill="url(#g)" onclick={(e) => e.clientX} />
+        <foreignObject width="10" height="10"><div /></foreignObject>
+      </svg>,
+      // a custom element takes any attribute
+      <my-widget some-prop="x" count={n} onclick={() => {}} />,
+    ];
+    expect(els.every((el) => el instanceof Node)).toBe(true);
+    expect(typed).toBe("");
+  });
+});

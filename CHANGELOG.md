@@ -6,6 +6,31 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Breaking
+
+- **Each tag's props are typed (types only).** `JSX.IntrinsicElements` was
+  `[tag: string]: any`, so a typo (`<div clas>`), React's casing
+  (`onClick`, `tabIndex`), a string handler (`onclick="…"`) or a made-up tag
+  compiled and did nothing, or the wrong thing. Props now come from the
+  DOM's element types (`HTMLElementTagNameMap`) in railroad's spelling: an
+  attribute is the element's property lowercased (`tabindex`, `readonly`,
+  `colspan`), plus `class`/`className`, `for`/`htmlFor` and any name with a
+  hyphen (`data-*`, `aria-*`, `hx-get`); each value static, a Signal or a
+  function. An `on*` prop is one of the element's own events, lowercase,
+  and its handler gets the event with `currentTarget` typed
+  (`oninput={(e) => e.currentTarget.value}`); a `ref` gets the element's
+  type. SVG tags and custom elements (a name with a hyphen) still take any
+  attribute, with typed handlers and `ref`: SVG's element types don't name
+  their attributes. Nothing changes at run time.
+  **Who is affected:** JSX that uses React-cased handlers or attributes
+  (`onClick`, `onKeyDown`, `tabIndex`, `readOnly`), an attribute the DOM
+  types don't know that has no hyphen, a tag outside the HTML and SVG maps
+  (`<center>`, `<math>`), or an object as an attribute value.
+  **How to move across:** write the HTML name, lowercase (`onclick`,
+  `tabindex`), which tsc suggests ("Did you mean 'onclick'?"); give a
+  custom attribute a `data-` prefix, or set it in a `ref`. delta's and eta's
+  JSX gain no errors.
+
 ### Added
 
 - **A `.get()` in a render body warns, once per signal, in development.**

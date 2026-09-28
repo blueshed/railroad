@@ -232,6 +232,19 @@ element) and `on*` (attached as a listener; must be a function).
 Props are applied after the element's children, which is what lets a
 `<select value>` find its `<option>`s.
 
+Each tag's props are typed from the DOM's element types
+(`HTMLElementTagNameMap`): an attribute is the element's property
+lowercased, as HTML writes it (`tabindex`, `readonly`, `colspan`,
+`popovertarget`), plus `class`/`className`, `for`/`htmlFor`, and any name
+with a hyphen (`data-*`, `aria-*`, `http-equiv`, a library's `hx-get`); each
+value static, a Signal or a function of a string, number, boolean, `null` or
+`undefined`. An `on*` prop is one of the element's own events, lowercase, a
+function of that event with `currentTarget` typed; a `ref` gets the element's
+type. So `onClick`, `tabIndex`, `<div clas>` and `onclick="…"` don't compile.
+An SVG tag or a custom element (a name with a hyphen) takes any attribute,
+with typed handlers and `ref`, since SVG's element types don't name
+attributes.
+
 ### `when(condition, truthy, falsy?)`
 
 ```tsx

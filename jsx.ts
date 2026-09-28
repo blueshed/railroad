@@ -64,7 +64,9 @@
  * child, a prop, a when() condition or a list() source: this copy can't track
  * it, so it would render once and never update (see signals.ts).
  *
- * Types: railroad declares no global JSX namespace, so it sits beside React's
+ * Types: each tag's props are typed from the DOM's element types (see
+ * "Intrinsic element props" below), so a typo or React's `onClick` doesn't
+ * compile. Railroad declares no global JSX namespace, so it sits beside React's
  * types in one app. `jsx: react` with `jsxFactory: "createElement"` finds the
  * types on the factory (createElement.JSX); `jsx: react-jsx` with
  * `jsxImportSource: "@blueshed/railroad"` finds jsx-runtime's JSX export. To
@@ -876,6 +878,79 @@ function longestIncreasing(seq: number[]): Set<number> {
   return run;
 }
 
+// === Intrinsic element props ===
+//
+// Each tag's props come from the DOM's own element type (HTMLElementTagNameMap),
+// in the spelling railroad applies them: an attribute is the element property
+// lowercased, as HTML writes it (`tabindex`, `readonly`, `colspan`), with
+// `class`/`className`, `for`/`htmlFor` and the few the DOM names otherwise,
+// and any attribute with a hyphen (`data-*`, `aria-*`, a library's `hx-get`);
+// each value static, a Signal, or a function (reactive). A handler is one of
+// the element's own `on*` properties, lowercase, a function of its event with
+// `currentTarget` typed. So a typo, or React's `onClick`, doesn't compile.
+// SVG's element types don't name their attributes (presentation attributes
+// aren't properties), so an SVG tag, like a custom element, takes any
+// attribute, with typed refs and handlers.
+
+type AttrValue = string | number | boolean | null | undefined;
+type Reactive<T> = T | ReadonlySignal<T> | (() => T);
+type StyleValue = string | { [property: string]: string | number | null | undefined } | false | null | undefined;
+
+// Where the attribute isn't the property lowercased.
+interface Renamed {
+  className: "class";
+  htmlFor: "for";
+  httpEquiv: "http-equiv";
+  acceptCharset: "accept-charset";
+  popoverTargetElement: "popovertarget";
+  commandForElement: "commandfor";
+}
+// Properties that aren't attributes: the node tree, and what railroad sets itself.
+type NotAttribute = keyof Node | keyof ParentNode | keyof ChildNode | "style" | "innerHTML" | "outerHTML";
+
+type AttributeProps<E> = {
+  -readonly [K in keyof E as K extends NotAttribute | `on${string}` ? never
+    : E[K] extends (...args: never[]) => unknown ? never
+    : K extends keyof Renamed ? Renamed[K]
+    : K extends string ? string extends K ? never : Lowercase<K> // not a form's [name: string]
+    : never]?: Reactive<AttrValue>;
+};
+
+type HandlerProps<E> = {
+  -readonly [K in keyof E as K extends `on${string}` ? K : never]?:
+    E[K] extends ((this: never, ev: infer Ev) => unknown) | null
+      ? ((ev: Ev & { currentTarget: E }) => void) | null | undefined
+      : never;
+};
+
+interface CommonProps<E> {
+  // jsx: react-jsx passes children as a prop; what a child may be isn't typed here
+  children?: unknown;
+  class?: Reactive<AttrValue>;
+  className?: Reactive<AttrValue>;
+  style?: Reactive<StyleValue>;
+  innerHTML?: Reactive<string | null | undefined>;
+  ref?: (el: E) => void;
+  // global attributes with no element property
+  itemid?: Reactive<AttrValue>;
+  itemprop?: Reactive<AttrValue>;
+  itemref?: Reactive<AttrValue>;
+  itemscope?: Reactive<AttrValue>;
+  itemtype?: Reactive<AttrValue>;
+  // data-*, aria-*, and any other attribute with a hyphen (never React's casing)
+  [hyphenated: `${string}-${string}`]: Reactive<AttrValue>;
+}
+
+type HtmlProps<E> = AttributeProps<E> & HandlerProps<E> & CommonProps<E> &
+  (E extends { htmlFor: unknown } ? { htmlFor?: Reactive<AttrValue> } : unknown);
+type AnyAttributeProps<E> = HandlerProps<E> & CommonProps<E> & { [attribute: string]: unknown };
+
+type HtmlTags = { [K in keyof HTMLElementTagNameMap]: HtmlProps<HTMLElementTagNameMap[K]> };
+// a, script, style and title are HTML's here: created as HTML, adopted inside <svg>
+type SvgTags = {
+  [K in Exclude<keyof SVGElementTagNameMap, keyof HTMLElementTagNameMap>]: AnyAttributeProps<SVGElementTagNameMap[K]>;
+};
+
 // === JSX namespace for TypeScript ===
 //
 // No global JSX: a global one clashes with React's in a mixed app (TS2300
@@ -897,8 +972,10 @@ export declare namespace createElement {
        *  out when the component's promise settles. Sync components ignore it. */
       fallback?: () => globalThis.Node;
     }
-    export interface IntrinsicElements {
-      [tag: string]: any;
+    /** Every HTML and SVG tag, typed from the DOM's element types; a custom
+     *  element (a name with a hyphen) takes any attribute. */
+    export interface IntrinsicElements extends HtmlTags, SvgTags {
+      [customElement: `${string}-${string}`]: AnyAttributeProps<HTMLElement>;
     }
   }
 }

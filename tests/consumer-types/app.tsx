@@ -77,6 +77,27 @@ function App(): JSX.Element {
   );
 }
 
+// Tags are typed from the DOM's element types: refs and events know their
+// element, and a typo or React's casing doesn't compile.
+const typed: JSX.Element[] = [
+  <input
+    ref={(el) => void el.valueAsNumber}
+    oninput={(e) => void e.currentTarget.value}
+    value={count}
+    readonly
+    aria-label="count"
+    data-id={count}
+  />,
+  <label for="n" class={() => (count.get() > 1 ? "many" : null)}>n</label>,
+  <svg viewBox="0 0 4 4"><circle r={count} stroke-width={1} /></svg>,
+  <my-widget some-prop="x" />,
+  // @ts-expect-error -- React's casing: railroad's handlers are lowercase
+  <button onClick={() => {}} />,
+  // @ts-expect-error -- a typo
+  <div clas="x" />,
+];
+void typed;
+
 // railroad JSX is a DOM Node, typed from the runtime's JSX namespace even with
 // React's global JSX beside it (react-global.d.ts).
 const node: Node = <App />;

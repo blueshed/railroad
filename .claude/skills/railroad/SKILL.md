@@ -165,7 +165,7 @@ filter.patch({ color: "blue" });
 
 ### 6. Event handlers are lowercase HTML, not React PascalCase
 
-Railroad is HTML-flavoured JSX — it uses `class`, not `className`; `onclick`, not `onClick`. The runtime accepts PascalCase too (it lowercases anything starting with `on`), but mixing conventions makes diffs noisier and trains the next reader on the wrong style.
+Railroad is HTML-flavoured JSX — it uses `class`, not `className`; `onclick`, not `onClick`; `tabindex`, not `tabIndex`. Each tag's props are typed from the DOM's own element types, so `onClick`, `tabIndex` or a typo (`clas`) doesn't compile ("Did you mean 'onclick'?"); a handler's event and a `ref`'s element are typed (`oninput={(e) => e.currentTarget.value}`). `className` and `htmlFor` compile, for React habits. Any attribute with a hyphen (`data-*`, `aria-*`, `hx-get`) takes any value, and so does every attribute on an SVG tag or a custom element (`<my-widget>`): SVG's element types don't name their attributes.
 
 The value must be a **function** — `onclick={handler}`, never `onclick={handler()}` (that calls it at render) and never a Signal (handlers are not reactive; pass a function that reads the signal). A non-function warns on the console and attaches nothing. `onclick={maybeHandler}` with null/undefined is fine — no handler, no warning.
 
@@ -174,7 +174,7 @@ The value must be a **function** — `onclick={handler}`, never `onclick={handle
 <button onclick={() => count.update(n => n + 1)}>+1</button>
 <div ondragover={onDragOver} ondrop={onDrop} />
 
-// ❌ React-style PascalCase — works, but inconsistent with the rest of railroad
+// ❌ React-style PascalCase — doesn't compile (the runtime would still lowercase it)
 <button onClick={() => count.update(n => n + 1)}>+1</button>
 ```
 
