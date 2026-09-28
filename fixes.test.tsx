@@ -859,6 +859,28 @@ describe("async components: thunk resolution + fallback", () => {
     expect(root.textContent).toBe("");
   });
 
+  // The fallback renders under a scope of its own, and one that threw kept what it made; the
+  // throw left the component before its teardown was registered, so nothing ever disposed it.
+  // Now what it made is disposed at the throw, which goes on as before.
+  test("a fallback that throws has what it made disposed, and the throw goes on", () => {
+    const probe = signal(0);
+    let partial = 0;
+    async function Slow() {
+      await new Promise(() => {});
+      return () => <p>never</p>;
+    }
+    const fallback = () => {
+      effect(() => { probe.get(); partial++; });
+      throw new Error("fallback failed");
+    };
+    pushDisposeScope();
+    expect(() => <Slow fallback={fallback} />).toThrow("fallback failed");
+    popDisposeScope()();
+    partial = 0;
+    probe.set(1);
+    expect(partial).toBe(0);
+  });
+
   test("a non-thunk fallback warns and is ignored", async () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     async function P() {
@@ -1253,6 +1275,46 @@ describe("when(): a branch that throws", () => {
     }
     popDisposeScope()();
     expect(hasActiveDisposeScope()).toBe(hadScope);
+  });
+
+  // A branch that threw was kept as the live branch (0.15), so what it made before the throw
+  // stayed subscribed: for good on the first render, where the throw leaves when() before its
+  // teardown is registered, and until the next swap on an update; and a later truthy value never
+  // built it again. Now what it made is disposed at the throw, and the next change builds again.
+  test("on the first render or an update, what it made is disposed, and the next change builds again", () => {
+    const probe = signal(0);
+    let partial = 0;
+    let failing = true;
+    const branch = () => {
+      effect(() => { probe.get(); partial++; });
+      if (failing) throw new Error("branch failed");
+      return <p>ok</p>;
+    };
+
+    // The first render: the throw leaves when(), and nothing it made outlives the scope around it.
+    pushDisposeScope();
+    expect(() => when(signal(true), branch)).toThrow("branch failed");
+    popDisposeScope()();
+    partial = 0;
+    probe.set(1);
+    expect(partial).toBe(0);
+
+    // An update: the throw reaches the writer, and nothing of the branch stays.
+    const cond = signal(0);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => when(cond, branch, () => <i>none</i>));
+    expect(root.textContent).toBe("none");
+    expect(() => cond.set(1)).toThrow("branch failed");
+    expect(root.textContent).toBe("");
+    partial = 0;
+    probe.set(2);
+    expect(partial).toBe(0);
+
+    failing = false;
+    cond.set(2); // still truthy, and the branch is built again
+    expect(root.textContent).toBe("ok");
+    dispose();
+    expect(root.textContent).toBe("");
   });
 });
 

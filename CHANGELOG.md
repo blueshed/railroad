@@ -21,6 +21,16 @@ All notable changes to `@blueshed/railroad`. The format follows
   are disposed with the scope around it), to the writer of the items on an
   update. The next update renders the row again.
 
+- **A `when()` branch that throws on its first render is disposed with its
+  scope.** A branch that threw was kept as the live branch, so what it made
+  before the throw stayed subscribed: for good on the first render, where
+  the throw leaves `when()` before its teardown is registered, and until the
+  next swap on an update. A later truthy value then didn't build it again,
+  since the truthiness hadn't changed. Now what the branch made is disposed
+  at the throw, its brackets stay empty, the throw goes on as before, and
+  the next change of the condition builds it again. An async component's
+  `fallback` that throws had the same gap, and has the same fix.
+
 ## [0.15.0] - 2026-09-28
 
 ### Breaking

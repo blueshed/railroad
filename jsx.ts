@@ -60,12 +60,14 @@
  * routes() handler, when/list render, or mount()) — their internal effects
  * would be impossible to tear down.
  *
- * A list() row that throws is left out: what it made before the throw is
- * disposed and nothing of it is inserted (an index-based row that throws on a
- * rebuild is left empty between its brackets). The other rows still render,
- * then the first error is rethrown, as a throw in a when() branch is: out of
- * list() on the first render (the rows made beside it go with the scope), to
- * the writer of the items on an update. The next update renders the row again.
+ * A when() branch or list() row that throws keeps nothing: what it made
+ * before the throw is disposed, nothing of it is inserted, and the next change
+ * builds it again. A list()'s other rows still render (an index-based row that
+ * throws on a rebuild is left empty between its brackets), then the first
+ * error is rethrown. The throw leaves when()/list() on the first render (a
+ * list()'s rows made beside it go with the scope), and reaches the writer of
+ * the condition or the items on an update. An async component's fallback that
+ * throws has what it made disposed too, and the throw leaves the component.
  *
  * A Signal made by another copy of railroad throws where it is given as a
  * child, a prop, a when() condition or a list() source: this copy can't track
@@ -423,13 +425,16 @@ function asyncComponent(
   frag.appendChild(start);
   if (fallback) {
     // Own sub-scope so the fallback's effects die at the swap, not with the
-    // whole component.
+    // whole component. A fallback that throws has what it made disposed: the
+    // throw leaves the component before its teardown below is registered.
     pushDisposeScope();
     try {
       frag.appendChild(untrackRender("a fallback", fallback, fallback));
-    } finally {
-      currentDispose = popDisposeScope();
+    } catch (err) {
+      popDisposeScope()();
+      throw err;
     }
+    currentDispose = popDisposeScope();
   }
   frag.appendChild(end);
 
@@ -649,9 +654,15 @@ export function when<T>(
       result = v$
         ? untrackRender("a when() branch", truthy, () => truthy(v$))
         : falsy ? untrackRender("a when() branch", falsy, falsy) : null;
-    } finally {
-      currentDispose = popDisposeScope();
+    } catch (err) {
+      // A branch that throws keeps nothing: what it made is disposed (on the
+      // first render the throw leaves when() before its teardown exists), the
+      // brackets stay empty, and the next change of the condition builds again.
+      popDisposeScope()();
+      wasTruthy = undefined;
+      throw err;
     }
+    currentDispose = popDisposeScope();
     if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
   }
 
