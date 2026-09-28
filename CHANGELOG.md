@@ -8,6 +8,18 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Breaking
 
+- **`mount()`'s render runs untracked**, as a component body already did.
+  A `.get()` directly in the function given to `mount()` subscribed
+  whatever effect was running, so an effect that mounted, as in
+  `effect(() => mount(root, () => <p>{x.get()}</p>))`, re-ran and
+  re-mounted when `x` changed. It no longer does: the read is one-shot, and
+  warns in development (see Added).
+  **Who is affected:** an effect that calls `mount()` and relied on the
+  render's own reads to re-run it.
+  **How to move across:** read the signal in the effect, outside the
+  render: `effect(() => { const v = x.get(); return mount(root, () => <p>{v}</p>); })`;
+  or bind it, `mount(root, () => <p>{x}</p>)`, which updates in place.
+
 - **Each tag's props are typed (types only).** `JSX.IntrinsicElements` was
   `[tag: string]: any`, so a typo (`<div clas>`), React's casing
   (`onClick`, `tabIndex`), a string handler (`onclick="…"`) or a made-up tag
@@ -48,7 +60,7 @@ All notable changes to `@blueshed/railroad`. The format follows
   anything but a production build: Bun's bundler replaces
   `process.env.NODE_ENV`, so a production bundle (`Bun.serve` with
   `development: false`, `bun build --production`, or `NODE_ENV=production`)
-  leaves the check out.
+  turns the check off (its text stays in the bundle).
 
 ### Changed
 

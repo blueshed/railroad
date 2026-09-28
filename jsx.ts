@@ -520,7 +520,8 @@ function appendChildren(parent: Node, children: any[]): void {
 /**
  * Mount UI into `target` under a fresh dispose scope. Effects, computeds,
  * when() and list() created by `render` tear down when the returned disposer
- * runs, which also removes the rendered nodes. Use this (or routes()) for app
+ * runs, which also removes the rendered nodes. `render` runs untracked, like
+ * a component body: a .get() in it doesn't subscribe an effect calling mount(). Use this (or routes()) for app
  * roots so the scope rules in signals.ts hold all the way down.
  *
  *   const dispose = mount(document.getElementById("root")!, () => <App />);

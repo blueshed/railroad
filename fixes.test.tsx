@@ -1413,6 +1413,18 @@ describe("render bodies are untracked: a .get() there subscribes nothing around 
     expect(runs).toBe(1);
     dispose();
   });
+
+  test("mount()'s render doesn't subscribe the effect that mounts it", () => {
+    // A behaviour change: it did before, so an effect that mounted re-mounted on these reads.
+    const x = signal(1);
+    const root = document.createElement("div");
+    let runs = 0;
+    const dispose = effect(() => { runs++; return mount(root, () => <p>{x.get()}</p>); });
+    x.set(2);
+    expect(runs).toBe(1);
+    expect(root.textContent).toBe("1");
+    dispose();
+  });
 });
 
 // ============================================================ a second copy of railroad

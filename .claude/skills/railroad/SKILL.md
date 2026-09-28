@@ -43,7 +43,7 @@ Bun 1.3 already ships HTML imports, HMR, TSX bundling, `--compile`, and `Bun.Web
 
 #1 bug. `{count}` puts the Signal *itself* into JSX, where the runtime registers a reactive text node. `{count.get()}` puts a plain number in, never reactive again.
 
-The same goes for a `.get()` anywhere a render runs: a component body, a `when()` branch, a `list()` row, a route handler. Those run once and **untracked**, so the read is a snapshot and subscribes nothing around it; bind the signal (`class={() => sel.get() === id ? "on" : ""}`) where the value should stay live. In development railroad warns the first time each signal is read this way (`.get() in a render body … reads once`); for a one-shot read you mean, use `.peek()`, which doesn't.
+The same goes for a `.get()` anywhere a render runs: a component body, a `when()` branch, a `list()` row, a route handler, `mount()`'s render. Those run once and **untracked**, so the read is a snapshot and subscribes nothing around it; bind the signal (`class={() => sel.get() === id ? "on" : ""}`) where the value should stay live. In development railroad warns the first time each signal is read this way (`.get() in a render body … reads once`); for a one-shot read you mean, use `.peek()`, which doesn't.
 
 A function child must also return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the *stringified* element (e.g. `[object SVGElement]`), not the element — railroad warns on the console (dev and prod alike). To render elements conditionally use `when()`; for collections use `list()`.
 
