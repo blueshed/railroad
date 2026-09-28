@@ -22,6 +22,25 @@ All notable changes to `@blueshed/railroad`. The format follows
   fix remains one copy. Only a signal made by this version or later is
   recognised.
 
+### Fixed
+
+- **A computed that switches what it reads no longer lets an effect see it
+  half-updated.** Depth was fixed when a reader subscribed, so after
+  `c = computed(() => flag.get() ? b.get() : a.get() * 2)` moved onto the
+  deeper `b`, a later write could run an effect reading `a` and `c` once on
+  the new `a` and the old `c`, then again on the settled values; and an
+  effect that started reading a computed in the same pass as that
+  computed's input changed read it stale. Now a computed that deepens
+  raises its readers with it, and a read during a pass of a computed that
+  hasn't settled yet brings it up to date first. An effect that writes a
+  signal also lets what reads that signal settle before the next effect at
+  its depth runs. The randomized checker the ledger asked for is in
+  `fixes.test.tsx`: over 300 graphs whose computeds switch inputs it counts
+  no half-updated read, no second run and no stale value, where 0.14
+  counted thousands. Graphs whose computeds read the same inputs every run
+  do the same work as before, and a deep chain settles about 3× faster: the
+  drain no longer rescans from depth 0 for each depth.
+
 ### Docs
 
 - **The skill's repacked-tarball recipe refreshes the app's copy.** It said

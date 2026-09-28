@@ -10,16 +10,15 @@
  * affected computeds and effects and runs them ordered by derivation depth,
  * each at most once per settled pass — in a diamond (a -> b, a -> c, an
  * effect reading both b and c) the effect re-runs once and never observes
- * half-updated state. That holds while each computed reads the same signals
- * every run. A computed that switches what it reads (`flag.get() ? b.get() :
- * a.get()`) can move to a greater depth than its readers were ordered for, so
- * on a later write one of them may run once on half-updated values before it
- * re-runs on the settled ones: every write still settles consistently. Two
- * more bounds: siblings at the same depth run in subscription order, and an
- * effect that writes signals re-queues their consumers within the same pass
- * (a true cycle throws after the same effect re-runs ~100 times). batch()
- * coalesces MULTIPLE writes (a multi-write transaction) so subscribers see
- * one consistent snapshot.
+ * half-updated state. Depth follows the reads: a computed that switches what
+ * it reads (`flag.get() ? b.get() : a.get()`) moves itself and its readers
+ * deeper, and a computed read before it has settled in the pass is brought up
+ * to date first, so no listener reads a half-updated value. Two bounds:
+ * siblings at the same depth run in subscription order, and an effect that
+ * writes signals re-queues their consumers within the same pass, settling
+ * them before the next effect runs (a true cycle throws after the same
+ * listener re-runs ~100 times). batch() coalesces MULTIPLE writes (a
+ * multi-write transaction) so subscribers see one consistent snapshot.
  *
  * Writes made inside an effect body, its first run included, reach other
  * listeners after the body returns. So an effect that writes `a` and then
@@ -110,8 +109,21 @@ export function assertOwnSignal(value: unknown): void {
 }
 
 // Listeners carry their topological level (derivation depth) so the flush
-// scheduler can settle upstream computeds before downstream consumers.
-type Listener = (() => void) & { level?: number };
+// scheduler can settle upstream computeds before downstream consumers. A
+// computed's listener also carries the signal it writes (`output`), what its
+// last run read (`deps`), and when it was last known fresh (freshen()).
+type Listener = (() => void) & {
+  level?: number;
+  // It waits in a flush while queuedIn is that flush, at the level queuedAt.
+  // raise() can move it to a higher bucket, and freshen() can run it early;
+  // the entry left behind no longer matches, and is skipped. Fields, not a
+  // Map, because the drain checks them for every listener it runs.
+  queuedIn?: Flush | null;
+  queuedAt?: number;
+  output?: Signal<any>;
+  deps?: Set<Signal<any>>;
+  fresh?: number;
+};
 
 // Global tracking for effect dependencies
 let currentListener: Listener | null = null;
@@ -126,6 +138,15 @@ const pendingEffects = new Set<Listener>();
 // Writes made BY a running listener fold into the active flush instead of
 // recursing, which is what makes diamonds settle in one consistent pass (and
 // keeps deep computed chains off the call stack).
+//
+// Levels change as dependencies do. A computed that starts reading something
+// deeper raises itself and whatever reads it (raise()), so its readers still
+// run after it. And a read, during a flush, of a computed at or above the level
+// being drained, which may not have settled yet, pulls it up to date first
+// (freshen()). Everything below that level has settled: a listener that
+// queues something lower (an effect that writes) hands the pass back to it
+// before the next one runs. So a listener never reads a half-updated computed,
+// even one that switches what it reads.
 
 // Infinite loop guard. A legitimate pass runs each listener a handful of times
 // (an effect re-queued by a later same-pass write); a genuine cycle re-runs the
@@ -134,56 +155,75 @@ const MAX_RUNS_PER_LISTENER = 100;
 
 interface Flush {
   buckets: (Listener[] | undefined)[];
-  queued: Set<Listener>;
+  // The lowest bucket that may hold a listener, so finding the next one
+  // doesn't rescan from 0 (quadratic in a deep chain).
+  low: number;
+  // The level being drained. Every computed below it has settled.
+  floor: number;
   runs: Map<Listener, number>;
+  // A throwing listener must not strand the ones queued behind it: run them
+  // all, remember the first error, and rethrow it once the pass has settled.
+  error?: { thrown: unknown };
 }
 
 let activeFlush: Flush | null = null;
 
+// Writes to source signals, counted: a computed pulled fresh stays fresh
+// until the next one (a computed's own write can't unsettle what it reads).
+let sourceWrites = 0;
+
+function place(flush: Flush, l: Listener, lv: number): void {
+  l.queuedIn = flush;
+  l.queuedAt = lv;
+  (flush.buckets[lv] ??= []).push(l);
+  if (lv < flush.low) flush.low = lv;
+}
+
 function enqueue(flush: Flush, listeners: Iterable<Listener>): void {
   for (const l of listeners) {
-    if (flush.queued.has(l)) continue;
-    flush.queued.add(l);
-    const lv = l.level ?? 0;
-    (flush.buckets[lv] ??= []).push(l);
+    if (l.queuedIn !== flush) place(flush, l, l.level ?? 0);
+  }
+}
+
+function run(flush: Flush, l: Listener): void {
+  // Dequeue before running so a listener that re-dirties its own inputs is
+  // re-queued (and the runs guard catches a true cycle).
+  l.queuedIn = null;
+  const n = (flush.runs.get(l) ?? 0) + 1;
+  if (n > MAX_RUNS_PER_LISTENER) {
+    throw new Error(
+      "Maximum effect depth exceeded — possible infinite loop",
+    );
+  }
+  flush.runs.set(l, n);
+  try {
+    l();
+  } catch (err) {
+    flush.error ??= { thrown: err };
   }
 }
 
 function drain(flush: Flush): void {
-  // A throwing listener must not strand the ones queued behind it — run them
-  // all, remember the first error, and rethrow it once the pass has settled.
-  let firstError: unknown;
-  let hasError = false;
   for (;;) {
-    let lv = -1;
-    for (let i = 0; i < flush.buckets.length; i++) {
-      if (flush.buckets[i]?.length) { lv = i; break; }
-    }
-    if (lv === -1) break;
+    let lv = flush.low;
+    while (lv < flush.buckets.length && !flush.buckets[lv]?.length) lv++;
+    if (lv >= flush.buckets.length) break;
     const bucket = flush.buckets[lv]!;
     flush.buckets[lv] = undefined;
-    for (const l of bucket) {
-      // Remove from `queued` before running so a listener that re-dirties its
-      // own inputs is re-queued (and the runs guard catches a true cycle).
-      flush.queued.delete(l);
-      const n = (flush.runs.get(l) ?? 0) + 1;
-      if (n > MAX_RUNS_PER_LISTENER) {
-        throw new Error(
-          "Maximum effect depth exceeded — possible infinite loop",
-        );
-      }
-      flush.runs.set(l, n);
-      try {
-        l();
-      } catch (err) {
-        if (!hasError) {
-          hasError = true;
-          firstError = err;
-        }
+    flush.low = flush.floor = lv;
+    for (let i = 0; i < bucket.length; i++) {
+      const l = bucket[i]!;
+      if (l.queuedIn !== flush || l.queuedAt !== lv) continue; // moved higher, or already run
+      run(flush, l);
+      if (flush.low < lv) {
+        // It wrote a signal that something lower reads: settle that before
+        // the rest of this level runs.
+        flush.buckets[lv] = bucket.slice(i + 1).concat(flush.buckets[lv] ?? []);
+        break;
       }
     }
   }
-  if (hasError) throw firstError;
+  if (flush.error) throw flush.error.thrown;
 }
 
 function scheduleListeners(listeners: Iterable<Listener>): void {
@@ -191,13 +231,75 @@ function scheduleListeners(listeners: Iterable<Listener>): void {
     enqueue(activeFlush, listeners);
     return;
   }
-  const flush: Flush = { buckets: [], queued: new Set(), runs: new Map() };
+  const flush: Flush = { buckets: [], low: 0, floor: 0, runs: new Map() };
   enqueue(flush, listeners);
   activeFlush = flush;
   try {
     drain(flush);
   } finally {
     activeFlush = null;
+  }
+}
+
+// Bring a computed's signal up to date before it is read, when it sits at or
+// above the level being drained and so may not have settled: walk what its
+// computed read at that height, and run every one queued there, upstream
+// first, so each finds its own inputs settled. Only a computed whose inputs
+// changed depth, or a sibling of the reader not yet run, gets here; a fixed
+// graph never does. An explicit stack, not recursion, so a deep chain stays
+// off the call stack.
+function freshen(flush: Flush, s: Signal<any>): void {
+  const root = s.producer;
+  if (!root || root.fresh === sourceWrites) return;
+  root.fresh = sourceWrites; // marked on the way in, so a cycle stops here
+  const stack: [Listener, Iterator<Signal<any>>][] = [[root, root.deps!.values()]];
+  while (stack.length) {
+    const [p, deps] = stack[stack.length - 1]!;
+    const next = deps.next();
+    if (next.done) {
+      stack.pop();
+      if (p.queuedIn === flush) run(flush, p);
+      continue;
+    }
+    const q = next.value.level >= flush.floor ? next.value.producer : undefined;
+    if (q && q.fresh !== sourceWrites) {
+      q.fresh = sourceWrites;
+      stack.push([q, q.deps!.values()]);
+    }
+  }
+}
+
+// A computed that starts reading something deeper moves deeper itself, and so
+// must whatever reads it: otherwise, on a later write, a reader could be run
+// before the computed had settled. Raise their levels as far as the rise
+// reaches, moving any that wait in the active flush. A cycle can't be
+// ordered, so the rise stops where it comes round, and the runs guard is left
+// to catch one that doesn't converge. Depth-first, on an explicit stack.
+function raise(s: Signal<any>, lv: number, from: Listener): void {
+  const readers = (sig: Signal<any>) => (sig as unknown as { listeners: Set<Listener> }).listeners.values();
+  s.level = lv;
+  const path: Listener[] = [from];
+  const onPath = new Set(path);
+  const stack: [Signal<any>, Iterator<Listener>][] = [[s, readers(s)]];
+  while (stack.length) {
+    const [sig, it] = stack[stack.length - 1]!;
+    const next = it.next();
+    if (next.done) {
+      stack.pop();
+      onPath.delete(path.pop()!);
+      continue;
+    }
+    const l = next.value;
+    const at = sig.level + 1;
+    if ((l.level ?? 0) >= at || onPath.has(l)) continue;
+    l.level = at;
+    if (activeFlush && l.queuedIn === activeFlush) place(activeFlush, l, at);
+    if (l.output) {
+      l.output.level = at;
+      path.push(l);
+      onPath.add(l);
+      stack.push([l.output, readers(l.output)]);
+    }
   }
 }
 
@@ -235,9 +337,12 @@ export class Signal<T> implements ReadonlySignal<T> {
   /**
    * Topological depth for the flush scheduler: 0 for source signals; a
    * computed's output signal carries 1 + the depth of its deepest source so
-   * consumers re-run after it settles. @internal
+   * consumers re-run after it settles, and is raised with them if that
+   * computed starts reading something deeper. @internal
    */
   level = 0;
+  /** The listener of the computed that writes this signal, if one does. @internal */
+  producer: Listener | undefined = undefined;
 
   constructor(initialValue: T, options?: SignalOptions<T>) {
     this.value = initialValue;
@@ -245,6 +350,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   }
 
   get(): T {
+    if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     if (currentListener) this.listeners.add(currentListener);
     if (currentDeps) currentDeps.add(this);
     return this.value;
@@ -287,6 +393,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   }
 
   peek(): T {
+    if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     return this.value;
   }
 
@@ -315,6 +422,7 @@ export class Signal<T> implements ReadonlySignal<T> {
    * Respects `batch()` — listeners are deferred until the batch exits.
    */
   touch(): void {
+    if (this.level === 0) sourceWrites++; // a source: a computed's signal is deeper
     if (this.listeners.size === 0) return;
     if (batchDepth > 0) {
       for (const listener of this.listeners) pendingEffects.add(listener);
@@ -461,6 +569,8 @@ export function computed<T>(
   // and fn() is evaluated exactly once on creation.
   let s!: Signal<T>;
   effect(() => {
+    const self = currentListener!;
+    self.deps = currentDeps!; // what this run reads, for freshen()
     const v = fn();
     // currentDeps is this effect's live dep set (fn has finished reading).
     // The output signal sits one level above the deepest source so consumers
@@ -468,11 +578,16 @@ export function computed<T>(
     let lv = 0;
     for (const dep of currentDeps!) if (dep.level >= lv) lv = dep.level + 1;
     if (s) {
-      s.level = lv;
+      // Raised before the write below queues the readers, so they queue at
+      // their new levels.
+      if (lv > s.level) raise(s, lv, self);
+      else s.level = lv;
       s.set(v);
     } else {
       s = new Signal<T>(v, options);
       s.level = lv;
+      s.producer = self;
+      self.output = s;
     }
   });
   return s;

@@ -1538,10 +1538,10 @@ describe("effect(): only a returned function is a cleanup", () => {
 // ============================================================ what "glitch-free" promises
 
 describe("scheduling: a computed that switches what it reads", () => {
-  // Pins the documented bound. Glitch-free holds for fixed dependencies (signals.test.ts); a
-  // computed that moves to a deeper source can let an effect run once on half-updated values,
-  // but every write still settles consistently.
-  test("every write settles on consistent values", () => {
+  // Levels were fixed when a reader subscribed, so a computed that moved to a deeper source
+  // (flag.get() ? b.get() : …) could be read, on a later write, before it settled: one effect run
+  // on half-updated values, then another on the settled ones.
+  test("an effect doesn't see it half-updated after it deepens", () => {
     const a = signal(1);
     const flag = signal(false);
     const b = computed(() => a.get() * 2);
@@ -1550,7 +1550,108 @@ describe("scheduling: a computed that switches what it reads", () => {
     effect(() => { seen.push(`a=${a.get()} c=${c.get()}`); });
     flag.set(true);
     a.set(2);
-    expect(seen.at(-1)).toBe("a=2 c=4");
+    expect(seen).toEqual(["a=1 c=2", "a=2 c=4"]);
+  });
+
+  test("an effect that starts reading a computed in the same pass sees it settled", () => {
+    const a = signal(1);
+    const flag = signal(false);
+    const b = computed(() => a.get() * 2);
+    const seen: string[] = [];
+    effect(() => { seen.push(flag.get() ? `a=${a.get()} b=${b.get()}` : `a=${a.get()}`); });
+    batch(() => { flag.set(true); a.set(2); });
+    expect(seen).toEqual(["a=1", "a=2 b=4"]);
+  });
+
+  test("an effect that writes lets what reads its write settle before the next effect runs", () => {
+    // Two effects at one level: the first copies c into a, the second reads a and b = a * 2.
+    const s = signal(1);
+    const a = signal(0);
+    const c = computed(() => s.get());
+    effect(() => { a.set(c.get()); });
+    const b = computed(() => a.get() * 2);
+    const seen: string[] = [];
+    effect(() => { seen.push(`a=${a.get()} b=${b.get()} c=${c.get()}`); });
+    s.set(2);
+    expect(seen).toEqual(["a=1 b=2 c=1", "a=2 b=4 c=2"]);
+  });
+
+  // The checker the ledger asked for: random graphs of computeds that pick their inputs by the
+  // parity of another, read by effects that do the same. Each effect checks every value it reads
+  // against the value computed from the sources afresh, so a half-updated read is counted; after
+  // each write every computed and effect must be settled, and no effect may run twice.
+  function check(seed: number, dynamic: boolean) {
+    let t = seed;
+    const rand = (n: number) => {
+      t = (t + 0x6d2b79f5) | 0;
+      let x = Math.imul(t ^ (t >>> 15), 1 | t);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return Math.floor((((x ^ (x >>> 14)) >>> 0) / 4294967296) * n);
+    };
+    type Spec = { sel: number; even: number[]; odd: number[] };
+    const spec = (below: number): Spec => {
+      const some = () => Array.from({ length: 1 + rand(2) }, () => rand(below));
+      const even = some();
+      return { sel: rand(below), even, odd: dynamic ? some() : even };
+    };
+    const f = ({ sel, even, odd }: Spec, read: (j: number) => number) => {
+      const v = read(sel);
+      let sum = v;
+      for (const j of v % 2 === 0 ? even : odd) sum += read(j);
+      return sum % 5; // small, so computeds often recompute to an unchanged value
+    };
+    const nSources = 3 + rand(3);
+    const specs = Array.from({ length: 6 + rand(10) }, (_, i) => spec(nSources + i));
+    const sources = Array.from({ length: nSources }, () => signal(rand(5)));
+    const nodes: ReadonlySignal<number>[] = [...sources];
+    for (const sp of specs) nodes.push(computed(() => f(sp, (j) => nodes[j]!.get())));
+    // What every node should hold, from the sources as they are now.
+    const settled = () => {
+      const v: number[] = sources.map((s) => s.peek());
+      specs.forEach((sp, i) => v.push(f(sp, (j) => v[j]!)));
+      return v;
+    };
+    const counts = { glitches: 0, stale: 0, reruns: 0 };
+    const effects = Array.from({ length: 2 + rand(4) }, () => {
+      const e = { spec: spec(nodes.length), last: -1, runs: 0 };
+      effect(() => {
+        e.runs++;
+        const want = settled();
+        e.last = f(e.spec, (j) => {
+          const got = nodes[j]!.get();
+          if (got !== want[j]) counts.glitches++;
+          return got;
+        });
+      });
+      return e;
+    });
+    for (let step = 0; step < 40; step++) {
+      for (const e of effects) e.runs = 0;
+      const writes = Array.from({ length: 1 + rand(3) }, () => [rand(nSources), rand(5)] as const);
+      if (writes.length === 1) sources[writes[0]![0]]!.set(writes[0]![1]);
+      else batch(() => { for (const [i, v] of writes) sources[i]!.set(v); });
+      const want = settled();
+      nodes.forEach((n, j) => { if (n.peek() !== want[j]) counts.stale++; });
+      for (const e of effects) {
+        if (e.last !== f(e.spec, (j) => want[j]!)) counts.stale++;
+        if (e.runs > 1) counts.reruns++;
+      }
+    }
+    return counts;
+  }
+
+  test("random graphs: no effect reads a half-updated value, runs twice, or is left stale", () => {
+    const total = { glitches: 0, stale: 0, reruns: 0 };
+    for (let seed = 1; seed <= 400; seed++) {
+      pushDisposeScope();
+      try {
+        // 100 graphs whose computeds always read the same inputs, 300 that switch
+        for (const [k, v] of Object.entries(check(seed, seed > 100))) total[k as keyof typeof total] += v;
+      } finally {
+        popDisposeScope()();
+      }
+    }
+    expect(total).toEqual({ glitches: 0, stale: 0, reruns: 0 });
   });
 });
 
