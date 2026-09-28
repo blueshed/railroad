@@ -1449,6 +1449,44 @@ describe("list(): a row that throws", () => {
     expect(root.querySelectorAll("li")).toHaveLength(0);
   });
 
+  test("a row placed in <svg> is adopted under its own scope, and a throw there leaves it out", () => {
+    const probe = signal(0);
+    const applies = new Map<number, number>();
+    const items = signal<number[]>([]);
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = mount(svg, () => (
+      <g>
+        {list(items, (i) => i, (i$) => {
+          // An <a> is created as HTML, and adopted as the row is placed in the <g>, which
+          // applies its href again: the second call, which throws for row 2. Keyed, so rows 1
+          // and 3 are kept, not rebuilt, when the list runs again.
+          const i = i$.peek();
+          let calls = 0;
+          const href = () => {
+            probe.get();
+            applies.set(i, (applies.get(i) ?? 0) + 1);
+            if (i === 2 && ++calls > 1) throw new Error("adoption failed");
+            return `#${i}`;
+          };
+          return <a href={href}>{String(i)}</a>;
+        })}
+      </g>
+    ));
+    const anchors = () => [...svg.querySelectorAll("a")].map((a) => `${a.namespaceURI === SVG_NS ? "svg" : "html"} ${a.getAttribute("href")}`);
+
+    expectBalancedAround(() => expect(() => items.set([1, 2, 3])).toThrow("adoption failed"));
+    expect(anchors()).toEqual(["svg #1", "svg #3"]);
+    items.set([1, 3, 4]); // the list runs again, and disposes what its last run owned
+    applies.clear();
+    probe.set(1);
+    // Each adopted href is its row's own, so it outlives the list's run; row 2's went with it.
+    expect([...applies.keys()].sort()).toEqual([1, 3, 4]);
+    dispose();
+    applies.clear();
+    probe.set(2);
+    expect(applies.size).toBe(0);
+  });
+
   test("an index-based rebuild that throws leaves its row empty, rebuilt on the next change", () => {
     const probe = signal(0);
     let partial = 0;
