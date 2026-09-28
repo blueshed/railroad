@@ -190,6 +190,11 @@ const MAX_RUNS_PER_LISTENER = 100;
 
 interface Flush {
   buckets: (Listener[] | undefined)[];
+  // Where the drain stopped in each bucket it left part-read. A bucket is
+  // read in place, so an effect that hands the pass to a lower level and gets
+  // it back resumes there (re-slicing the rest was quadratic in siblings).
+  // Made only when a bucket is first left part-read.
+  heads?: number[];
   // The lowest bucket that may hold a listener, so finding the next one
   // doesn't rescan from 0 (quadratic in a deep chain).
   low: number;
@@ -239,23 +244,27 @@ function run(flush: Flush, l: Listener): void {
 }
 
 function drain(flush: Flush): void {
+  const { buckets } = flush;
   for (;;) {
     let lv = flush.low;
-    while (lv < flush.buckets.length && !flush.buckets[lv]?.length) lv++;
-    if (lv >= flush.buckets.length) break;
-    const bucket = flush.buckets[lv]!;
-    flush.buckets[lv] = undefined;
+    while (lv < buckets.length && !buckets[lv]) lv++;
+    if (lv >= buckets.length) break;
+    const bucket = buckets[lv]!;
     flush.low = flush.floor = lv;
-    for (let i = 0; i < bucket.length; i++) {
-      const l = bucket[i]!;
+    // Listeners queued at this level while it drains join the end of it.
+    let head = flush.heads?.[lv] ?? 0;
+    while (head < bucket.length) {
+      const l = bucket[head++]!;
       if (l.queuedIn !== flush || l.queuedAt !== lv) continue; // moved higher, or already run
       run(flush, l);
-      if (flush.low < lv) {
-        // It wrote a signal that something lower reads: settle that before
-        // the rest of this level runs.
-        flush.buckets[lv] = bucket.slice(i + 1).concat(flush.buckets[lv] ?? []);
-        break;
-      }
+      // It wrote a signal that something lower reads: settle that before the
+      // rest of this level runs (this bucket keeps its place).
+      if (flush.low < lv) break;
+    }
+    if (head < bucket.length) (flush.heads ??= [])[lv] = head;
+    else {
+      buckets[lv] = undefined;
+      if (flush.heads) flush.heads[lv] = 0;
     }
   }
   if (flush.error) throw flush.error.thrown;
@@ -266,7 +275,7 @@ function scheduleListeners(listeners: Iterable<Listener>): void {
     enqueue(activeFlush, listeners);
     return;
   }
-  const flush: Flush = { buckets: [], low: 0, floor: 0, runs: new Map() };
+  const flush: Flush = { buckets: [], heads: undefined, low: 0, floor: 0, runs: new Map() };
   enqueue(flush, listeners);
   activeFlush = flush;
   try {
