@@ -16,16 +16,19 @@ All notable changes to `@blueshed/railroad`. The format follows
   attribute is the element's property lowercased (`tabindex`, `readonly`,
   `colspan`), plus `class`/`className`, `for`/`htmlFor` and any name with a
   hyphen (`data-*`, `aria-*`, `hx-get`); each value static, a Signal or a
-  function. An `on*` prop is one of the element's own events, lowercase,
-  and its handler gets the event with `currentTarget` typed
-  (`oninput={(e) => e.currentTarget.value}`); a `ref` gets the element's
-  type. SVG tags and custom elements (a name with a hyphen) still take any
+  function. An `on*` prop is one of the element's own events, lowercase
+  (with `onfocusin`, `onfocusout` and `oncomposition*`, which the DOM types
+  list but give no property), and its handler gets the event with
+  `currentTarget` typed (`oninput={(e) => e.currentTarget.value}`);
+  `oninput`'s event is an `InputEvent`, except on a `<select>`. A `ref` gets
+  the element's type. SVG tags and custom elements (a name with a hyphen) still take any
   attribute, with typed handlers and `ref`: SVG's element types don't name
   their attributes. Nothing changes at run time.
   **Who is affected:** JSX that uses React-cased handlers or attributes
-  (`onClick`, `onKeyDown`, `tabIndex`, `readOnly`), an attribute the DOM
-  types don't know that has no hyphen, a tag outside the HTML and SVG maps
-  (`<center>`, `<math>`), or an object as an attribute value.
+  (`onClick`, `onKeyDown`, `tabIndex`, `readOnly`), a `key` (which railroad
+  ignores), an attribute the DOM types don't know that has no hyphen, a tag
+  outside the HTML and SVG maps (`<center>`, `<math>`), or an object as an
+  attribute value.
   **How to move across:** write the HTML name, lowercase (`onclick`,
   `tabindex`), which tsc suggests ("Did you mean 'onclick'?"); give a
   custom attribute a `data-` prefix, or set it in a `ref`. delta's and eta's

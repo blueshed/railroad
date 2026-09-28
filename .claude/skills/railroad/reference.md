@@ -238,9 +238,10 @@ lowercased, as HTML writes it (`tabindex`, `readonly`, `colspan`,
 `popovertarget`), plus `class`/`className`, `for`/`htmlFor`, and any name
 with a hyphen (`data-*`, `aria-*`, `http-equiv`, a library's `hx-get`); each
 value static, a Signal or a function of a string, number, boolean, `null` or
-`undefined`. An `on*` prop is one of the element's own events, lowercase, a
-function of that event with `currentTarget` typed; a `ref` gets the element's
-type. So `onClick`, `tabIndex`, `<div clas>` and `onclick="…"` don't compile.
+`undefined`. An `on*` prop is one of the element's own events, lowercase
+(`onfocusin`, `onfocusout` and `oncomposition*` included), a function of that
+event with `currentTarget` typed; `oninput` gets an `InputEvent`, except on a
+`<select>`. A `ref` gets the element's type. So `onClick`, `tabIndex`, `<div clas>` and `onclick="…"` don't compile.
 An SVG tag or a custom element (a name with a hyphen) takes any attribute,
 with typed handlers and `ref`, since SVG's element types don't name
 attributes.

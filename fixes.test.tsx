@@ -2139,6 +2139,8 @@ describe("types: each tag's props come from the DOM's element types", () => {
       <div title={{ text: "x" }} />,
       // @ts-expect-error -- a tag that isn't one
       <dvi />,
+      // @ts-expect-error -- a <select>'s input event is a plain Event
+      <select oninput={(e: InputEvent) => e.data} />,
     ];
     expect(els.every((el) => el instanceof Node)).toBe(true);
   });
@@ -2181,6 +2183,18 @@ describe("types: each tag's props come from the DOM's element types", () => {
       </svg>,
       // a custom element takes any attribute
       <my-widget some-prop="x" count={n} onclick={() => {}} />,
+      // optional in the DOM types (ontouchstart?:), and still handlers
+      <div
+        ontouchstart={(e) => e.touches.length} ontouchmove={(e: TouchEvent) => e}
+        ontouchend={() => {}} ontouchcancel={null}
+      />,
+      // in the element's event map, with no on* property: focusin/out, composition*
+      <div onfocusin={(e) => e.relatedTarget} onfocusout={(e: FocusEvent) => e} oncompositionend={(e) => e.data} />,
+      <circle ontouchstart={(e) => e.touches} onfocusin={() => {}} />,
+      // input: the DOM types it Event; a text control sends an InputEvent (a <select> doesn't)
+      <input oninput={(e: InputEvent) => e.data} />,
+      <textarea oninput={(e) => e.inputType + e.currentTarget.value} />,
+      <select oninput={(e) => e.currentTarget.value} />,
     ];
     expect(els.every((el) => el instanceof Node)).toBe(true);
     expect(typed).toBe("");

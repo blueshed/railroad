@@ -886,8 +886,9 @@ function longestIncreasing(seq: number[]): Set<number> {
 // `class`/`className`, `for`/`htmlFor` and the few the DOM names otherwise,
 // and any attribute with a hyphen (`data-*`, `aria-*`, a library's `hx-get`);
 // each value static, a Signal, or a function (reactive). A handler is one of
-// the element's own `on*` properties, lowercase, a function of its event with
-// `currentTarget` typed. So a typo, or React's `onClick`, doesn't compile.
+// the element's own `on*` properties, or an event in its event map that has
+// none (focusin, focusout, composition*), lowercase, a function of its event
+// with `currentTarget` typed. So a typo, or React's `onClick`, doesn't compile.
 // SVG's element types don't name their attributes (presentation attributes
 // aren't properties), so an SVG tag, like a custom element, takes any
 // attribute, with typed refs and handlers.
@@ -916,11 +917,19 @@ type AttributeProps<E> = {
     : never]?: Reactive<AttrValue>;
 };
 
-type HandlerProps<E> = {
+type Handler<Ev, E> = ((ev: Ev & { currentTarget: E }) => void) | null | undefined;
+// The DOM types `input` as Event, but a text control or contenteditable sends
+// an InputEvent (a <select> doesn't), so `(e: InputEvent) => …` is the handler
+// people write.
+type EventOf<K, Ev, E> = K extends "oninput" ? (E extends HTMLSelectElement ? Ev : InputEvent) : Ev;
+
+// The element's own on* properties (NonNullable: some, like ontouchstart, are
+// optional), then the events in its map that have no property.
+type HandlerProps<E, Events> = {
   -readonly [K in keyof E as K extends `on${string}` ? K : never]?:
-    E[K] extends ((this: never, ev: infer Ev) => unknown) | null
-      ? ((ev: Ev & { currentTarget: E }) => void) | null | undefined
-      : never;
+    NonNullable<E[K]> extends (this: never, ev: infer Ev) => unknown ? Handler<EventOf<K, Ev, E>, E> : never;
+} & {
+  -readonly [K in keyof Events & string as `on${K}` extends keyof E ? never : `on${K}`]?: Handler<Events[K], E>;
 };
 
 interface CommonProps<E> {
@@ -941,14 +950,15 @@ interface CommonProps<E> {
   [hyphenated: `${string}-${string}`]: Reactive<AttrValue>;
 }
 
-type HtmlProps<E> = AttributeProps<E> & HandlerProps<E> & CommonProps<E> &
+type HtmlProps<E> = AttributeProps<E> & HandlerProps<E, HTMLElementEventMap> & CommonProps<E> &
   (E extends { htmlFor: unknown } ? { htmlFor?: Reactive<AttrValue> } : unknown);
-type AnyAttributeProps<E> = HandlerProps<E> & CommonProps<E> & { [attribute: string]: unknown };
+type AnyAttributeProps<E, Events> = HandlerProps<E, Events> & CommonProps<E> & { [attribute: string]: unknown };
 
 type HtmlTags = { [K in keyof HTMLElementTagNameMap]: HtmlProps<HTMLElementTagNameMap[K]> };
 // a, script, style and title are HTML's here: created as HTML, adopted inside <svg>
 type SvgTags = {
-  [K in Exclude<keyof SVGElementTagNameMap, keyof HTMLElementTagNameMap>]: AnyAttributeProps<SVGElementTagNameMap[K]>;
+  [K in Exclude<keyof SVGElementTagNameMap, keyof HTMLElementTagNameMap>]:
+    AnyAttributeProps<SVGElementTagNameMap[K], SVGElementEventMap>;
 };
 
 // === JSX namespace for TypeScript ===
@@ -975,7 +985,7 @@ export declare namespace createElement {
     /** Every HTML and SVG tag, typed from the DOM's element types; a custom
      *  element (a name with a hyphen) takes any attribute. */
     export interface IntrinsicElements extends HtmlTags, SvgTags {
-      [customElement: `${string}-${string}`]: AnyAttributeProps<HTMLElement>;
+      [customElement: `${string}-${string}`]: AnyAttributeProps<HTMLElement, HTMLElementEventMap>;
     }
   }
 }
