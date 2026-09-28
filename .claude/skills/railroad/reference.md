@@ -206,7 +206,11 @@ A child that is a signal or a function renders its value as text, and
 `null`, `undefined`, `true` and `false` as nothing, exactly as a static child
 does. A component body runs once and **untracked**: a `.get()` in it (or in a
 `when()` branch, a `list()` row, a route handler) is a one-shot read that
-subscribes nothing, not even the effect that happens to be building it.
+subscribes nothing, not even the effect that happens to be building it. In
+development railroad warns the first time each signal is read that way
+(`.get() in a render body … reads once`); a production build leaves the
+check out. A one-shot read you mean is `.peek()`, or `untrack(() => …)`,
+which don't warn.
 
 ### Props
 

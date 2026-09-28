@@ -62,6 +62,11 @@
  *   exists. Each effect/computed run is itself an owner scope: anything its
  *   body creates is disposed before the next run and when it is disposed.
  *
+ * Render bodies: components, when() branches, list() rows and route handlers
+ * run untracked (see jsx.ts), so a .get() there is a one-shot read. In
+ * development it warns, once per signal; .peek() is the silent one-shot read,
+ * and untrack() says the same on purpose.
+ *
  * One copy per page: signals, scopes and providers don't cross copies of
  * railroad, so a second copy logs a console.error naming both when it loads,
  * and a Signal made by one copy throws where the other's JSX, when() or
@@ -128,6 +133,36 @@ type Listener = (() => void) & {
 // Global tracking for effect dependencies
 let currentListener: Listener | null = null;
 let currentDeps: Set<Signal<any>> | null = null;
+
+// === A .get() in a render body ===
+//
+// Development is anything but a production build. Bun's bundler replaces the
+// literal `process.env.NODE_ENV` (not `typeof process`, not `process?.env`),
+// so it is read bare; the declaration is local, so no ambient type is needed,
+// and the try covers a page served unbundled, with no `process` at all.
+declare const process: { env: { NODE_ENV?: string } };
+let DEV = true;
+try {
+  DEV = process.env.NODE_ENV !== "production";
+} catch {
+  // no process: not a production build
+}
+
+// True while a render body runs (in development only): a .get() with no
+// listener then is a one-shot read that looks like a binding.
+let rendering = false;
+const warnedOneShot = new WeakSet<Signal<any>>();
+
+function warnOneShot(s: Signal<any>): void {
+  if (warnedOneShot.has(s)) return;
+  warnedOneShot.add(s);
+  console.warn(
+    "[railroad] .get() in a render body (a component, a when() branch, a list() row, a route " +
+      "handler) reads once and never updates: nothing re-runs a render. Bind the signal where " +
+      "the value should stay live ({s}, class={() => s.get()}, s.map(…)), or read it with " +
+      ".peek() if once is what you mean. (Once per signal, in development.)",
+  );
+}
 let batchDepth = 0;
 const pendingEffects = new Set<Listener>();
 
@@ -352,6 +387,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   get(): T {
     if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     if (currentListener) this.listeners.add(currentListener);
+    else if (rendering) warnOneShot(this);
     if (currentDeps) currentDeps.add(this);
     return this.value;
   }
@@ -601,15 +637,27 @@ export function computed<T>(
  * TC39 Signals proposal (`Signal.subtle.untrack`).
  */
 export function untrack<T>(fn: () => T): T {
+  return runUntracked(fn, false);
+}
+
+/** @internal -- jsx.ts, routes.ts: run a render body untracked, where a .get() warns in development. */
+export function untrackRender<T>(fn: () => T): T {
+  return runUntracked(fn, DEV);
+}
+
+function runUntracked<T>(fn: () => T, render: boolean): T {
   const prevListener = currentListener;
   const prevDeps = currentDeps;
+  const prevRendering = rendering;
   currentListener = null;
   currentDeps = null;
+  rendering = render; // an untrack() inside a render is a one-shot read on purpose
   try {
     return fn();
   } finally {
     currentListener = prevListener;
     currentDeps = prevDeps;
+    rendering = prevRendering;
   }
 }
 

@@ -6,6 +6,22 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A `.get()` in a render body warns, once per signal, in development.**
+  Components, `when()` branches, `list()` rows and route handlers (and
+  async thunks, fallbacks and `mount()`'s render) run once and untracked, so
+  `<span>{count.get()}</span>` there is a snapshot that never updates, with
+  nothing to say so: the skill's §1, §7 and §9 traps. Such a read now logs
+  `[railroad] .get() in a render body … reads once and never updates`, with
+  the fixes: bind the signal, or read it with `.peek()` if once is meant.
+  `.peek()` and `untrack()` stay silent, as does a `.get()` in an effect, a
+  computed, a function child or prop, or an event handler. Development is
+  anything but a production build: Bun's bundler replaces
+  `process.env.NODE_ENV`, so a production bundle (`Bun.serve` with
+  `development: false`, `bun build --production`, or `NODE_ENV=production`)
+  leaves the check out.
+
 ### Changed
 
 - **A Signal from another copy of railroad throws where it is rendered.**

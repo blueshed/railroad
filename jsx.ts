@@ -30,7 +30,8 @@
  * Render bodies are untracked: a component body, a when() branch and a list()
  * row run once, so a .get() there is a one-shot read that subscribes nothing
  * (not the when()/list() driving it, nor an effect that builds it). Pass the
- * signal itself, or a function, where the value should stay live.
+ * signal itself, or a function, where the value should stay live. In
+ * development such a .get() warns, once per signal; .peek() doesn't.
  *
  * SVG support:
  *   SVG-only tags (circle, g, linearGradient, foreignObject, fe* filters, …)
@@ -70,7 +71,7 @@
  * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
-import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
+import { Signal, signal, effect, computed, untrackRender, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -231,7 +232,7 @@ export function createElement(
     try {
       // Untracked: a component runs once, so a .get() in its body is a one-shot
       // read and must not subscribe whatever effect is building it.
-      const result = untrack(() => tag(componentProps));
+      const result = untrackRender(() => tag(componentProps));
       if (result instanceof Promise) {
         // Async component. Its synchronous prefix (before the first await) ran
         // under this component scope and is captured by the finally below; the
@@ -407,7 +408,7 @@ function asyncComponent(
     // whole component.
     pushDisposeScope();
     try {
-      frag.appendChild(fallback());
+      frag.appendChild(untrackRender(fallback));
     } finally {
       currentDispose = popDisposeScope();
     }
@@ -430,7 +431,7 @@ function asyncComponent(
       pushDisposeScope();
       let result: unknown;
       try {
-        result = (resolution as () => unknown)();
+        result = untrackRender(resolution as () => unknown);
       } catch (err) {
         popDisposeScope()();
         console.error(`[railroad/jsx] <${name}> async thunk threw:`, err);
@@ -526,7 +527,7 @@ export function mount(target: Element, render: () => Node): Dispose {
   pushDisposeScope();
   let result: Node;
   try {
-    result = render();
+    result = untrackRender(render);
   } catch (err) {
     popDisposeScope()(); // dispose children created before the throw
     throw err;
@@ -614,7 +615,7 @@ export function when<T>(
     if (disposed) return;
     const parent = anchor.parentNode;
     if (!parent) return; // brackets removed out of contract — nowhere to render
-    const value = sig.get();
+    const value = sig.peek(); // the effect below tracked it
     const isTruthy = !!value;
 
     // Only swap when truthiness actually changes; a new truthy value goes to v$.
@@ -640,7 +641,7 @@ export function when<T>(
   // inside it doesn't re-run this effect.
   effect(() => {
     sig.get();
-    untrack(swap);
+    untrackRender(swap);
   });
 
   // The active branch's scope is otherwise only disposed on the next
@@ -752,7 +753,7 @@ export function list<T>(
     // parent check below doesn't cover an anchor still sitting in a
     // detached-but-parented subtree after a routes()/component teardown.
     if (disposed) return;
-    const arr = items.get();
+    const arr = items.peek(); // the effect below tracked it
     const parent = anchor.parentNode;
     if (!parent) return;
 
@@ -841,7 +842,7 @@ export function list<T>(
   // row doesn't re-run the whole list.
   effect(() => {
     items.get();
-    untrack(sync);
+    untrackRender(sync);
   });
 
   trackDispose(() => {

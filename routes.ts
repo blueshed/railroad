@@ -38,7 +38,7 @@
  *   params$ — ReadonlySignal that updates when params change within the same
  *             pattern: `(_, p$) => <h1>{p$.map(p => p.id)}</h1>`
  * A handler, like a component, runs untracked: a .get() in it is a one-shot
- * read that doesn't subscribe the router.
+ * read that doesn't subscribe the router (and warns, in development).
  *
  * The router manages cleanup automatically. When params change within the
  * same pattern (e.g. /users/1 → /users/2), params$ updates — no teardown.
@@ -73,7 +73,7 @@
  * always a leak; for route() it's a legitimate app-lifetime binding.
  */
 
-import { Signal, signal, computed, effect, untrack, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
+import { Signal, signal, computed, effect, untrackRender, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
 import { adoptIntoSvg } from "./jsx";
 
@@ -296,7 +296,7 @@ export function routes(
             let thrown: unknown;
             let didThrow = false;
             try {
-              built = resolved();
+              built = untrackRender(resolved);
             } catch (err) {
               didThrow = true;
               thrown = err;
@@ -397,7 +397,7 @@ export function routes(
 
   disposeEffect = effect(() => {
     const path = hash.get();
-    untrack(() => show(path));
+    untrackRender(() => show(path));
   });
 
   return dispose;

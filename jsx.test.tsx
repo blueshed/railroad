@@ -62,7 +62,7 @@ describe("SVG namespace adoption inside list() and when()", () => {
           items,
           (i: Item) => i.id,
           (i$) => {
-            const v = i$.get();
+            const v = i$.peek();
             return <circle r="10" fill={v.fill} data-id={String(v.id)} />;
           },
         )}

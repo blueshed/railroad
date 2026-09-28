@@ -83,7 +83,9 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 - **Every `effect()`/`computed()` run is an owner scope.** What the body
   creates is disposed before the next run and on dispose.
 - **Components run once, untracked.** So do `when()` branches, `list()` rows
-  and route handlers: a `.get()` in a render body subscribes nothing. A Signal
+  and route handlers: a `.get()` in a render body subscribes nothing, and
+  warns once per signal in development (railroad's own reads there use
+  `.peek()`; `untrack()` doesn't warn). A Signal
   or a function child/prop (other than `ref` and `on*`) is reactive; anything
   else is applied once. `on*` must be a function (non-function warns, attaches
   nothing). Props are applied after children, so `<select value>` finds its

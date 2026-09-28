@@ -11,6 +11,7 @@ import {
   popDisposeScope,
   trackDispose,
   hasActiveDisposeScope,
+  untrack,
 } from "./signals";
 import type { ReadonlySignal } from "./signals";
 import type { JSX } from "./jsx";
@@ -1333,8 +1334,14 @@ describe("render bodies are untracked: a .get() there subscribes nothing around 
   // A .get() in a component body, a when() branch, a list() row or a route handler ran with the
   // surrounding effect as the listener, so an unrelated write re-ran that effect: every
   // index-based row rebuilt, a router re-notified params$, a user effect re-rendered.
-  beforeEach(async () => { location.hash = "#/users/1"; await tick(); });
-  afterEach(() => { location.hash = ""; });
+  // These reads are one-shot on purpose, so their development warning is silenced here.
+  let warn: ReturnType<typeof spyOn>;
+  beforeEach(async () => {
+    warn = spyOn(console, "warn").mockImplementation(() => {});
+    location.hash = "#/users/1";
+    await tick();
+  });
+  afterEach(() => { warn.mockRestore(); location.hash = ""; });
 
   const countReads = <T,>(s: ReadonlySignal<T>) => {
     const get = s.get.bind(s);
@@ -2020,5 +2027,92 @@ describe("a Signal from another copy of railroad throws where it is rendered", (
     const el = <p style={{ color: "red" }} title={s}>{s}</p> as HTMLElement;
     expect(el.textContent).toBe("x");
     expect(el.title).toBe("x");
+  });
+});
+
+// ============================================================ a .get() in a render body reads once
+
+describe("a .get() in a render body warns once, in development", () => {
+  // Components, when() branches, list() rows and route handlers run untracked, so a .get() there
+  // is a snapshot that never updates, and nothing said so: the skill's §1, §7 and §9 traps.
+  const oneShot = (warn: { mock: { calls: unknown[][] } }) =>
+    warn.mock.calls.filter((c) => String(c[0]).includes("reads once")).map((c) => String(c[0]));
+
+  test("in a component, a when() branch, a list() row and a route handler, once per signal", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    let disposeRoutes = () => {};
+    try {
+      const [a, b, c, d] = [signal(1), signal(2), signal(3), signal(4)];
+      function View() { return <p>{a.get()}{a.get()}</p>; } // the same signal twice: one warning
+      const dispose = mount(document.createElement("div"), () => (
+        <div>
+          <View />
+          {when(signal(true), () => <i>{b.get()}</i>)}
+          {list(signal([1]), (n) => <b>{n + c.get()}</b>)}
+        </div>
+      ));
+      disposeRoutes = routes(target, { "/": () => <p>{d.get()}</p> });
+      const said = oneShot(warn);
+      expect(said.length).toBe(4);
+      expect(said[0]).toContain(".get() in a render body");
+      expect(said[0]).toContain(".peek()");
+      dispose();
+    } finally {
+      disposeRoutes();
+      warn.mockRestore();
+      location.hash = "";
+    }
+  });
+
+  test("a bound read, .peek(), untrack(), an effect, a handler and railroad's own reads don't", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const x = signal(1);
+      const show = signal(true);
+      const rows = signal([{ id: 1 }]);
+      function View() {
+        effect(() => { x.get(); });
+        const once = x.peek() + untrack(() => x.get());
+        return (
+          <button onclick={() => x.set(x.get() + 1)} class={() => String(x.get())}>
+            {x}{x.map((n) => n + once)}{() => x.get()}
+          </button>
+        );
+      }
+      const root = document.createElement("div");
+      const dispose = mount(root, () => (
+        <div>
+          {when(show, () => <View />)}
+          {when(() => x.get() > 0, () => <i />)}
+          {list(rows, (r) => r.id, (r$) => <b>{r$.map((r) => r.id)}</b>)}
+          {list(rows, (r) => <b>{r.id}</b>)}
+        </div>
+      ));
+      (root.querySelector("button") as HTMLButtonElement).click();
+      x.set(5);
+      rows.set([{ id: 2 }]);
+      expect(oneShot(warn)).toEqual([]);
+      dispose();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a production build leaves it out", () => {
+    const cwd = new URL(".", import.meta.url).pathname;
+    const script = `
+      const { createElement, mount } = await import("./jsx.ts");
+      const { signal } = await import("./signals.ts");
+      const s = signal(1);
+      mount(document.body, () => createElement(function View() { return createElement("p", null, s.get()); }, null));`;
+    const run = (NODE_ENV: string) => Bun.spawnSync(
+      [process.execPath, "--preload", "./happy-dom.setup.ts", "-e", script],
+      { cwd, env: { ...process.env, NODE_ENV } },
+    ).stderr.toString();
+    expect(run("development")).toContain("reads once");
+    expect(run("production")).not.toContain("reads once");
   });
 });
