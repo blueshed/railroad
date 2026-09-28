@@ -1316,6 +1316,31 @@ describe("when(): a branch that throws", () => {
     dispose();
     expect(root.textContent).toBe("");
   });
+
+  // The throw leaves when() after its effect is made, and its teardown was registered after that.
+  // If the scope around it lives on (a caller catches the throw, or an effect's run threw and the
+  // effect runs again later), the when() lives on too; and since the next change builds again, it
+  // built a branch that nothing would dispose. The teardown now comes first, as list()'s does.
+  test("a when() whose first render threw builds nothing that outlives the scope around it", () => {
+    const probe = signal(0);
+    const cond = signal(1);
+    let runs = 0;
+    let failing = true;
+    pushDisposeScope();
+    expect(() =>
+      when(cond, () => {
+        if (failing) throw new Error("first");
+        effect(() => { probe.get(); runs++; });
+        return <p>ok</p>;
+      }),
+    ).toThrow("first");
+    failing = false;
+    cond.set(2); // the when() is still live, and builds its branch
+    expect(runs).toBe(1);
+    popDisposeScope()();
+    probe.set(1);
+    expect(runs).toBe(1); // the branch went with the scope
+  });
 });
 
 // ============================================================ list(): a row that throws

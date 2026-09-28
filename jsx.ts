@@ -64,9 +64,10 @@
  * before the throw is disposed, nothing of it is inserted, and the next change
  * builds it again. A list()'s other rows still render (an index-based row that
  * throws on a rebuild is left empty between its brackets), then the first
- * error is rethrown. The throw leaves when()/list() on the first render (a
- * list()'s rows made beside it go with the scope), and reaches the writer of
- * the condition or the items on an update. An async component's fallback that
+ * error is rethrown. The throw leaves when()/list() on the first render (the
+ * when() or list() still goes with the scope around it, with the rows made
+ * beside it and whatever it builds later), and reaches the writer of the
+ * condition or the items on an update. An async component's fallback that
  * throws has what it made disposed too, and the throw leaves the component.
  *
  * A Signal made by another copy of railroad throws where it is given as a
@@ -666,19 +667,22 @@ export function when<T>(
     if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
   }
 
+  // The active branch's scope is otherwise only disposed on the next
+  // truthiness swap — without this, effects inside the branch outlive the
+  // parent scope (route/component teardown) and keep writing to detached DOM.
+  // Registered before the first swap, as list()'s is: a first branch that
+  // throws leaves when() with its effect live, and if the scope around it
+  // outlives the throw, what the next change builds must still go with it.
+  trackDispose(() => {
+    disposed = true;
+    clear();
+  });
+
   // Only the condition is tracked; the branch renders untracked, so a .get()
   // inside it doesn't re-run this effect.
   effect(() => {
     sig.get();
     untrack(swap);
-  });
-
-  // The active branch's scope is otherwise only disposed on the next
-  // truthiness swap — without this, effects inside the branch outlive the
-  // parent scope (route/component teardown) and keep writing to detached DOM.
-  trackDispose(() => {
-    disposed = true;
-    clear();
   });
 
   return frag;

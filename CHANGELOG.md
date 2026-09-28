@@ -28,7 +28,10 @@ All notable changes to `@blueshed/railroad`. The format follows
   next swap on an update. A later truthy value then didn't build it again,
   since the truthiness hadn't changed. Now what the branch made is disposed
   at the throw, its brackets stay empty, the throw goes on as before, and
-  the next change of the condition builds it again. An async component's
+  the next change of the condition builds it again. Its teardown is now
+  registered before its first render, as `list()`'s is, so a `when()` whose
+  first render threw, in a scope that outlives the throw, still goes with
+  that scope, with any branch it builds later. An async component's
   `fallback` that throws had the same gap, and has the same fix.
 
 ## [0.15.0] - 2026-09-28
