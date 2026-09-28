@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-28
+
 ### Breaking
 
 - **`mount()`'s render runs untracked**, as a component body already did.
