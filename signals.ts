@@ -20,11 +20,14 @@
  * listener re-runs ~100 times). batch() coalesces MULTIPLE writes (a
  * multi-write transaction) so subscribers see one consistent snapshot.
  *
- * Writes made inside an effect body, its first run included, reach other
- * listeners after the body returns. So an effect that writes `a` and then
- * reads a computed of `a` sees the old value, and re-runs once it settles;
- * an effect that writes its own dependency runs again after, never inside,
- * its current run.
+ * Other effects see an effect's writes, its first run's included, after its
+ * body returns, and an effect that writes its own dependency runs again
+ * after, never inside, its current run. A computed of `a` it reads after
+ * writing `a` shows the old value if the effect read it before (the effect
+ * re-runs once it settles); read for the first time during a pass, it is
+ * brought up to date. During a pass a batch() holds nothing back (the pass
+ * already waits for the running listener), so reads inside a batch() in an
+ * effect, or in an effect created mid-pass, are as settled as any other.
  *
  * Core API:
  *   signal<T>(value, opts?)   — create a mutable reactive value
@@ -469,7 +472,11 @@ export class Signal<T> implements ReadonlySignal<T> {
   touch(): void {
     if (this.level === 0) sourceWrites++; // a source: a computed's signal is deeper
     if (this.listeners.size === 0) return;
-    if (batchDepth > 0) {
+    // A batch holds writes back only outside a pass. Inside one (a batch() in
+    // an effect, or an effect's first run, created mid-pass) the pass already
+    // defers them until the running listener returns, and holding them back
+    // would hide from freshen() the computeds they dirty.
+    if (batchDepth > 0 && !activeFlush) {
       for (const listener of this.listeners) pendingEffects.add(listener);
       return;
     }

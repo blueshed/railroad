@@ -1595,10 +1595,55 @@ describe("scheduling: a computed that switches what it reads", () => {
     expect(seen).toEqual(["a=1 b=2 c=1", "a=2 b=4 c=2"]);
   });
 
+  test("an effect that reads inside its own batch() sees settled values", () => {
+    const a = signal(1);
+    const flag = signal(false);
+    const b = computed(() => a.get() * 2);
+    const c = computed(() => b.get() + 1);
+    const seen: string[] = [];
+    effect(() => {
+      a.get();
+      flag.get();
+      batch(() => { if (flag.get()) seen.push(`a=${a.get()} c=${c.get()}`); });
+    });
+    batch(() => { flag.set(true); a.set(2); });
+    expect(seen).toEqual(["a=2 c=5"]);
+  });
+
+  test("an effect created in the middle of a pass (a when() branch's binding) sees settled values", () => {
+    const a = signal(1);
+    const show = signal(false);
+    const b = computed(() => a.get() * 2);
+    const c = computed(() => b.get() + 1);
+    const seen: number[] = [];
+    const root = document.createElement("div");
+    const dispose = mount(root, () => when(show, () => <p>{() => { seen.push(c.get()); return c.get(); }}</p>));
+    batch(() => { show.set(true); a.set(2); });
+    expect(seen).toEqual([5]);
+    expect(root.textContent).toBe("5");
+    dispose();
+  });
+
+  test("an effect created mid-pass that writes a, then first reads a computed of a, sees it settled", () => {
+    // Outside a pass it sees the old value and runs again (the effect() tests above); during
+    // one, the computed is brought up to date as it is read, so it runs once.
+    const a = signal(0);
+    const c = computed(() => a.get() * 10);
+    const go = signal(false);
+    const seen: number[] = [];
+    effect(() => {
+      if (go.get()) effect(() => { if (a.peek() < 1) a.set(1); seen.push(c.get()); });
+    });
+    go.set(true);
+    expect(seen).toEqual([10]);
+  });
+
   // The checker the ledger asked for: random graphs of computeds that pick their inputs by the
   // parity of another, read by effects that do the same. Each effect checks every value it reads
   // against the value computed from the sources afresh, so a half-updated read is counted; after
-  // each write every computed and effect must be settled, and no effect may run twice.
+  // each write every computed and effect must be settled, and no effect may run twice. An effect
+  // reads plainly, inside a batch() of its own, or is built afresh by a parent effect on each of
+  // the parent's runs, so it is created, and first reads, in the middle of a pass.
   function check(seed: number, dynamic: boolean) {
     let t = seed;
     const rand = (n: number) => {
@@ -1632,8 +1677,8 @@ describe("scheduling: a computed that switches what it reads", () => {
     };
     const counts = { glitches: 0, stale: 0, reruns: 0 };
     const effects = Array.from({ length: 2 + rand(4) }, () => {
-      const e = { spec: spec(nodes.length), last: -1, runs: 0 };
-      effect(() => {
+      const e = { spec: spec(nodes.length), last: -1, runs: 0, child: false };
+      const body = () => {
         e.runs++;
         const want = settled();
         e.last = f(e.spec, (j) => {
@@ -1641,7 +1686,16 @@ describe("scheduling: a computed that switches what it reads", () => {
           if (got !== want[j]) counts.glitches++;
           return got;
         });
-      });
+      };
+      const kind = rand(3);
+      if (kind === 0) effect(body);
+      else if (kind === 1) effect(() => batch(body));
+      else {
+        // A child can run once just before its parent's re-run replaces it: not counted as twice.
+        e.child = true;
+        const by = sources[rand(nSources)]!;
+        effect(() => { by.get(); effect(body); });
+      }
       return e;
     });
     for (let step = 0; step < 40; step++) {
@@ -1653,7 +1707,7 @@ describe("scheduling: a computed that switches what it reads", () => {
       nodes.forEach((n, j) => { if (n.peek() !== want[j]) counts.stale++; });
       for (const e of effects) {
         if (e.last !== f(e.spec, (j) => want[j]!)) counts.stale++;
-        if (e.runs > 1) counts.reruns++;
+        if (e.runs > 1 && !e.child) counts.reruns++;
       }
     }
     return counts;

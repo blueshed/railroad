@@ -156,11 +156,12 @@ run time (tsc still rejects an expression body that returns a value; use a
 block). `fn` must be synchronous: `effect(async () => …)` logs an error, because its
 Promise is not a cleanup and nothing after its first `await` is tracked.
 
-Writes made inside an effect body reach other listeners **after the body
+Writes made inside an effect body reach other effects **after the body
 returns**, on its first run as on every later one. An effect that writes `a`
-and then reads a computed of `a` sees the old value and re-runs once the
-write settles; an effect that writes its own dependency (a clamp, a default)
-runs again after its current run, never inside it.
+and then reads a computed of `a` it has read before sees the old value and
+re-runs once the write settles (one it reads for the first time during a pass
+is brought up to date); an effect that writes its own dependency (a clamp, a
+default) runs again after its current run, never inside it.
 
 **Each effect/computed run owns what it creates** (0.12+). Anything its body
 creates — computeds (including `.map()`), nested effects, `when()`/`list()`,

@@ -90,10 +90,17 @@ All notable changes to `@blueshed/railroad`. The format follows
   raises its readers with it, and a read during a pass of a computed that
   hasn't settled yet brings it up to date first. An effect that writes a
   signal also lets what reads that signal settle before the next effect at
-  its depth runs. The randomized checker the ledger asked for is in
-  `fixes.test.tsx`: over 300 graphs whose computeds switch inputs it counts
-  no half-updated read, no second run and no stale value, where 0.14
-  counted thousands. Graphs whose computeds read the same inputs every run
+  its depth runs. The same now holds for an effect that reads inside its own
+  `batch()`, and for one created in the middle of a pass (a `when()`
+  branch's bindings): a batch holds writes back only outside a pass, since
+  inside one they already wait for the running listener. One visible
+  difference: an effect that writes `a` and then reads a computed of `a`
+  for the first time during a pass sees the new value, where it saw the old
+  one and ran again. The randomized checker the ledger asked for is in
+  `fixes.test.tsx`: over 300 graphs whose computeds switch inputs, read by
+  effects that read plainly, inside a `batch()`, or are created mid-pass,
+  it counts no half-updated read, no second run and no stale value, where
+  0.14 counted thousands. Graphs whose computeds read the same inputs every run
   do the same work as before, and a deep chain settles about 3× faster: the
   drain no longer rescans from depth 0 for each depth.
 

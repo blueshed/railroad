@@ -94,12 +94,15 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   bracket comments, and never rebuild after disposal (the `disposed` latch).
   Outside a dispose scope they warn.
 - **Propagation is topologically ordered**: each listener at most once per
-  settled pass, and glitch-free, a computed that switches what it reads
-  included (levels rise with the reads, and a computed read before it has
-  settled is brought up to date first); every write settles consistently,
-  and a true cycle throws. The randomized checker in `fixes.test.tsx` pins it. An effect's writes, its first run's
-  included, reach other listeners after its body returns, so an effect never
-  re-enters itself.
+  settled pass, and glitch-free: no listener reads a half-updated computed,
+  whether a computed switches what it reads, an effect reads inside its own
+  `batch()`, or an effect is created mid-pass (levels rise with the reads, a
+  computed read before it has settled is brought up to date first, and a
+  batch holds writes back only outside a pass). Every write settles
+  consistently, and a true cycle throws. The randomized checker in
+  `fixes.test.tsx` pins it. Other effects see an effect's writes, its first
+  run's included, after its body returns, so an effect never re-enters
+  itself.
 - **One copy per page.** A second copy of railroad logs an error naming both;
   signals, scopes and providers never cross copies, and a Signal from another
   copy throws where JSX, `when()` or `list()` is given it. The copies are not
