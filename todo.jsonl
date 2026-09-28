@@ -1,1 +1,1 @@
-{"n": 8, "status": "open", "severity": "low", "area": "jsx", "file": "src/jsx.ts (list)", "summary": "A list() row whose render throws leaves a dispose scope open", "detail": "Found fixing n1/n3/n5/n6 (2026-09-28): when a row's render function throws, the scope opened for that row is not closed, so later effects are owned by the wrong scope. Close the scope in a finally, with a test that a throwing row leaves the list and later rows working.", "note": "2026-09-28: flagged by the agent that fixed n1, n3, n5, n6."}
+

@@ -6,6 +6,21 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `list()` row that throws closes its scope.** Each row renders under a
+  dispose scope of its own, pushed with no `try/finally`, so a row whose
+  render threw (a new row, keyed or not, or an index-based row rebuilt on a
+  change) left it open: the effect running the list then closed the row's
+  scope in place of its own, and every scope after it was off by one
+  (todo #8). Now the scope closes on every path, what the row made before
+  the throw is disposed, and nothing of it is inserted: a new row is left
+  out, an index-based row is left empty between its brackets. The other rows
+  still render, then the first error is rethrown, as a throw in a `when()`
+  branch is: out of `list()` on the first render (the rows made beside it
+  are disposed with the scope around it), to the writer of the items on an
+  update. The next update renders the row again.
+
 ## [0.15.0] - 2026-09-28
 
 ### Breaking

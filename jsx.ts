@@ -60,6 +60,13 @@
  * routes() handler, when/list render, or mount()) — their internal effects
  * would be impossible to tear down.
  *
+ * A list() row that throws is left out: what it made before the throw is
+ * disposed and nothing of it is inserted (an index-based row that throws on a
+ * rebuild is left empty between its brackets). The other rows still render,
+ * then the first error is rethrown, as a throw in a when() branch is: out of
+ * list() on the first render (the rows made beside it go with the scope), to
+ * the writer of the items on an update. The next update renders the row again.
+ *
  * A Signal made by another copy of railroad throws where it is given as a
  * child, a prop, a when() condition or a list() source: this copy can't track
  * it, so it would render once and never update (see signals.ts).
@@ -789,6 +796,26 @@ export function list<T>(
     const oldPos = new Map(order.map((k, i) => [k, i]));
     const stay = longestIncreasing(newKeys.map((k) => oldPos.get(k) ?? -1));
 
+    // Each row renders under a scope of its own, closed on every path. A row
+    // that throws has what it made before the throw disposed and nothing of
+    // it placed: a new row is left out, an index-based rebuild left empty
+    // between its brackets. The other rows still render, and the first error
+    // is rethrown once the list is in place, as a flush does for its effects.
+    let thrown: { error: unknown } | undefined;
+    const scoped = (render: () => Node): { node: Node; dispose: Dispose } | null => {
+      pushDisposeScope();
+      let node: Node;
+      try {
+        // Adoption re-applies props, so its effects belong to the row too.
+        node = adoptIntoSvg(render(), parent);
+      } catch (error) {
+        popDisposeScope()();
+        thrown ??= { error };
+        return null;
+      }
+      return { node, dispose: popDisposeScope() };
+    };
+
     // Add or reorder entries
     let insertBefore: Node = anchor;
     for (let i = newKeys.length - 1; i >= 0; i--) {
@@ -800,24 +827,21 @@ export function list<T>(
         // the shared move step below inserts the whole range into position.
         const start = document.createComment("row");
         const end = document.createComment("/row");
-        pushDisposeScope();
-        let result: Node;
+        let row: { node: Node; dispose: Dispose } | null;
         if (hasKeyFn) {
           const itemSig = signal(arr[i]!, options);
           const indexSig = signal(i);
-          result = untrackRender("a list() row", maybeRender!, () => maybeRender!(itemSig, indexSig));
-          result = adoptIntoSvg(result, parent);
-          const dispose = popDisposeScope();
-          entry = { start, end, dispose, item: itemSig, index: indexSig };
+          row = scoped(() => untrackRender("a list() row", maybeRender!, () => maybeRender!(itemSig, indexSig)));
+          if (!row) continue; // left out: the next sync finds it new
+          entry = { start, end, dispose: row.dispose, item: itemSig, index: indexSig };
         } else {
-          result = renderRow(arr[i]!, i);
-          result = adoptIntoSvg(result, parent);
-          const dispose = popDisposeScope();
-          entry = { start, end, dispose };
+          row = scoped(() => renderRow(arr[i]!, i));
+          if (!row) continue;
+          entry = { start, end, dispose: row.dispose };
         }
         const frag = document.createDocumentFragment();
         frag.appendChild(start);
-        frag.appendChild(result);
+        frag.appendChild(row.node);
         frag.appendChild(end);
         entries.set(key, entry);
       } else if (hasKeyFn) {
@@ -831,11 +855,9 @@ export function list<T>(
         const oldContent = rangeOf(entry).filter((n) => n !== start && n !== end);
         entry.dispose();
         for (const n of oldContent) n.parentNode?.removeChild(n);
-        pushDisposeScope();
-        let result = renderRow(arr[i]!, i);
-        result = adoptIntoSvg(result, parent);
-        entry.dispose = popDisposeScope();
-        end.parentNode?.insertBefore(result, end);
+        const row = scoped(() => renderRow(arr[i]!, i));
+        entry.dispose = row?.dispose ?? (() => {}); // the old scope is spent: never run it twice
+        if (row) end.parentNode?.insertBefore(row.node, end);
       }
 
       // Move or insert into correct position — the whole bracket range, so
@@ -846,19 +868,23 @@ export function list<T>(
       insertBefore = entry.start;
     }
 
-    order = newKeys;
+    // A new row that threw has no entry: the next sync must find it new.
+    order = thrown ? newKeys.filter((k) => entries.has(k)) : newKeys;
+    if (thrown) throw thrown.error;
   }
+
+  // Registered before the first sync runs, so that if a row throws there
+  // (the throw leaves list()), the rows made beside it still go with the scope.
+  trackDispose(() => {
+    disposed = true;
+    clearAll();
+  });
 
   // Only the items are tracked; rows render untracked, so a .get() inside a
   // row doesn't re-run the whole list.
   effect(() => {
     items.get();
     untrack(sync);
-  });
-
-  trackDispose(() => {
-    disposed = true;
-    clearAll();
   });
 
   return frag;

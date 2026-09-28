@@ -1256,6 +1256,149 @@ describe("when(): a branch that throws", () => {
   });
 });
 
+// ============================================================ list(): a row that throws
+
+describe("list(): a row that throws", () => {
+  // A row renders under a scope of its own, and 0.15 pushed it with no try/finally: a row that
+  // threw left it pushed, so the effect running the list popped the row's scope in place of its
+  // own, and every later scope was off by one (todo n8). Now the row's scope closes on every path,
+  // what the row made before the throw is disposed, nothing of it is inserted, the other rows
+  // render, and the throw goes on to the writer, as a when() branch's does.
+  beforeEach(() => { document.body.innerHTML = ""; });
+
+  // Runs `act` in a scope of our own, then makes an effect and closes the scope. Had the throw
+  // left a scope open, the pop would close that one instead, and ours would never be disposed.
+  const expectBalancedAround = (act: () => void) => {
+    pushDisposeScope();
+    let ours = false;
+    trackDispose(() => { ours = true; });
+    act();
+    const after = signal(0);
+    let afterRuns = 0;
+    effect(() => { after.get(); afterRuns++; });
+    popDisposeScope()();
+    expect(ours).toBe(true);
+    after.set(1);
+    expect(afterRuns).toBe(1); // the effect made after the throw went with our scope
+  };
+  const texts = (root: Element) => [...root.querySelectorAll("li")].map((li) => li.textContent);
+
+  test("a new keyed row that throws is left out, and the list goes on updating", () => {
+    const probe = signal(0);
+    let partial = 0; // runs of the effect the throwing row made before it threw
+    let siblings = 0; // runs of the other rows' effects
+    let failing = 3;
+    const Row = (r$: ReadonlySignal<{ id: number }>) => {
+      const { id } = r$.peek();
+      if (id === failing) {
+        effect(() => { probe.get(); partial++; });
+        throw new Error(`row ${id}`);
+      }
+      effect(() => { probe.get(); siblings++; });
+      return <li>{String(id)}</li>;
+    };
+    const rows = (...ids: number[]) => ids.map((id) => ({ id }));
+
+    // On the first render the throw leaves list() and mount(), and the rows made beside it go
+    // with mount()'s scope rather than stay subscribed.
+    expectBalancedAround(() =>
+      expect(() => mount(document.createElement("div"), () => <ul>{list(signal(rows(1, 3, 4)), (r) => r.id, Row)}</ul>)).toThrow("row 3"),
+    );
+    partial = 0;
+    siblings = 0;
+    probe.set(1);
+    expect(partial).toBe(0);
+    expect(siblings).toBe(0);
+
+    // On an update the throw reaches the writer, and the rows either side of it render (the
+    // sync runs right to left, so row 0 comes after the throw).
+    const items = signal(rows(1, 2));
+    const root = document.createElement("div");
+    const dispose = mount(root, () => <ul>{list(items, (r) => r.id, Row)}</ul>);
+    expectBalancedAround(() => expect(() => items.set(rows(0, 1, 2, 3, 4))).toThrow("row 3"));
+    expect(texts(root)).toEqual(["0", "1", "2", "4"]);
+    partial = 0;
+    probe.set(2);
+    expect(partial).toBe(0); // what row 3 made before it threw was disposed
+
+    failing = -1;
+    items.set(rows(0, 1, 2, 3, 4, 5)); // row 3 is new again, and lands in its place
+    expect(texts(root)).toEqual(["0", "1", "2", "3", "4", "5"]);
+    items.set(rows(5, 1));
+    expect(texts(root)).toEqual(["5", "1"]);
+    dispose();
+    expect(root.querySelectorAll("li")).toHaveLength(0);
+  });
+
+  test("a new unkeyed row that throws is left out, and the list goes on updating", () => {
+    const probe = signal(0);
+    let partial = 0;
+    let failing = "x";
+    const items = signal(["a", "b"]);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>
+        {list(items, (item) => {
+          if (item === failing) {
+            effect(() => { probe.get(); partial++; });
+            throw new Error(`row ${item}`);
+          }
+          return <li>{item}</li>;
+        })}
+      </ul>
+    ));
+    expectBalancedAround(() => expect(() => items.set(["A", "b", "x", "d"])).toThrow("row x"));
+    expect(texts(root)).toEqual(["A", "b", "d"]); // index 0 rebuilds after the throw
+    partial = 0;
+    probe.set(1);
+    expect(partial).toBe(0);
+
+    failing = "";
+    items.set(["a", "b", "x", "d", "e"]); // index 2 is new again, and lands in its place
+    expect(texts(root)).toEqual(["a", "b", "x", "d", "e"]);
+    items.set(["z"]);
+    expect(texts(root)).toEqual(["z"]);
+    dispose();
+    expect(root.querySelectorAll("li")).toHaveLength(0);
+  });
+
+  test("an index-based rebuild that throws leaves its row empty, rebuilt on the next change", () => {
+    const probe = signal(0);
+    let partial = 0;
+    let failing = "";
+    const cleanups: string[] = [];
+    const items = signal(["a", "b", "c"]);
+    const root = document.createElement("div");
+    const dispose = mount(root, () => (
+      <ul>
+        {list(items, (item) => {
+          trackDispose(() => cleanups.push(item));
+          if (item === failing) {
+            effect(() => { probe.get(); partial++; });
+            throw new Error(`row ${item}`);
+          }
+          return <li>{item}</li>;
+        })}
+      </ul>
+    ));
+    failing = "B";
+    expectBalancedAround(() => expect(() => items.set(["a", "B", "c"])).toThrow("row B"));
+    expect(texts(root)).toEqual(["a", "c"]); // every other row rebuilt; B's is empty
+    expect(cleanups.sort()).toEqual(["B", "a", "b", "c"]); // the old rows, and what B made
+    partial = 0;
+    probe.set(1);
+    expect(partial).toBe(0);
+
+    failing = "";
+    cleanups.length = 0;
+    items.set(["a", "B", "c", "d"]);
+    expect(texts(root)).toEqual(["a", "B", "c", "d"]);
+    expect(cleanups.sort()).toEqual(["a", "c"]); // b's cleanup ran once, not again here
+    dispose();
+    expect(root.querySelectorAll("li")).toHaveLength(0);
+  });
+});
+
 // ============================================================ effect(): a first run that writes its own dependency
 
 describe("effect(): a first run that writes its own dependency", () => {
