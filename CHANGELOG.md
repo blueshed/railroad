@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-09-28
+
 ### Fixed
 
 - **A `list()` row that throws closes its scope.** Each row renders under a
