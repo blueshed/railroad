@@ -64,19 +64,22 @@
  *   body creates is disposed before the next run and when it is disposed.
  *
  * One copy per page: signals, scopes and providers don't cross copies of
- * railroad, so a second copy logs a console.error naming both when it loads.
+ * railroad, so a second copy logs a console.error naming both when it loads,
+ * and a Signal made by one copy throws where the other's JSX, when() or
+ * list() is given it. They are not made to cooperate: that would freeze this
+ * file's internals as a contract between versions.
  */
 
 // === One copy per page ===
 //
 // Every copy of railroad has its own Signal class, tracking state, scopes and
-// providers, so two copies can't see each other: a signal from one renders as
-// "[object Object]" in the other's JSX, its when() never switches, its effects
-// never re-run. The usual cause is a linked checkout (a `file:` or `bun link`
-// dependency) that brings its own node_modules/@blueshed/railroad. Nothing
-// else would say so, so say it here. The same file evaluated again under the
-// Bun runtime is `bun --hot`, not a copy; in a browser nothing re-evaluates a
-// module, and copies bundled together share one URL.
+// providers, so two copies can't see each other: an effect in one never
+// re-runs on a signal from the other, and inject() in one can't find what the
+// other provided. The usual cause is a linked checkout (a `file:` or `bun
+// link` dependency) that brings its own node_modules/@blueshed/railroad.
+// Nothing else would say so, so say it here. The same file evaluated again
+// under the Bun runtime is `bun --hot`, not a copy; in a browser nothing
+// re-evaluates a module, and copies bundled together share one URL.
 const COPY = Symbol.for("@blueshed/railroad");
 const copyUrl = (import.meta as { url?: string }).url ?? "(unknown)";
 const firstCopy = (globalThis as { [COPY]?: string })[COPY];
@@ -88,6 +91,23 @@ if (firstCopy !== undefined && (firstCopy !== copyUrl || !("Bun" in globalThis))
   );
 }
 (globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
+
+// Every Signal carries the URL of the copy that made it, under a key all
+// copies share, so a copy handed another's signal can say so where it is used
+// rather than render "[object Object]" or a when() that never switches.
+const MADE_BY = Symbol.for("@blueshed/railroad.Signal");
+
+/** @internal -- jsx.ts: throws if `value` is a Signal made by another copy of railroad. */
+export function assertOwnSignal(value: unknown): void {
+  if (typeof value !== "object" || value === null || value instanceof Signal) return;
+  const other = (value as { [MADE_BY]?: unknown })[MADE_BY];
+  if (typeof other !== "string") return;
+  throw new Error(
+    `[railroad] This Signal was made by another copy of @blueshed/railroad (${other}), ` +
+      `and this copy (${copyUrl}) can't track it: it would render once and never update. ` +
+      "Make it one copy: see the railroad skill, \"Local development across repos\".",
+  );
+}
 
 // Listeners carry their topological level (derivation depth) so the flush
 // scheduler can settle upstream computeds before downstream consumers.
@@ -307,6 +327,7 @@ export class Signal<T> implements ReadonlySignal<T> {
     this.listeners.delete(listener);
   }
 }
+(Signal.prototype as unknown as { [MADE_BY]: string })[MADE_BY] = copyUrl;
 
 // === effect() ===
 

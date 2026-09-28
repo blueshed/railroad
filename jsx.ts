@@ -59,6 +59,10 @@
  * routes() handler, when/list render, or mount()) — their internal effects
  * would be impossible to tear down.
  *
+ * A Signal made by another copy of railroad throws where it is given as a
+ * child, a prop, a when() condition or a list() source: this copy can't track
+ * it, so it would render once and never update (see signals.ts).
+ *
  * Types: railroad declares no global JSX namespace, so it sits beside React's
  * types in one app. `jsx: react` with `jsxFactory: "createElement"` finds the
  * types on the factory (createElement.JSX); `jsx: react-jsx` with
@@ -66,7 +70,7 @@
  * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
-import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope } from "./signals";
+import { Signal, signal, effect, computed, untrack, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -205,6 +209,7 @@ function applyProps(el: Element, props: Record<string, any>): void {
     } else if (typeof value === "function") {
       disposers.push(effect(() => apply(value())));
     } else {
+      assertOwnSignal(value);
       apply(value);
     }
   }
@@ -500,6 +505,7 @@ function appendChildren(parent: Node, children: any[]): void {
       // and passes Text/Comment/already-SVG nodes through untouched.
       parent.appendChild(isSvgParent ? adoptIntoSvg(child, parent) : child);
     } else {
+      assertOwnSignal(child);
       parent.appendChild(document.createTextNode(String(child)));
     }
   }
@@ -568,6 +574,7 @@ export function when<T>(
   falsy?: () => Node,
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("when");
+  assertOwnSignal(condition);
   // The branch lives between two bracket comments (the list()-row trick), so
   // removal stays correct even when SVG adoption swaps node identities after
   // render, and nodes a nested when()/list() inserts later travel with it.
@@ -692,6 +699,7 @@ export function list<T>(
   options?: SignalOptions<T>,
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("list");
+  assertOwnSignal(items);
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
 

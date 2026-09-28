@@ -51,7 +51,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 
   | File | Exports | Depends on |
   |---|---|---|
-  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` | — |
+  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` (and `assertOwnSignal`, internal: for `jsx.ts`) | — |
   | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount`, the `JSX` types (on `createElement`, not global; and `adoptIntoSvg`, internal: for `routes.ts`) | signals |
   | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals, jsx (SVG adoption only; loads without a DOM) |
   | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
@@ -98,7 +98,10 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   included, reach other listeners after its body returns, so an effect never
   re-enters itself.
 - **One copy per page.** A second copy of railroad logs an error naming both;
-  signals, scopes and providers never cross copies.
+  signals, scopes and providers never cross copies, and a Signal from another
+  copy throws where JSX, `when()` or `list()` is given it. The copies are not
+  made to cooperate: that would freeze signals.ts's internals as a contract
+  between versions.
 - **SVG tags get their namespace at creation.** Only `a`, `script`, `style`,
   `title` are adopted on append, and adoption disposes the old element's prop
   effects before re-applying them.

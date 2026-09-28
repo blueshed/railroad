@@ -375,7 +375,7 @@ The `delta-doc` skill (installed with `@blueshed/delta`) has the full API surfac
 
 ## Local development across repos
 
-A page must load **one copy** of railroad. Each copy has its own `Signal` class, tracking, scopes and `provide`/`inject` registry, so two copies can't see each other: delta's `doc.data` renders `[object Object]`, `when(doc.data, …)` never switches, `openDoc()` in a component never auto-closes, and `inject(WS)` finds no provider. Railroad says so on the console when the second copy loads: `A second copy of @blueshed/railroad has loaded (…; the first: …)`.
+A page must load **one copy** of railroad. Each copy has its own `Signal` class, tracking, scopes and `provide`/`inject` registry, so two copies can't see each other, and railroad doesn't try to make them: `openDoc()` in a component never auto-closes, `inject(WS)` finds no provider, and an effect or function child that reads delta's `doc.data` never re-runs. Railroad says so on the console when the second copy loads: `A second copy of @blueshed/railroad has loaded (…; the first: …)`. Rendering the other copy's signal throws: `{doc.data}`, a prop, `when(doc.data, …)` or `list(…)` given it fails with `This Signal was made by another copy of @blueshed/railroad (…)`, naming both copies, rather than showing `[object Object]` or a branch that never switches.
 
 The usual cause is depending on a local checkout: `"@blueshed/delta": "file:../delta"` (or `bun link`) installs the checkout *with its own* `node_modules/@blueshed/railroad`, its dev dependency. Install a packed tarball instead, which carries no `node_modules`, so delta's peer resolves to the app's railroad:
 

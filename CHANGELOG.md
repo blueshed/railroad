@@ -6,6 +6,22 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A Signal from another copy of railroad throws where it is rendered.**
+  With two copies in a page (a `file:` or `bun link` dependency on a local
+  checkout that brings its own `node_modules/@blueshed/railroad`), the other
+  copy's signal rendered as `[object Object]`, a `when()` on it never
+  switched, and the load-time `console.error` was the only sign. Given as a
+  child, a prop, a `when()` condition or a `list()` source, it now throws
+  `This Signal was made by another copy of @blueshed/railroad (…)`, naming
+  both copies and the skill's "Local development across repos". The copies
+  are still not made to cooperate: sharing tracking state through
+  `globalThis` would make this file's internals a contract between versions,
+  and an effect reading the other copy's signal still never re-runs, so the
+  fix remains one copy. Only a signal made by this version or later is
+  recognised.
+
 ### Docs
 
 - **The skill's repacked-tarball recipe refreshes the app's copy.** It said

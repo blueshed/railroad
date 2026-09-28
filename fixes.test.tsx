@@ -1859,3 +1859,65 @@ describe("routes(): a keyed route re-runs its handler when the params change", (
     await tick();
   });
 });
+
+// ============================================================ a Signal from a second copy of railroad
+
+describe("a Signal from another copy of railroad throws where it is rendered", () => {
+  // Two copies can't share tracking, so the other copy's signal rendered as "[object Object]" and
+  // a when() on it never switched: the load-time error was the only sign. Now the render says so.
+  test("a real second copy's signal, rendered by this copy's JSX", () => {
+    // A query string makes Bun evaluate signals.ts again as a module of its own, with its own
+    // Signal class, as a linked checkout's node_modules/@blueshed/railroad is. In a child process,
+    // so the copy stays out of this one's coverage (Bun would report it as signals.ts).
+    const cwd = new URL(".", import.meta.url).pathname;
+    const run = Bun.spawnSync([process.execPath, "--preload", "./happy-dom.setup.ts", "-e", `
+      const { createElement, when, mount } = await import("./jsx.ts");
+      const copy = await import("./signals.ts?copy");
+      const data = copy.signal({ title: "board" });
+      for (const render of [() => createElement("p", null, data), () => when(data, () => createElement("p", null))]) {
+        try { mount(document.body, render); console.log("rendered"); } catch (e) { console.log(e.message); }
+      }`], { cwd });
+    const out = run.stdout.toString();
+    expect(out).not.toContain("rendered");
+    expect(out.match(/made by another copy of @blueshed\/railroad/g)?.length).toBe(2);
+    expect(out).toContain(new URL("./signals.ts?copy", import.meta.url).href); // the copy that made it
+    expect(out).toContain(`this copy (${new URL("./signals.ts", import.meta.url).href})`);
+  });
+
+  // What another copy's Signal looks like to this one: a class of its own, whose prototype carries
+  // the URL of the copy that made it under the key every copy shares.
+  const elsewhere = "file:///app/node_modules/@blueshed/delta/node_modules/@blueshed/railroad/signals.ts";
+  class OtherCopySignal<T> {
+    constructor(private value: T) {}
+    get() { return this.value; }
+    peek() { return this.value; }
+    map<U>(fn: (v: T) => U): ReadonlySignal<U> { return new OtherCopySignal(fn(this.value)); }
+  }
+  (OtherCopySignal.prototype as any)[Symbol.for("@blueshed/railroad.Signal")] = elsewhere;
+
+  test("as a child, a prop, a when() condition or a list() source, naming both copies", () => {
+    const data = new OtherCopySignal({ title: "board" });
+    const rows = new OtherCopySignal(["a"]);
+    const root = document.createElement("div");
+    const tries: Array<() => unknown> = [
+      () => <p>{data}</p>,
+      () => <p title={data as unknown as string} />,
+      () => mount(root, () => when(data, () => <p>loaded</p>)),
+      () => mount(root, () => list(rows, (s) => <li>{s}</li>)),
+    ];
+    for (const t of tries) {
+      expect(t).toThrow("made by another copy of @blueshed/railroad");
+      expect(t).toThrow(elsewhere);
+      expect(t).toThrow(`this copy (${new URL("./signals.ts", import.meta.url).href})`);
+    }
+    expect(root.childNodes.length).toBe(0);
+    expect(hasActiveDisposeScope()).toBe(false);
+  });
+
+  test("plain objects, and this copy's signals, pass", () => {
+    const s = signal("x");
+    const el = <p style={{ color: "red" }} title={s}>{s}</p> as HTMLElement;
+    expect(el.textContent).toBe("x");
+    expect(el.title).toBe("x");
+  });
+});
