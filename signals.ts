@@ -67,8 +67,9 @@
  *
  * Render bodies: components, when() branches, list() rows and route handlers
  * run untracked (see jsx.ts), so a .get() there is a one-shot read. In
- * development it warns, once per signal; .peek() is the silent one-shot read,
- * and untrack() says the same on purpose.
+ * development it warns, naming where, once per render body (a component
+ * however often it renders, a list() row function however many rows);
+ * .peek() is the silent one-shot read, and untrack() says the same on purpose.
  *
  * One copy per page: signals, scopes and providers don't cross copies of
  * railroad, so a second copy logs a console.error naming both when it loads,
@@ -152,18 +153,34 @@ try {
 }
 
 // True while a render body runs (in development only): a .get() with no
-// listener then is a one-shot read that looks like a binding.
+// listener then is a one-shot read that looks like a binding. renderBody is
+// the function that body is (a component, a row's render…), renderWhere says
+// which kind, for the warning.
 let rendering = false;
-const warnedOneShot = new WeakSet<Signal<any>>();
+let renderWhere = "";
+let renderBody: Function | null = null;
 
-function warnOneShot(s: Signal<any>): void {
-  if (warnedOneShot.has(s)) return;
-  warnedOneShot.add(s);
+// One warning per render body, keyed by its source text, so every instance
+// of a component, and every row a list() renders with one function, count
+// once. (Once per signal flooded: each row has its own row$.)
+const warnedBodies = new Set<string>();
+const bodySources = new WeakMap<Function, string>();
+
+function warnOneShot(): void {
+  const body = renderBody!;
+  let source = bodySources.get(body);
+  if (source === undefined) {
+    source = Function.prototype.toString.call(body);
+    bodySources.set(body, source);
+  }
+  if (warnedBodies.has(source)) return;
+  warnedBodies.add(source);
+  const where = renderWhere === "component" ? `<${body.name || "anonymous"}>` : renderWhere;
   console.warn(
-    "[railroad] .get() in a render body (a component, a when() branch, a list() row, a route " +
-      "handler) reads once and never updates: nothing re-runs a render. Bind the signal where " +
-      "the value should stay live ({s}, class={() => s.get()}, s.map(…)), or read it with " +
-      ".peek() if once is what you mean. (Once per signal, in development.)",
+    `[railroad] .get() in a render body (${where}) reads once and never updates: nothing ` +
+      "re-runs a render. Bind the signal where the value should stay live ({s}, " +
+      "class={() => s.get()}, s.map(…)), or read it with .peek() if once is what you mean. " +
+      "(Once per render body, in development.)",
   );
 }
 let batchDepth = 0;
@@ -399,7 +416,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   get(): T {
     if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     if (currentListener) this.listeners.add(currentListener);
-    else if (rendering) warnOneShot(this);
+    else if (rendering) warnOneShot();
     if (currentDeps) currentDeps.add(this);
     return this.value;
   }
@@ -653,27 +670,38 @@ export function computed<T>(
  * TC39 Signals proposal (`Signal.subtle.untrack`).
  */
 export function untrack<T>(fn: () => T): T {
-  return runUntracked(fn, false);
+  return runUntracked(fn, false, "", null);
 }
 
-/** @internal -- jsx.ts, routes.ts: run a render body untracked, where a .get() warns in development. */
-export function untrackRender<T>(fn: () => T): T {
-  return runUntracked(fn, DEV);
+/**
+ * @internal -- jsx.ts, routes.ts: run a render body untracked, where a .get()
+ * warns in development. `body` is the function the body is (its source keys
+ * the warning); `where` names it: "component" (then body's name is used), or
+ * a phrase such as "a list() row".
+ */
+export function untrackRender<T>(where: string, body: Function, fn: () => T): T {
+  return runUntracked(fn, DEV, where, body);
 }
 
-function runUntracked<T>(fn: () => T, render: boolean): T {
+function runUntracked<T>(fn: () => T, render: boolean, where: string, body: Function | null): T {
   const prevListener = currentListener;
   const prevDeps = currentDeps;
   const prevRendering = rendering;
+  const prevWhere = renderWhere;
+  const prevBody = renderBody;
   currentListener = null;
   currentDeps = null;
   rendering = render; // an untrack() inside a render is a one-shot read on purpose
+  renderWhere = where;
+  renderBody = body;
   try {
     return fn();
   } finally {
     currentListener = prevListener;
     currentDeps = prevDeps;
     rendering = prevRendering;
+    renderWhere = prevWhere;
+    renderBody = prevBody;
   }
 }
 

@@ -73,7 +73,7 @@
  * always a leak; for route() it's a legitimate app-lifetime binding.
  */
 
-import { Signal, signal, computed, effect, untrackRender, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
+import { Signal, signal, computed, effect, untrack, untrackRender, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
 import { adoptIntoSvg } from "./jsx";
 
@@ -263,7 +263,8 @@ export function routes(
     pushDisposeScope();
     let result: Node | Promise<Node | (() => Node)>;
     try {
-      result = handler(params, activeParams);
+      const params$ = activeParams;
+      result = untrackRender("a route handler", handler, () => handler(params, params$));
     } catch (err) {
       // Synchronous throw — pop+dispose the children created so far so the
       // stack stays balanced, then route through the error boundary.
@@ -296,7 +297,7 @@ export function routes(
             let thrown: unknown;
             let didThrow = false;
             try {
-              built = untrackRender(resolved);
+              built = untrackRender("a route handler", handler, resolved);
             } catch (err) {
               didThrow = true;
               thrown = err;
@@ -397,7 +398,7 @@ export function routes(
 
   disposeEffect = effect(() => {
     const path = hash.get();
-    untrackRender(() => show(path));
+    untrack(() => show(path));
   });
 
   return dispose;

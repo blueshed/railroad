@@ -208,9 +208,10 @@ A child that is a signal or a function renders its value as text, and
 does. A component body runs once and **untracked**: a `.get()` in it (or in a
 `when()` branch, a `list()` row, a route handler, `mount()`'s render) is a
 one-shot read that subscribes nothing, not even the effect that happens to be
-building it. In development railroad warns the first time each signal is read
-that way (`.get() in a render body … reads once`); a production build turns
-the check off. A one-shot read you mean is `.peek()`, or `untrack(() => …)`,
+building it. In development railroad warns about such a read once per render
+body, naming it (`.get() in a render body (<View>) reads once`, or `(a list()
+row)`): once for a component however often it renders, once for a row
+function however many rows. A production build turns the check off. A one-shot read you mean is `.peek()`, or `untrack(() => …)`,
 which don't warn.
 
 ### Props

@@ -31,7 +31,7 @@
  * row run once, so a .get() there is a one-shot read that subscribes nothing
  * (not the when()/list() driving it, nor an effect that builds it). Pass the
  * signal itself, or a function, where the value should stay live. In
- * development such a .get() warns, once per signal; .peek() doesn't.
+ * development such a .get() warns, once per render body; .peek() doesn't.
  *
  * SVG support:
  *   SVG-only tags (circle, g, linearGradient, foreignObject, fe* filters, …)
@@ -73,7 +73,7 @@
  * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
-import { Signal, signal, effect, computed, untrackRender, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
+import { Signal, signal, effect, computed, untrack, untrackRender, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
@@ -234,7 +234,7 @@ export function createElement(
     try {
       // Untracked: a component runs once, so a .get() in its body is a one-shot
       // read and must not subscribe whatever effect is building it.
-      const result = untrackRender(() => tag(componentProps));
+      const result = untrackRender("component", tag, () => tag(componentProps));
       if (result instanceof Promise) {
         // Async component. Its synchronous prefix (before the first await) ran
         // under this component scope and is captured by the finally below; the
@@ -249,7 +249,7 @@ export function createElement(
               `(fallback={() => <p>…</p>}) — got ${fb instanceof Node ? "a Node" : `a ${typeof fb}`}; ignoring.`,
           );
         }
-        return asyncComponent(name, result, typeof fb === "function" ? fb : undefined);
+        return asyncComponent(tag, name, result, typeof fb === "function" ? fb : undefined);
       }
       return result;
     } finally {
@@ -381,6 +381,7 @@ export function adoptIntoSvg(result: Node, parent: Node | null): Node {
 // Node gets a pointed console.error naming the one-word fix.
 
 function asyncComponent(
+  component: Function,
   name: string,
   pending: Promise<unknown>,
   fallback: (() => Node) | undefined,
@@ -410,7 +411,7 @@ function asyncComponent(
     // whole component.
     pushDisposeScope();
     try {
-      frag.appendChild(untrackRender(fallback));
+      frag.appendChild(untrackRender("a fallback", fallback, fallback));
     } finally {
       currentDispose = popDisposeScope();
     }
@@ -433,7 +434,7 @@ function asyncComponent(
       pushDisposeScope();
       let result: unknown;
       try {
-        result = untrackRender(resolution as () => unknown);
+        result = untrackRender("component", component, resolution as () => unknown);
       } catch (err) {
         popDisposeScope()();
         console.error(`[railroad/jsx] <${name}> async thunk threw:`, err);
@@ -530,7 +531,7 @@ export function mount(target: Element, render: () => Node): Dispose {
   pushDisposeScope();
   let result: Node;
   try {
-    result = untrackRender(render);
+    result = untrackRender("mount()'s render", render, render);
   } catch (err) {
     popDisposeScope()(); // dispose children created before the throw
     throw err;
@@ -633,7 +634,10 @@ export function when<T>(
     pushDisposeScope();
     let result: Node | null;
     try {
-      result = value$ ? truthy(value$) : (falsy ? falsy() : null);
+      const v$ = value$;
+      result = v$
+        ? untrackRender("a when() branch", truthy, () => truthy(v$))
+        : falsy ? untrackRender("a when() branch", falsy, falsy) : null;
     } finally {
       currentDispose = popDisposeScope();
     }
@@ -644,7 +648,7 @@ export function when<T>(
   // inside it doesn't re-run this effect.
   effect(() => {
     sig.get();
-    untrackRender(swap);
+    untrack(swap);
   });
 
   // The active branch's scope is otherwise only disposed on the next
@@ -751,6 +755,10 @@ export function list<T>(
     order = [];
   }
 
+  // The index-based form's render, run as a render body.
+  const renderRow = (item: T, i: number): Node =>
+    untrackRender("a list() row", keyFnOrRender, () => (keyFnOrRender as (item: T, index: number) => Node)(item, i));
+
   function sync() {
     // Same guard as when()'s swap: a disposed list must not rebuild rows. The
     // parent check below doesn't cover an anchor still sitting in a
@@ -797,12 +805,12 @@ export function list<T>(
         if (hasKeyFn) {
           const itemSig = signal(arr[i]!, options);
           const indexSig = signal(i);
-          result = maybeRender!(itemSig, indexSig);
+          result = untrackRender("a list() row", maybeRender!, () => maybeRender!(itemSig, indexSig));
           result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
           entry = { start, end, dispose, item: itemSig, index: indexSig };
         } else {
-          result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+          result = renderRow(arr[i]!, i);
           result = adoptIntoSvg(result, parent);
           const dispose = popDisposeScope();
           entry = { start, end, dispose };
@@ -824,7 +832,7 @@ export function list<T>(
         entry.dispose();
         for (const n of oldContent) n.parentNode?.removeChild(n);
         pushDisposeScope();
-        let result = (keyFnOrRender as (item: T, index: number) => Node)(arr[i]!, i);
+        let result = renderRow(arr[i]!, i);
         result = adoptIntoSvg(result, parent);
         entry.dispose = popDisposeScope();
         end.parentNode?.insertBefore(result, end);
@@ -845,7 +853,7 @@ export function list<T>(
   // row doesn't re-run the whole list.
   effect(() => {
     items.get();
-    untrackRender(sync);
+    untrack(sync);
   });
 
   trackDispose(() => {

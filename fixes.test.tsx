@@ -2098,13 +2098,13 @@ describe("a Signal from another copy of railroad throws where it is rendered", (
 
 // ============================================================ a .get() in a render body reads once
 
-describe("a .get() in a render body warns once, in development", () => {
+describe("a .get() in a render body warns once per render body, in development", () => {
   // Components, when() branches, list() rows and route handlers run untracked, so a .get() there
   // is a snapshot that never updates, and nothing said so: the skill's §1, §7 and §9 traps.
   const oneShot = (warn: { mock: { calls: unknown[][] } }) =>
     warn.mock.calls.filter((c) => String(c[0]).includes("reads once")).map((c) => String(c[0]));
 
-  test("in a component, a when() branch, a list() row and a route handler, once per signal", async () => {
+  test("in a component, a when() branch, a list() row and a route handler, naming which", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     location.hash = "#/";
     await tick();
@@ -2112,7 +2112,7 @@ describe("a .get() in a render body warns once, in development", () => {
     let disposeRoutes = () => {};
     try {
       const [a, b, c, d] = [signal(1), signal(2), signal(3), signal(4)];
-      function View() { return <p>{a.get()}{a.get()}</p>; } // the same signal twice: one warning
+      function View() { return <p>{a.get()}{b.get()}</p>; } // two reads in one body: one warning
       const dispose = mount(document.createElement("div"), () => (
         <div>
           <View />
@@ -2123,13 +2123,36 @@ describe("a .get() in a render body warns once, in development", () => {
       disposeRoutes = routes(target, { "/": () => <p>{d.get()}</p> });
       const said = oneShot(warn);
       expect(said.length).toBe(4);
-      expect(said[0]).toContain(".get() in a render body");
+      expect(said[0]).toContain(".get() in a render body (<View>)");
       expect(said[0]).toContain(".peek()");
+      expect(said.slice(1).map((m) => m.match(/render body \((.*?)\) reads once/)?.[1])).toEqual([
+        "a when() branch", "a list() row", "a route handler",
+      ]);
       dispose();
     } finally {
       disposeRoutes();
       warn.mockRestore();
       location.hash = "";
+    }
+  });
+
+  test("a list() of 500 rows, or a component rendered many times, warns once", () => {
+    // Once per signal flooded: every row has its own row$, so 500 rows gave 500 warnings.
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const rows = signal(Array.from({ length: 500 }, (_, i) => ({ id: i, text: `row ${i}` })));
+      const n = signal(1);
+      function Row() { return <b>{n.get()}</b>; }
+      const dispose = mount(document.createElement("div"), () => (
+        <div>
+          <ul>{list(rows, (r) => r.id, (r$) => <li>{r$.get().text}</li>)}</ul>
+          <Row /><Row /><Row />
+        </div>
+      ));
+      expect(oneShot(warn).map((m) => m.match(/render body \((.*?)\) reads once/)?.[1])).toEqual(["a list() row", "<Row>"]);
+      dispose();
+    } finally {
+      warn.mockRestore();
     }
   });
 
