@@ -20,13 +20,13 @@ why: [README.md](README.md). How to use it: the `railroad` skill.
 
 ```sh
 bun install              # dev deps only; bun.lock is committed
-bun run check            # tsc --noEmit: strict, noUncheckedIndexedAccess, jsx: react
-bun run check:consumer   # tsc over tests/consumer-types/ as a consumer compiles
+bun check                # Bun's type check (TypeScript 7): strict, noUncheckedIndexedAccess, jsx: react
+bun run check:consumer   # tests/consumer-types/ as a consumer compiles, under TypeScript 7 and 5.9
 bun test --coverage      # unit suite (happy-dom) + coverage table
 bun run test:webview     # real-browser suite, by explicit path
 ```
 
-The release gate is `bun run check && bun run check:consumer && bun test --coverage`.
+The release gate is `bun check && bun run check:consumer && bun test --coverage`.
 CI (`.github/workflows/`) also runs `bun run test:webview` on its own step.
 Where no browser is found (no `BUN_CHROME_PATH`, nothing on `PATH`) and `CI` is
 unset, the browser tests skip with a warning, so a green bare `bun test` is not
@@ -38,7 +38,9 @@ example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`), beside a
 React-style global `JSX` it must not clash with; and `react-app.tsx` under
 `tsconfig.react.json` (`jsx: react`, `jsxFactory: "createElement"`), which
 proves railroad declares no global `JSX`. They are the only gates on the JSX
-paths users compile against.
+paths users compile against. Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
+use of the `typescript` dev dependency): users compile railroad's source with
+their own TypeScript. Drop the `tsc` half once 5.x users are gone.
 
 Bun only: `bun`, `bunx`, `bun run`. Coverage has no enforced threshold; don't
 let lines a change touches go uncovered. CI installs with `--frozen-lockfile`,

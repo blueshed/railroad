@@ -832,8 +832,6 @@ describe("types: each tag's props come from the DOM's element types", () => {
       <div title={{ text: "x" }} />,
       // @ts-expect-error -- a tag that isn't one
       <dvi />,
-      // @ts-expect-error -- a <select>'s input event is a plain Event
-      <select oninput={(e: InputEvent) => e.data} />,
     ];
     expect(els.every((el) => el instanceof Node)).toBe(true);
   });

@@ -17,14 +17,14 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-# 1. Bun.WebView needs Bun >= 1.3.12; the base image ships 1.3.11. The npm
+# 1. `bun check` needs Bun >= 1.4.3 (Bun.WebView 1.3.12); the base image ships 1.3.11. The npm
 #    registry is reachable, so upgrade only if we're below the floor.
 need_bun_upgrade=0
 if ! command -v bun >/dev/null 2>&1; then
   need_bun_upgrade=1
 else
   ver="$(bun --version)"
-  if [ "$(printf '%s\n1.3.12\n' "$ver" | sort -V | head -n1)" != "1.3.12" ]; then
+  if [ "$(printf '%s\n1.4.3\n' "$ver" | sort -V | head -n1)" != "1.4.3" ]; then
     need_bun_upgrade=1
   fi
 fi

@@ -12,7 +12,6 @@
     "noEmit": true,
     "skipLibCheck": false,
     "types": [],
-    "baseUrl": ".",
     "paths": {
       "@blueshed/railroad": ["../../index.ts"],
       "@blueshed/railroad/*": ["../../*.ts"]

@@ -12,7 +12,7 @@ the table below differing. The bump level is `$ARGUMENTS` (`patch`, `minor` or `
 |---|---|
 | Package | `@blueshed/railroad` |
 | Published | npm, public |
-| Gate | `bun run check && bun run check:consumer && bun test --coverage` |
+| Gate | `bun check && bun run check:consumer && bun test --coverage` |
 | Skills stamped with the version | `.claude/skills/railroad/SKILL.md`, `.claude/skills/bun-route/SKILL.md` |
 
 Run the steps in order. Stop at the first failure without changing anything further. Running this

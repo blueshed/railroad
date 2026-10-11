@@ -56,6 +56,12 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Changed
 
+- **Type checks run with `bun check`** (Bun 1.4.3, TypeScript 7) in place of
+  `tsc --noEmit`, 10-15x faster; CI pins Bun 1.4.3. The consumer gate compiles
+  the documented surface under TypeScript 7 and 5.9 both, since a project
+  compiles railroad's source with its own TypeScript. TypeScript 7's DOM types
+  every `oninput` as `InputEvent`, a `<select>`'s too; railroad follows it.
+
 - **A component that throws has what it made disposed at the throw**, as a
   `when()` branch or a `list()` row already did, rather than when the scope
   around it went. Internal: every render under a scope of its own (a

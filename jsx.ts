@@ -922,9 +922,10 @@ type AttributeProps<E> = {
 };
 
 type Handler<Ev, E> = ((ev: Ev & { currentTarget: E }) => void) | null | undefined;
-// The DOM types `input` as Event, but a text control or contenteditable sends
-// an InputEvent (a <select> doesn't), so `(e: InputEvent) => …` is the handler
-// people write.
+// TypeScript 5's DOM types `input` as Event, but a text control or
+// contenteditable sends an InputEvent (a <select> doesn't), so
+// `(e: InputEvent) => …` is the handler people write. TypeScript 7's DOM types
+// every `oninput` as InputEvent, a <select>'s too, and this agrees with it.
 type EventOf<K, Ev, E> = K extends "oninput" ? (E extends HTMLSelectElement ? Ev : InputEvent) : Ev;
 
 // The element's own on* properties (NonNullable: some, like ontouchstart, are
