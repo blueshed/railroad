@@ -55,7 +55,8 @@
  *   subscriptions are unsubscribed on re-run; effect() returns a dispose
  *   function. effect() can return a cleanup function, called once, before
  *   the next run or on dispose; any other return value is ignored. The
- *   callback must be synchronous: an async one is reported on the console.
+ *   callback must be synchronous: an async one is reported on the console,
+ *   in development.
  *
  * Dispose pattern:
  *   effect() and computed() auto-track in the current dispose scope, so

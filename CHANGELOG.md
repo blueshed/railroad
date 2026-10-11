@@ -27,6 +27,14 @@ All notable changes to `@blueshed/railroad`. The format follows
   warn. What throws, and the errors logged for a failed async component or
   route, are the same in production.
 
+### Docs
+
+- **The manual says which messages are development-only.** An async
+  `effect()`'s error is logged in development; a second copy is reported in
+  development, while rendering its signal throws in both; and
+  `bun build --minify` alone is not a production build (Bun takes
+  `NODE_ENV` as development unless told).
+
 ## [0.16.0] - 2026-10-11
 
 ### Removed

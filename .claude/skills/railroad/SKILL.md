@@ -118,7 +118,7 @@ async function Profile() {
 <Profile fallback={() => <p>loading…</p>} />
 ```
 
-`effect(async () => …)` is an error. Start the async work from the effect and write the result to a signal. Async `routes()` handlers resolve to a thunk too; a bare Node gets the same console error. For streaming or multi-stage states, use an effect that writes a signal, shown with `when()`.
+`effect(async () => …)` is an error (logged in development). Start the async work from the effect and write the result to a signal. Async `routes()` handlers resolve to a thunk too; a bare Node gets the same console error. For streaming or multi-stage states, use an effect that writes a signal, shown with `when()`.
 
 ### 9. What a render reads, it reads once
 

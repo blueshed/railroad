@@ -159,7 +159,7 @@ batch(() => { count.set(10); count.set(20); });      // effect runs once
 `effect(fn)` returns its disposer. `fn` may return a cleanup function, which runs
 once before the next run or on dispose. Any other return value is ignored at run
 time (tsc still rejects an expression body that returns a value; use a block). `fn`
-must be synchronous: `effect(async () => …)` logs an error, because its Promise is
+must be synchronous: `effect(async () => …)` logs an error in development, because its Promise is
 not a cleanup and nothing after the first `await` is tracked.
 
 Writes made inside an effect body reach other effects **after the body returns**,
@@ -206,9 +206,10 @@ branch, a `list()` row, a route handler or `mount()`'s render, is a one-shot rea
 that subscribes nothing. In development railroad warns once per render body, naming
 it. `.peek()` and `untrack()` don't warn. Every railroad warning is development-only:
 a production build leaves them all out of the bundle when it defines
-`process.env.NODE_ENV` as `"production"` (`bun build --production` and Bun.serve with
-`development: false` do; so do esbuild and Vite), and what throws still throws.
-Served unbundled, with no `process`, railroad warns.
+`process.env.NODE_ENV` as `"production"`, as `bun build --production`, Bun.serve with
+`development: false`, esbuild and Vite do. `bun build --minify` alone does not: Bun
+takes NODE_ENV as development unless told. What throws still throws. Served
+unbundled, with no `process`, railroad warns.
 
 ### Props
 
@@ -687,7 +688,7 @@ Effects created after an `await` have no owner scope, because browser JS has no 
 - Effects created before the first `await` belong to the component as usual.
 - Async `routes()` handlers follow the same rule and resolve to `() => <Node>`, so post-await bindings die on navigation. A bare Node gets the same console error, and `onError` runs if given.
 - For streaming or multi-stage states rather than one fallback-to-content swap, use an effect that writes a signal, rendered with `when()`.
-- `effect()` must be synchronous. `effect(async () => …)` logs an error. Start the async work from the effect and write the result to a signal. Only a returned function is treated as cleanup.
+- `effect()` must be synchronous. `effect(async () => …)` logs an error in development. Start the async work from the effect and write the result to a signal. Only a returned function is treated as cleanup.
 
 ### 9. What a render reads, it reads once: `when()` values and route params
 
@@ -731,7 +732,7 @@ The rules marked ↗ are explained in the mistakes section above, so they are no
 
 A page must load **one copy** of railroad. Each copy has its own `Signal` class, scopes and provider registry, so the two cannot see each other, and railroad does not bridge them. Symptoms: the UI stops updating, an effect reading delta's `doc.data` never re-runs, `inject(WS)` finds no provider, and `openDoc()` in a component never auto-closes.
 
-Railroad reports it. In development a second copy logs `A second copy of @blueshed/railroad has loaded (…)`, and rendering the other copy's signal throws, naming both copies.
+Railroad reports it. In development a second copy logs `A second copy of @blueshed/railroad has loaded (…)`; in both, rendering the other copy's signal throws, naming both copies.
 
 The usual cause is a `file:` link or `bun link` to a delta checkout, which brings its own `node_modules/@blueshed/railroad`. Install a packed tarball instead, which carries no `node_modules`, so delta's peer resolves to the app's railroad:
 
