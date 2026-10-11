@@ -30,7 +30,7 @@
     ".claude/skills"
   ],
   "scripts": {
-    "check:consumer": "bun check -p tests/consumer-types/tsconfig.json && bun check -p tests/consumer-types/tsconfig.react.json && bunx tsc --noEmit -p tests/consumer-types/tsconfig.json && bunx tsc --noEmit -p tests/consumer-types/tsconfig.react.json && bun check -p tests/fixtures/readme/tsconfig.json && bunx tsc --noEmit -p tests/fixtures/readme/tsconfig.json",
+    "check:consumer": "bun check -p tests/consumer-types/tsconfig.json && bun check -p tests/consumer-types/tsconfig.react.json && bunx tsc --noEmit -p tests/consumer-types/tsconfig.json && bunx tsc --noEmit -p tests/consumer-types/tsconfig.react.json && bun check -p tests/fixtures/readme/tsconfig.server.json && bunx tsc --noEmit -p tests/fixtures/readme/tsconfig.server.json",
     "test": "bun test",
     "test:webview": "bun test ./tests/webview.test.ts"
   },

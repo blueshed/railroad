@@ -465,6 +465,10 @@ describe("props set as DOM properties, and innerHTML", () => {
     expect([option.selected, option.hasAttribute("selected")]).toEqual([true, false]);
     expect(((<img src="/x.png" />) as HTMLImageElement).src).toEndWith("/x.png");
     expect(((<iframe srcdoc="<p>x</p>" />) as HTMLIFrameElement).srcdoc).toBe("<p>x</p>");
+    // null tells a property from an attribute: the property takes "", which src and srcdoc
+    // reflect as an empty attribute; as an attribute, null would remove it.
+    expect(((<img src={null} />) as HTMLImageElement).getAttribute("src")).toBe("");
+    expect(((<iframe srcdoc={null} />) as HTMLIFrameElement).getAttribute("srcdoc")).toBe("");
   });
 
   test("innerHTML replaces the JSX children", () => {

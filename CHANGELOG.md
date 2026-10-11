@@ -39,25 +39,14 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
-- **The manual says which messages are development-only.** An async
-  `effect()`'s error is logged in development; a second copy is reported in
-  development, while rendering its signal throws in both; and
-  `bun build --minify` alone is not a production build (Bun takes
-  `NODE_ENV` as development unless told).
-- **Claims the tests didn't back are corrected or cut.** `bun create blueshed`
-  makes a paintbrush app with railroad (delta comes later, through its
-  `evolve` skill), not "railroad, delta and invoket"; browser tests run as
-  their own step because they skip where no browser is found, not because a
-  bare `bun test` drops them from discovery; the README's signals row,
-  why-railroad and the manual's "siblings run in subscription order" no
-  longer promise more than is tested. New tests pin what stays: duplicate
-  keys collapse to one row, a two-effect and a two-computed cycle throw,
-  `selected`/`src`/`srcdoc` are DOM properties and `innerHTML` replaces the
-  children, `matchRoute`'s first-match, trailing-slash and query rules, an
-  adopted SVG `<a>`'s `on*` listener, a computed run owning its effects,
-  `LOG_LEVEL` from the environment, every module loading with no DOM, the
-  README's Try it run as written in a browser, and `bun build --compile`
-  making its server one binary.
+- **The docs promise only what the tests show.** Development-only messages
+  are marked as such, and `bun build --minify` alone is not a production
+  build. The README's server step adds `"types": ["bun"]` to `tsconfig.json`
+  (TypeScript 6+ no longer picks up `@types/bun` by itself). `bun create
+  blueshed` makes a paintbrush app with railroad; delta comes later. Claims
+  no test backed are cut: "siblings run in subscription order", "every fix
+  is pinned by a regression test", and a bare `bun test` dropping files from
+  discovery. The README's Try it and server now run as written in the tests.
 
 ## [0.16.0] - 2026-10-11
 

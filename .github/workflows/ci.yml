@@ -19,9 +19,9 @@ jobs:
 
       - run: bun check
 
-      # Type-check the documented consumer surface (react-jsx + jsxImportSource,
-      # strict, no @types/bun). The check above runs jsx:react, so this is the
-      # only gate on the automatic-runtime path consumers actually compile against.
+      # Type-check as consumers compile: tests/consumer-types (react-jsx and
+      # jsx: react, strict, no @types/bun) and the README's files under its own
+      # tsconfig with the "types": ["bun"] its server step adds.
       - run: bun run check:consumer
 
       # tests/webview.test.ts drives Bun.WebView, which needs a Chrome/Chromium
@@ -40,8 +40,8 @@ jobs:
       # on its own. In CI a missing browser fails it rather than skipping it.
       - run: bun test ./tests/webview.test.ts
 
-  # package.json promises Bun 1.3.14 or later (engines). Run the unit suite on
-  # that floor; `bun check` needs the TypeScript 7 of Bun 1.4, so it isn't run here.
+  # package.json promises Bun 1.3.14 or later (engines). Run every test but the
+  # browser's on that floor; `bun check` needs the TypeScript 7 of Bun 1.4, so it isn't run here.
   # (1.3.12 and 1.3.13 pass it too, but their `bun build --compile` binaries
   # are killed on macOS arm64, so the README's one-binary deploy needs 1.3.14.)
   floor:
@@ -55,4 +55,4 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun test ./signals.test.tsx ./jsx.test.tsx ./routes.test.tsx ./shared.test.ts ./logger.test.ts ./tests/readme.test.ts
+      - run: bun test --path-ignore-patterns=tests/webview.test.ts

@@ -84,7 +84,8 @@ not its value, so only that text node changes; `Counter` never runs again.
 forever. Bun bundles the TSX on request and reloads on save.
 
 When the app needs its own server (an API, a WebSocket), import the page into
-`Bun.serve` (and `bun add -d @types/bun`, so the editor knows `Bun` and HTML imports):
+`Bun.serve`. So the editor knows `Bun` and HTML imports, `bun add -d @types/bun`
+and add `"types": ["bun"]` to `compilerOptions`:
 
 ```ts
 // server.ts

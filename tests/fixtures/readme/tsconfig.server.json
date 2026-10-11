@@ -1,0 +1,5 @@
+{
+  "//": "The README's tsconfig.json (beside this, byte for byte) with the one line its server step adds.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["bun"] }
+}

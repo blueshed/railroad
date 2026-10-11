@@ -21,13 +21,15 @@ why: [README.md](README.md). How to use it: the `railroad` skill.
 ```sh
 bun install              # dev deps only; bun.lock is committed
 bun check                # Bun's type check (TypeScript 7): strict, noUncheckedIndexedAccess, jsx: react
-bun run check:consumer   # tests/consumer-types/ as a consumer compiles, under TypeScript 7 and 5.9
+bun run check:consumer   # tests/consumer-types/ and the README's files as a consumer compiles, under TypeScript 7 and 5.9
 bun test --coverage      # unit suite (happy-dom) + coverage table
 bun run test:webview     # real-browser suite, by explicit path
 ```
 
 The release gate is `bun check && bun run check:consumer && bun test --coverage`.
-CI (`.github/workflows/`) also runs `bun run test:webview` on its own step.
+CI (`.github/workflows/`) also runs `bun run test:webview` on its own step,
+and a `floor` job runs `bun test` without the browser file on the Bun that
+`engines` names (1.3.14).
 Where no browser is found (no `BUN_CHROME_PATH`, nothing on `PATH`) and `CI` is
 unset, the browser tests skip with a warning, so a green bare `bun test` is not
 proof they ran; in CI a missing browser fails them.
@@ -37,10 +39,10 @@ proof they ran; in CI a missing browser fails them.
 example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`), beside a
 React-style global `JSX` it must not clash with; and `react-app.tsx` under
 `tsconfig.react.json` (`jsx: react`, `jsxFactory: "createElement"`), which
-proves railroad declares no global `JSX`. They are the only gates on the JSX
-paths users compile against. It also compiles `tests/fixtures/readme/`, the
-README's Try it files under the README's own `tsconfig.json` (which leaves
-`@types/bun` visible from the repo's `node_modules`). Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
+proves railroad declares no global `JSX`. It also compiles
+`tests/fixtures/readme/`, the README's files, under `tsconfig.server.json`:
+the README's `tsconfig.json` plus the `"types": ["bun"]` its server step adds.
+Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
 use of the `typescript` dev dependency): users compile railroad's source with
 their own TypeScript. Drop the `tsc` half once 5.x users are gone.
 
@@ -70,7 +72,9 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   beside it), with a comment saying what was wrong. Shared helpers
   (`tick`, `flush`, `defer`, `SVG_NS`) are in `tests/helpers.ts`.
   `tests/webview.test.ts` drives `tests/server.ts` + `tests/fixtures/` in a
-  real browser.
+  real browser. `tests/readme.test.ts` runs what README.md promises as
+  written: `tests/fixtures/readme/` is its files byte for byte (checked
+  there), served, built with `--compile`, and loaded with no DOM.
 - **`CHANGELOG.md`** — Keep a Changelog. Add to `## [Unreleased]` as work
   lands, breaking changes first, each with how to move across. `/publish`
   promotes it.

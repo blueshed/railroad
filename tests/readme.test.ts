@@ -1,45 +1,74 @@
 // What README.md and the skills promise about serving and building, run as written.
-// Each runs in a child process: these are real servers, and happy-dom (preloaded here)
-// replaces fetch and Response, so pages are fetched with Bun.fetch.
+// tests/fixtures/readme is the README's files byte for byte (the first test checks).
+// Servers run in child processes, and happy-dom (preloaded here) replaces fetch and
+// Response, so pages are fetched with Bun.fetch.
 
 import { test, expect, setDefaultTimeout } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 setDefaultTimeout(30_000);
 
 const here = import.meta.dir;
+const readmeDir = `${here}/fixtures/readme`;
 
-// Starts `cmd`, which prints "Listening on <url>", and returns the process and that URL.
-async function listen(cmd: string[], env: Record<string, string> = {}, cwd = here) {
-  const proc = Bun.spawn(cmd, { cwd, env: { ...process.env, PORT: "0", ...env }, stdout: "pipe" });
-  const reader = proc.stdout.getReader();
-  let out = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) throw new Error(`exited without listening:\n${out}`);
-    out += new TextDecoder().decode(value);
-    const url = out.match(/Listening on (\S+)/)?.[1];
-    if (url) {
-      reader.releaseLock();
-      return { proc, url };
-    }
+test("the README's files are tests/fixtures/readme, as written", async () => {
+  const readme = await Bun.file(`${here}/../README.md`).text();
+  const files = [["tsconfig.json", "json"], ["index.html", "html"], ["app.tsx", "tsx"], ["server.ts", "ts"]] as const;
+  for (const [name, lang] of files) {
+    const block = readme.match(new RegExp("```" + lang + "\\n[^\\n]*" + name.replace(".", "\\.") + "[^\\n]*\\n([\\s\\S]*?)```"));
+    expect(await Bun.file(`${readmeDir}/${name}`).text()).toBe(block![1]!);
   }
-}
+});
 
-async function page(cmd: string[], env: Record<string, string> = {}): Promise<string> {
-  const { proc, url } = await listen(cmd, env);
+// Runs `cmd` (a server that takes its port from PORT, as Bun.serve does), waits until it
+// answers, hands its URL to `use`, and stops it however `use` ends.
+async function withServer<T>(cmd: string[], env: Record<string, string>, cwd: string, use: (url: string) => Promise<T>): Promise<T> {
+  const probe = Bun.listen({ hostname: "localhost", port: 0, socket: { data() {} } });
+  const url = `http://localhost:${probe.port}/`;
+  probe.stop(true);
+  const proc = Bun.spawn(cmd, { cwd, env: { ...process.env, ...env, PORT: new URL(url).port }, stdout: "ignore" });
   try {
-    return await (await Bun.fetch(url)).text();
+    for (let tries = 0; ; tries++) {
+      if (proc.exitCode !== null || tries === 200) throw new Error(`no server at ${url} (exit ${proc.exitCode})`);
+      try {
+        await Bun.fetch(url);
+        break;
+      } catch {
+        await Bun.sleep(25);
+      }
+    }
+    return await use(url);
   } finally {
     proc.kill();
     await proc.exited;
   }
 }
 
+const text = async (url: string | URL) => (await Bun.fetch(url)).text();
+
 test("the README's server has HMR in development and none in production", async () => {
   // Bun keeps development.hmr under NODE_ENV=production; only the server's own gate drops it.
-  const serve = [process.execPath, "fixtures/serve.ts"];
-  expect(await page(serve, { NODE_ENV: "development" })).toContain("data-bun-dev-server-script");
-  expect(await page(serve, { NODE_ENV: "production" })).not.toContain("data-bun-dev-server-script");
+  const serve = (NODE_ENV: string) => withServer([process.execPath, "server.ts"], { NODE_ENV }, readmeDir, text);
+  expect(await serve("development")).toContain("data-bun-dev-server-script");
+  expect(await serve("production")).not.toContain("data-bun-dev-server-script");
+});
+
+test("bun build --compile makes the README's server one binary", async () => {
+  const dir = mkdtempSync(`${tmpdir()}/railroad-compile-`);
+  try {
+    const built = Bun.spawnSync([process.execPath, "build", "--compile", "server.ts", "--outfile", `${dir}/app`], { cwd: readmeDir });
+    expect(built.exitCode).toBe(0);
+    // Run from elsewhere, so nothing comes from the source tree.
+    const script = await withServer([`${dir}/app`], { NODE_ENV: "production" }, dir, async (url) => {
+      const src = (await text(url)).match(/<script[^>]*src="([^"]+)"/)?.[1];
+      expect(src).toBeDefined();
+      return text(new URL(src!, url));
+    });
+    expect(script).toContain("Clicked");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("each module loads with no DOM, and signals run there", () => {
@@ -57,36 +86,4 @@ test("each module loads with no DOM, and signals run there", () => {
   const run = Bun.spawnSync([process.execPath, "-e", script], { cwd: here });
   expect(run.stderr.toString()).toBe("");
   expect(run.stdout.toString().trim()).toBe("seen 4");
-});
-
-test("the README's Try it files are tests/fixtures/readme, as written", async () => {
-  // tests/webview.test.ts runs that fixture in a browser, so this keeps the two the same.
-  const readme = await Bun.file(`${here}/../README.md`).text();
-  for (const [name, lang] of [["tsconfig.json", "json"], ["index.html", "html"], ["app.tsx", "tsx"]] as const) {
-    const block = readme.match(new RegExp("```" + lang + "\\n[^\\n]*" + name.replace(".", "\\.") + "[^\\n]*\\n([\\s\\S]*?)```"));
-    expect(await Bun.file(`${here}/fixtures/readme/${name}`).text()).toBe(block![1]!);
-  }
-});
-
-test("bun build --compile makes the README's server one binary", async () => {
-  const { mkdtempSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const dir = mkdtempSync(`${tmpdir()}/railroad-compile-`);
-  try {
-    const built = Bun.spawnSync([process.execPath, "build", "--compile", "fixtures/serve.ts", "--outfile", `${dir}/app`], { cwd: here });
-    expect(built.exitCode).toBe(0);
-    // Run from elsewhere, so nothing comes from the source tree.
-    const { proc, url } = await listen([`${dir}/app`], { NODE_ENV: "production" }, dir);
-    try {
-      const html = await (await Bun.fetch(url)).text();
-      const script = html.match(/<script[^>]*src="([^"]+)"/)?.[1];
-      expect(script).toBeDefined();
-      expect(await (await Bun.fetch(new URL(script!, url))).text()).toContain("data-route");
-    } finally {
-      proc.kill();
-      await proc.exited;
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
