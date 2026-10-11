@@ -500,7 +500,8 @@ export class Signal<T> implements ReadonlySignal<T> {
     scheduleListeners(this.listeners);
   }
 
-  unsubscribe(listener: Listener): void {
+  /** Stop calling `listener` on a write: how an effect drops a dependency. @internal */
+  unsubscribe(listener: () => void): void {
     this.listeners.delete(listener);
   }
 }
@@ -567,11 +568,8 @@ export function effect(fn: () => void | (() => void)): () => void {
         if (!nextDeps.has(dep)) dep.unsubscribe(execute);
       }
       deps = nextDeps;
-      // Topological level: one deeper than the deepest dependency, so the
-      // scheduler settles upstream computeds before re-running this effect.
-      let lv = 0;
-      for (const dep of deps) if (dep.level >= lv) lv = dep.level + 1;
-      execute.level = lv;
+      // The scheduler settles upstream computeds before re-running this effect.
+      execute.level = levelOf(deps);
     }
   };
 
@@ -591,6 +589,13 @@ export function effect(fn: () => void | (() => void)): () => void {
   batch(execute);
 
   return dispose;
+}
+
+// Topological level: one deeper than the deepest of `deps` (0 for none).
+function levelOf(deps: Set<Signal<any>>): number {
+  let lv = 0;
+  for (const dep of deps) if (dep.level >= lv) lv = dep.level + 1;
+  return lv;
 }
 
 // === Dispose type & scope management ===
@@ -659,10 +664,8 @@ export function computed<T>(
     self.deps = currentDeps!; // what this run reads, for freshen()
     const v = fn();
     // currentDeps is this effect's live dep set (fn has finished reading).
-    // The output signal sits one level above the deepest source so consumers
-    // reading it are scheduled after this computed settles.
-    let lv = 0;
-    for (const dep of currentDeps!) if (dep.level >= lv) lv = dep.level + 1;
+    // Consumers reading the output are scheduled after this computed settles.
+    const lv = levelOf(currentDeps!);
     if (s) {
       // Raised before the write below queues the readers, so they queue at
       // their new levels.
