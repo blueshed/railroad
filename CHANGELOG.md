@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-11
+
 ### Removed
 
 - **An async route handler that resolves to a bare `Promise<Node>`**
