@@ -110,11 +110,6 @@ const SVG_TAGS = new Set([
 ]);
 
 const storedProps = new WeakMap<Element, Record<string, any>>();
-// document.createElement() lowercases tag names in HTML documents. Known SVG
-// tags never hit that path (created via createElementNS above), but remember
-// the authored tag for anything else so the adoption fallback can recreate a
-// future/unknown camelCase element with its original case.
-const authoredTags = new WeakMap<Element, string>();
 // Disposers for the reactive effects applyProps creates per element. SVG
 // adoption discards the original HTML-namespace element and re-applies its
 // props to a fresh SVG element; without tearing these down first, both elements
@@ -194,11 +189,6 @@ function applyProps(el: Element, props: Record<string, any>): void {
     let apply: (v: any) => void;
     if (key === "innerHTML") {
       apply = (v) => { el.innerHTML = v ?? ""; };
-    } else if (key === "className" || key === "class") {
-      apply = (v) => {
-        if (v == null || v === false) el.removeAttribute("class");
-        else el.setAttribute("class", String(v));
-      };
     } else if (key === "value" || key === "checked" || key === "disabled" || key === "selected" || key === "srcdoc" || key === "src") {
       // Coerce null/undefined to "" so a cleared signal doesn't write the
       // literal string "null"/"undefined" into the DOM property.
@@ -207,8 +197,8 @@ function applyProps(el: Element, props: Record<string, any>): void {
       const prev: StyleState = { keys: null };
       apply = (v) => applyStyle(el, v, prev);
     } else {
-      // htmlFor is the DOM property's name; the attribute is `for`.
-      const name = key === "htmlFor" ? "for" : key;
+      // className and htmlFor are the DOM properties' names for `class` and `for`.
+      const name = key === "className" ? "class" : key === "htmlFor" ? "for" : key;
       apply = (v) => {
         if (v === false || v == null) el.removeAttribute(name);
         else el.setAttribute(name, String(v));
@@ -264,7 +254,6 @@ export function createElement(
   const el = SVG_TAGS.has(tag)
     ? document.createElementNS(SVG_NS, tag)
     : document.createElement(tag);
-  if (el.localName !== tag) authoredTags.set(el, tag);
 
   // Children first: a <select>'s value names one of its <option>s, and a ref
   // sees the element whole.
@@ -284,13 +273,9 @@ export function createElement(
  * attributes), and recursively adopts all children.
  */
 function adoptSvg(node: Node): Node {
-  if (node instanceof Text || node instanceof Comment) return node;
   if (!(node instanceof Element) || node.namespaceURI === SVG_NS) return node;
 
-  const svgEl = document.createElementNS(
-    SVG_NS,
-    authoredTags.get(node) ?? node.localName,
-  );
+  const svgEl = document.createElementNS(SVG_NS, node.localName);
   // Adopt children recursively — except through <foreignObject>, whose
   // subtree is HTML content by definition and must keep its namespace. They
   // move before the props are re-applied, as createElement orders them.
@@ -326,14 +311,12 @@ function adoptSvg(node: Node): Node {
 }
 
 /**
- * Adopt a render result into the SVG namespace if the target parent is SVG.
- * Must run before the caller captures child-node references, because
- * `adoptSvg` replaces elements with fresh SVG-namespace copies.
- *
- * DocumentFragments are mutated in place; single elements are returned
- * swapped (caller must reassign).
+ * @internal -- jsx.ts and routes(): adopt a render result into the SVG
+ * namespace if the target parent is SVG. Must run before the caller captures
+ * child-node references, because `adoptSvg` replaces elements with fresh
+ * SVG-namespace copies. DocumentFragments are mutated in place; single
+ * elements are returned swapped (caller must reassign).
  */
-/** @internal -- routes() places a handler's result with it, as mount() does. Not part of the API. */
 export function adoptIntoSvg(result: Node, parent: Node | null): Node {
   // <foreignObject> is an SVG-namespace element whose children are HTML —
   // adoption stops at that boundary.
