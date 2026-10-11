@@ -21,7 +21,7 @@ live documents plugging straight in.**
 
 ## Try it
 
-You need Bun 1.3.12 or later. In an empty folder:
+You need Bun 1.3.14 or later. In an empty folder:
 
 ```sh
 bun add @blueshed/railroad

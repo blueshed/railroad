@@ -9,6 +9,10 @@ All notable changes to `@blueshed/railroad`. The format follows
 ### Changed
 
 - `@types/bun` is `^1.4.2`, the latest published, beside the Bun 1.4.3 that CI pins.
+- **Bun 1.3.14 or later** (`engines`, was 1.3.12). On 1.3.12 and 1.3.13 the
+  unit suite passes, but a `bun build --compile` binary is killed at launch on
+  macOS arm64, so the README's one-binary deploy fails there. CI runs the unit
+  suite on 1.3.14 as a job of its own.
 
 ### Fixed
 

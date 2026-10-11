@@ -13,7 +13,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.3 # pin explicitly; else setup-bun resolves engines.bun (">=1.3.12")
+          bun-version: 1.4.3 # pin explicitly; else setup-bun resolves engines.bun (">=1.3.14")
 
       - run: bun install --frozen-lockfile
 
@@ -39,3 +39,20 @@ jobs:
       # The WebView suite again, as its own step, so the real-browser layer shows
       # on its own. In CI a missing browser fails it rather than skipping it.
       - run: bun test ./tests/webview.test.ts
+
+  # package.json promises Bun 1.3.14 or later (engines). Run the unit suite on
+  # that floor; `bun check` needs the TypeScript 7 of Bun 1.4, so it isn't run here.
+  # (1.3.12 and 1.3.13 pass it too, but their `bun build --compile` binaries
+  # are killed on macOS arm64, so the README's one-binary deploy needs 1.3.14.)
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun test ./signals.test.tsx ./jsx.test.tsx ./routes.test.tsx ./shared.test.ts ./logger.test.ts ./tests/readme.test.ts

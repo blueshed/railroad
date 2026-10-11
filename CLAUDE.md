@@ -139,7 +139,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 
 Locally nothing is needed. In the web sandbox (`CLAUDE_CODE_REMOTE=true`) the
 SessionStart hook `.claude/hooks/session-start.sh` (wired in
-`.claude/settings.json`) upgrades Bun to ≥ 1.3.12, runs `bun install`, and
+`.claude/settings.json`) upgrades Bun to ≥ 1.4.3, runs `bun install`, and
 stages a headless Chromium from the `@sparticuz/chromium` npm tarball with a
 `--no-sandbox` launch shim at `BUN_CHROME_PATH`, because the browser download
 hosts (`cdn.playwright.dev`, `googlechromelabs.github.io`, `dl.google.com`,
