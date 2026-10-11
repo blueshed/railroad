@@ -1,7 +1,7 @@
 ---
 name: bun-route
 metadata:
-  version: 0.16.0
+  version: 0.16.2
 description: "Scaffold a new page or route in a Bun fullstack app: an HTML entry, bundled CSS, a TypeScript, JavaScript or TSX client script, registered on the server. Also writes Bun.WebView browser tests for a route's interaction. Use when the user wants to add a page or route, or to test one in a real browser."
 argument-hint: "[route-path] [description]"
 ---

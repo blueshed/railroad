@@ -6,6 +6,8 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-10-11
+
 ### Changed
 
 - `@types/bun` is `^1.4.2`, the latest published, beside the Bun 1.4.3 that CI pins.
