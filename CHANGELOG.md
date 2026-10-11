@@ -14,15 +14,18 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 - **An app's production build drops railroad's development warnings.** The
   development flag was set inside a `try`, which no minifier folds, so a
-  production bundle still carried the render-body `.get()` warning and the
-  second-copy check. Defining `process.env.NODE_ENV` as `"production"`
-  (`bun build --production`, Bun.serve with `development: false`, esbuild and
-  Vite by default) now removes both: a page with `signal`, `when`, `list` and
-  `mount` goes from 5051 to 4713 B gzipped (−338 B), the whole package from
-  7609 to 7301 B (Bun.build, minified). Development, and a page served
-  unbundled with no `process`, still warn. The second-copy `console.error` is
-  now development-only; a Signal from another copy still throws where it is
-  rendered.
+  production bundle still carried every warning's text. Every warning about a
+  programming mistake is now development-only: a `.get()` in a render body, a
+  second copy of railroad, an async `effect()`, a non-function `on*`, a
+  `fallback` that isn't a thunk, a Node in a reactive child, `when()`/`list()`
+  outside a dispose scope, and duplicate `list()` keys. Defining
+  `process.env.NODE_ENV` as `"production"` (`bun build --production`, Bun.serve
+  with `development: false`, esbuild and Vite by default) removes them all: a
+  page with `signal`, `when`, `list` and `mount` goes from 5051 to 4314 B
+  gzipped (−737 B), the whole package from 7609 to 6840 B (Bun.build,
+  minified). Development, and a page served unbundled with no `process`, still
+  warn. What throws, and the errors logged for a failed async component or
+  route, are the same in production.
 
 ## [0.16.0] - 2026-10-11
 

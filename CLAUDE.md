@@ -53,7 +53,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 
   | File | Exports | Depends on |
   |---|---|---|
-  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` (and `assertOwnSignal`, `untrackRender`, `scoped`, internal: for `jsx.ts` and `routes.ts`) | — |
+  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` (and `assertOwnSignal`, `untrackRender`, `scoped`, `warn`, internal: for `jsx.ts` and `routes.ts`) | — |
   | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount`, the `JSX` types (on `createElement`, not global; and `adoptIntoSvg`, `renderThunk`, internal: for `routes.ts`) | signals |
   | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals, jsx (SVG adoption only; loads without a DOM) |
   | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
@@ -113,6 +113,10 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   copy throws where JSX, `when()` or `list()` is given it. The copies are not
   made to cooperate: that would freeze signals.ts's internals as a contract
   between versions.
+- **Warnings are development-only; throws are not.** Every warning about a
+  programming mistake is in signals.ts's `warnings`, named only by
+  `startDevelopment()`, so a production build drops it; what throws, or logs
+  a caught failure, does so in both.
 - **SVG tags get their namespace at creation.** Only `a`, `script`, `style`,
   `title` are adopted on append, and adoption disposes the old element's prop
   effects before re-applying them.

@@ -11,6 +11,8 @@ Each source file's JSDoc header is the contract: `signals.ts` · `jsx.ts` · `ro
 
 Read `${CLAUDE_SKILL_DIR}/reference.md` for the full manual: setup, every API, realtime, testing, DI and the logger. Each rule below has its reasons and edge cases in reference.md › *The nine mistakes, in full*, under the same number.
 
+Railroad's warnings are development-only: a production build (`process.env.NODE_ENV` defined as `"production"`, as `bun build --production` does) drops them, and what throws still throws.
+
 There is no global `JSX` namespace. Annotate with `import type { JSX } from "@blueshed/railroad"`.
 
 ## The nine things that bite

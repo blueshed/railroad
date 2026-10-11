@@ -71,10 +71,12 @@
  * however often it renders, a list() row function however many rows);
  * .peek() is the silent one-shot read, and untrack() says the same on purpose.
  *
- * Development warnings: an app's production build drops them (this one and the
- * second-copy check) by defining process.env.NODE_ENV as "production", as
- * `bun build --production`, Bun.serve with `development: false`, esbuild and
- * Vite do. Served unbundled, with no `process`, railroad is in development.
+ * Development warnings: every warning railroad gives about a programming
+ * mistake (this one, a second copy, and jsx.ts's) is development-only. An
+ * app's production build drops them all by defining process.env.NODE_ENV as
+ * "production", as `bun build --production`, Bun.serve with
+ * `development: false`, esbuild and Vite do; what throws still throws. Served
+ * unbundled, with no `process`, railroad is in development.
  *
  * One copy per page: signals, scopes and providers don't cross copies of
  * railroad, so in development a second copy logs a console.error naming both
@@ -90,19 +92,21 @@
 // re-runs on a signal from the other, and inject() in one can't find what the
 // other provided. The usual cause is a linked checkout (a `file:` or `bun
 // link` dependency) that brings its own node_modules/@blueshed/railroad.
-// Nothing else would say so, so say it here, in development (see
-// "Development", below). The same file evaluated again under the Bun runtime
-// is `bun --hot`, not a copy; in a browser nothing re-evaluates a module, and
-// copies bundled together share one URL.
-const COPY = Symbol.for("@blueshed/railroad");
+// Nothing else would say so, so say it here, in development: each copy
+// registers its URL as it loads (see "Development", below). The same file
+// evaluated again under the Bun runtime is `bun --hot`, not a copy; in a
+// browser nothing re-evaluates a module, and copies bundled together share
+// one URL.
 const copyUrl = (import.meta as { url?: string }).url ?? "(unknown)";
-const firstCopy = (globalThis as { [COPY]?: string })[COPY];
-(globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
 
 function warnIfSecondCopy(): void {
-  if (firstCopy === undefined || (firstCopy === copyUrl && "Bun" in globalThis)) return;
+  const copies = globalThis as { [key: symbol]: string | undefined };
+  const COPY = Symbol.for("@blueshed/railroad");
+  const first = copies[COPY];
+  copies[COPY] ??= copyUrl;
+  if (first === undefined || (first === copyUrl && "Bun" in globalThis)) return;
   console.error(
-    `[railroad] A second copy of @blueshed/railroad has loaded (${copyUrl}; the first: ${firstCopy}). ` +
+    `[railroad] A second copy of @blueshed/railroad has loaded (${copyUrl}; the first: ${first}). ` +
       "Signals, scopes and provide()/inject() don't cross copies, so the UI will not update. " +
       "Make it one copy: see the railroad skill, \"Local development across repos\".",
   );
@@ -148,10 +152,6 @@ let currentDeps: Set<Signal<any>> | null = null;
 
 // === A .get() in a render body ===
 //
-// The warning is set in development only (see "Development", below), and
-// nothing else names warnOneShot, so a production build drops its text.
-let warnRenderRead: (() => void) | null = null;
-
 // True while a render body runs (in development only): a .get() with no
 // listener then is a one-shot read that looks like a binding. renderBody is
 // the function that body is (a component, a row's render…), renderWhere says
@@ -166,38 +166,91 @@ let renderBody: Function | null = null;
 const warnedBodies = new Set<string>();
 const bodySources = new WeakMap<Function, string>();
 
-function warnOneShot(): void {
-  const body = renderBody!;
-  let source = bodySources.get(body);
-  if (source === undefined) {
-    source = Function.prototype.toString.call(body);
-    bodySources.set(body, source);
-  }
-  if (warnedBodies.has(source)) return;
-  warnedBodies.add(source);
-  const where = renderWhere === "component" ? `<${body.name || "anonymous"}>` : renderWhere;
-  console.warn(
-    `[railroad] .get() in a render body (${where}) reads once and never updates: nothing ` +
-      "re-runs a render. Bind the signal where the value should stay live ({s}, " +
-      "class={() => s.get()}, s.map(…)), or read it with .peek() if once is what you mean. " +
-      "(Once per render body, in development.)",
-  );
-}
-
 // === Development ===
 //
-// Development is anything but a production build. In an app's production
-// build (see the header) the try below becomes `try { if (false) … }`, a
-// minifier removes the whole statement, and the warnings it alone names go
-// with it. Bundlers replace only the bare `process.env.NODE_ENV` (not
+// Development is anything but a production build. Every warning about a
+// programming mistake is in `warnings`, and only startDevelopment() names it.
+// In an app's production build (see the header) the try below becomes
+// `try { if (false) … }`, a minifier removes the whole statement, and the
+// warnings' text goes with it; `warn` stays null. What throws is the same in
+// both. Bundlers replace only the bare `process.env.NODE_ENV` (not
 // `typeof process`, not `process?.env`, not a try's result), so it is read
 // bare, under a local declaration (no ambient type needed). Served unbundled,
 // with no `process` at all, the read throws, and the catch turns development
 // on.
+const warnings = {
+  renderRead(): void {
+    const body = renderBody!;
+    let source = bodySources.get(body);
+    if (source === undefined) {
+      source = Function.prototype.toString.call(body);
+      bodySources.set(body, source);
+    }
+    if (warnedBodies.has(source)) return;
+    warnedBodies.add(source);
+    const where = renderWhere === "component" ? `<${body.name || "anonymous"}>` : renderWhere;
+    console.warn(
+      `[railroad] .get() in a render body (${where}) reads once and never updates: nothing ` +
+        "re-runs a render. Bind the signal where the value should stay live ({s}, " +
+        "class={() => s.get()}, s.map(…)), or read it with .peek() if once is what you mean. " +
+        "(Once per render body, in development.)",
+    );
+  },
+  asyncEffect(): void {
+    console.error(
+      "[railroad/signals] effect callbacks must be synchronous: an async function returns a " +
+        "Promise, not a cleanup, and nothing after its first await is tracked or owned. Do the " +
+        "async work in an async component or route handler (resolve to a thunk), or start it from " +
+        "the effect and write the result into a signal.",
+    );
+  },
+  handlerNotAFunction(key: string, value: unknown): void {
+    console.warn(
+      `[railroad/jsx] ${key} expects a function but got ` +
+        (value instanceof Signal
+          ? "a Signal — event handlers are not reactive; pass a function that reads it"
+          : typeof value) +
+        ". No listener was attached.",
+    );
+  },
+  fallbackNotAThunk(name: string, fallback: unknown): void {
+    console.warn(
+      `[railroad/jsx] <${name}> fallback must be a thunk ` +
+        `(fallback={() => <p>…</p>}) — got ${fallback instanceof Node ? "a Node" : `a ${typeof fallback}`}; ignoring.`,
+    );
+  },
+  nodeAsText(): void {
+    console.warn(
+      "[railroad/jsx] A reactive child held a DOM Node; it is rendered " +
+        "as text, not inserted as an element. To render elements reactively, " +
+        "use when() or list().",
+    );
+  },
+  // when()/list() return DOM nodes, not disposers, so outside a dispose scope
+  // their effects are unreachable: a leak once the UI is ever unmounted.
+  scopeless(helper: string): void {
+    console.warn(
+      `[railroad/${helper}] created outside a dispose scope — its effects can ` +
+        "never be torn down. Render it inside a component, a routes() handler, " +
+        "or mount().",
+    );
+  },
+  // Duplicate keys collapse to one entry in list()'s Map, dropping rows.
+  duplicateKeys(): void {
+    console.warn(
+      "[railroad/list] duplicate keys detected — items sharing a key collapse " +
+        "to a single row and others are dropped. keyFn must return a unique key per item.",
+    );
+  },
+};
+
+/** @internal -- jsx.ts: the development warnings, or null in a production build. */
+export let warn: typeof warnings | null = null;
+
 declare const process: { env: { NODE_ENV?: string } };
 function startDevelopment(): void {
   warnIfSecondCopy();
-  warnRenderRead = warnOneShot;
+  warn = warnings;
 }
 try {
   if (process.env.NODE_ENV !== "production") startDevelopment();
@@ -438,7 +491,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   get(): T {
     if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     if (currentListener) this.listeners.add(currentListener);
-    else if (rendering) warnRenderRead!();
+    else if (rendering) warn!.renderRead();
     if (currentDeps) currentDeps.add(this);
     return this.value;
   }
@@ -531,12 +584,6 @@ export class Signal<T> implements ReadonlySignal<T> {
 
 // === effect() ===
 
-const ASYNC_EFFECT =
-  "[railroad/signals] effect callbacks must be synchronous: an async function returns a " +
-  "Promise, not a cleanup, and nothing after its first await is tracked or owned. Do the " +
-  "async work in an async component or route handler (resolve to a thunk), or start it from " +
-  "the effect and write the result into a signal.";
-
 export function effect(fn: () => void | (() => void)): () => void {
   let cleanup: (() => void) | undefined;
   // Owner scope for whatever this run creates (effects, computeds, when/list,
@@ -578,7 +625,7 @@ export function effect(fn: () => void | (() => void)): () => void {
       // an async body's Promise would make the next run throw from the writer.
       const r: unknown = fn();
       if (typeof r === "function") cleanup = r as () => void;
-      else if (r instanceof Promise) console.error(ASYNC_EFFECT);
+      else if (r instanceof Promise) warn?.asyncEffect();
     } finally {
       children = popDisposeScope();
       currentListener = prevListener;
@@ -722,7 +769,7 @@ export function untrack<T>(fn: () => T): T {
  * a phrase such as "a list() row".
  */
 export function untrackRender<T>(where: string, body: Function, fn: () => T): T {
-  return runUntracked(fn, warnRenderRead !== null, where, body);
+  return runUntracked(fn, warn !== null, where, body);
 }
 
 function runUntracked<T>(fn: () => T, render: boolean, where: string, body: Function | null): T {

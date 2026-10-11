@@ -56,9 +56,9 @@
  *   list(signal, keyFn, render, options?) — keyed reactive list, render receives Signal<T>
  *   list(signal, render)          — index-based reactive list, render receives raw T
  *
- * when() and list() warn if created outside a dispose scope (a component,
- * routes() handler, when/list render, or mount()) — their internal effects
- * would be impossible to tear down.
+ * when() and list() warn (in development) if created outside a dispose scope
+ * (a component, routes() handler, when/list render, or mount()) — their
+ * internal effects would be impossible to tear down.
  *
  * A when() branch or list() row that throws keeps nothing: what it made
  * before the throw is disposed, nothing of it is inserted, and the next change
@@ -83,7 +83,7 @@
  * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
-import { Signal, signal, effect, computed, untrack, untrackRender, scoped, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
+import { Signal, signal, effect, computed, untrack, untrackRender, scoped, trackDispose, hasActiveDisposeScope, assertOwnSignal, warn } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
 
 // === SVG namespace ===
@@ -172,13 +172,7 @@ function applyProps(el: Element, props: Record<string, any>): void {
       if (typeof value === "function") {
         el.addEventListener(key.slice(2).toLowerCase(), value);
       } else if (value != null) {
-        console.warn(
-          `[railroad/jsx] ${key} expects a function but got ` +
-            (value instanceof Signal
-              ? "a Signal — event handlers are not reactive; pass a function that reads it"
-              : typeof value) +
-            ". No listener was attached.",
-        );
+        warn?.handlerNotAFunction(key, value);
       }
       continue;
     }
@@ -237,12 +231,7 @@ export function createElement(
       // scope, so its teardown registers with the component.
       const name = tag.name || "anonymous";
       const fb = componentProps.fallback;
-      if (fb != null && typeof fb !== "function") {
-        console.warn(
-          `[railroad/jsx] <${name}> fallback must be a thunk ` +
-            `(fallback={() => <p>…</p>}) — got ${fb instanceof Node ? "a Node" : `a ${typeof fb}`}; ignoring.`,
-        );
-      }
+      if (fb != null && typeof fb !== "function") warn?.fallbackNotAThunk(name, fb);
       return asyncComponent(tag, name, result, typeof fb === "function" ? fb : undefined);
     });
     trackDispose(dispose); // the component goes with the scope around it
@@ -508,11 +497,7 @@ function appendChildren(parent: Node, children: any[]): void {
         const v = read();
         if (!warnedNode && v instanceof Node) {
           warnedNode = true;
-          console.warn(
-            "[railroad/jsx] A reactive child held a DOM Node; it is rendered " +
-              "as text, not inserted as an element. To render elements reactively, " +
-              "use when() or list().",
-          );
+          warn?.nodeAsText();
         }
         textNode.textContent = v == null || typeof v === "boolean" ? "" : String(v);
       });
@@ -560,17 +545,6 @@ export function mount(target: Element, render: () => Node): Dispose {
   return dispose;
 }
 
-// Scope guardrail: when()/list() return DOM nodes, not disposers, so outside
-// a dispose scope their internal effects are unreachable — a guaranteed leak
-// once the UI is ever unmounted. Warn with the supported alternatives.
-function warnScopeless(helper: string): void {
-  console.warn(
-    `[railroad/${helper}] created outside a dispose scope — its effects can ` +
-      "never be torn down. Render it inside a component, a routes() handler, " +
-      "or mount().",
-  );
-}
-
 // === when() — conditional rendering ===
 // Swaps DOM nodes only when truthiness transitions (falsy↔truthy).
 // Value changes within the same branch (e.g. "a" → "b") do NOT re-render;
@@ -585,7 +559,7 @@ export function when<T>(
   truthy: (value$: ReadonlySignal<NonNullable<T>>) => Node,
   falsy?: () => Node,
 ): Node {
-  if (!hasActiveDisposeScope()) warnScopeless("when");
+  if (!hasActiveDisposeScope()) warn?.scopeless("when");
   assertOwnSignal(condition);
   // The branch lives between brackets, whose teardown goes with the scope
   // around when(). Registered before the first swap, as list()'s is: a first
@@ -688,7 +662,7 @@ export function list<T>(
   maybeRender?: (item: ReadonlySignal<T>, index: ReadonlySignal<number>) => Node,
   options?: SignalOptions<T>,
 ): Node {
-  if (!hasActiveDisposeScope()) warnScopeless("list");
+  if (!hasActiveDisposeScope()) warn?.scopeless("list");
   assertOwnSignal(items);
   const hasKeyFn = maybeRender !== undefined;
   const keyFn = hasKeyFn ? keyFnOrRender as (item: T) => string | number : null;
@@ -743,13 +717,7 @@ export function list<T>(
     const newKeySet = new Set(newKeys);
 
     // Duplicate keys collapse to one entry in the Map, silently dropping rows.
-    // Warn rather than mis-render — keyFn must return a unique key per item.
-    if (keyFn && newKeySet.size !== newKeys.length) {
-      console.warn(
-        "[railroad/list] duplicate keys detected — items sharing a key collapse " +
-          "to a single row and others are dropped. keyFn must return a unique key per item.",
-      );
-    }
+    if (keyFn && newKeySet.size !== newKeys.length) warn?.duplicateKeys();
 
     // Remove entries no longer in the list
     for (const key of order) {

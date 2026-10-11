@@ -204,10 +204,11 @@ A child that is a signal or a function renders its value as text. `null`,
 A component body runs once and **untracked**: a `.get()` in it, or in a `when()`
 branch, a `list()` row, a route handler or `mount()`'s render, is a one-shot read
 that subscribes nothing. In development railroad warns once per render body, naming
-it. `.peek()` and `untrack()` don't warn. A production build leaves this warning,
-and the second-copy check, out of the bundle: define `process.env.NODE_ENV` as
-`"production"` (`bun build --production` and Bun.serve with `development: false`
-do; so do esbuild and Vite). Served unbundled, with no `process`, railroad warns.
+it. `.peek()` and `untrack()` don't warn. Every railroad warning is development-only:
+a production build leaves them all out of the bundle when it defines
+`process.env.NODE_ENV` as `"production"` (`bun build --production` and Bun.serve with
+`development: false` do; so do esbuild and Vite), and what throws still throws.
+Served unbundled, with no `process`, railroad warns.
 
 ### Props
 
@@ -528,7 +529,7 @@ reasons, the edge cases and the rest of the examples.
 
 The same holds in any render body: a component body, a `when()` branch, a `list()` row, a route handler, `mount()`'s render. These run once and untracked, so a `.get()` there subscribes nothing. Bind the signal where the value should stay live, or use `.peek()` when a one-shot read is what you mean. In development railroad warns once per render body about a `.get()` there. `.peek()` and `untrack()` don't warn.
 
-A function child must return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the stringified element. Railroad warns about this in development and production alike. Use `when()` for a conditional element and `list()` for a collection.
+A function child must return **text**, not a Node. `{() => cond ? <A/> : <B/>}` renders the stringified element. Railroad warns about this in development. Use `when()` for a conditional element and `list()` for a collection.
 
 ### 2. `list()` rows are `Signal<T>`, not `T`
 
