@@ -2028,6 +2028,7 @@ describe("list(): a row that disposes the list's owner mid-sync", () => {
     const items = signal([1]);
     const probe = signal(0);
     let runs = 0;
+    const rendered: number[] = [];
     let disposeOwner = () => {};
     const root = document.createElement("div");
     pushDisposeScope();
@@ -2035,6 +2036,7 @@ describe("list(): a row that disposes the list's owner mid-sync", () => {
       <ul>
         {list(items, (i) => i, (i$) => {
           const i = i$.peek();
+          rendered.push(i);
           effect(() => { probe.get(); runs++; });
           if (i === 2) disposeOwner();
           return <li>{i}</li>;
@@ -2044,6 +2046,7 @@ describe("list(): a row that disposes the list's owner mid-sync", () => {
     disposeOwner = popDisposeScope();
     // Rows render from the end: 3 is placed, then 2 disposes the owner, row 3 and row 1 with it.
     expect(() => items.set([1, 2, 3])).not.toThrow(); // before: insertBefore a removed row
+    expect(rendered).toEqual([1, 3, 2]); // and stops there: row 1 isn't rendered again
     runs = 0;
     probe.set(1);
     expect(runs).toBe(0); // before: row 2's effect, built after the teardown, ran on

@@ -253,24 +253,22 @@ export function routes(
     // rest under a scope of its own. A settlement after navigating away (a
     // newer run) only disposes.
     asyncPending = true;
-    const isCurrent = (): boolean => {
-      if (myRunId !== runId) {
-        scopeDispose();
-        return false;
-      }
+    // Run `step` only if this run is still the current one; a settlement
+    // after navigating away (a newer run) only disposes.
+    const settle = (step: () => void) => {
+      if (myRunId !== runId) return scopeDispose();
       asyncPending = false;
-      return true;
+      step();
     };
     const asyncFailed = (err: unknown) => {
       scopeDispose();
       failed(err, "[railroad/routes] async handler failed:");
     };
     result.then(
-      (resolved) => {
-        if (!isCurrent()) return;
+      (resolved) => settle(() => {
         let built: { value: Node; dispose: Dispose };
         try {
-          built = renderThunk(resolved, "an async route handler", "a route handler", handler, target);
+          built = renderThunk(resolved, "a route handler", handler, target);
         } catch (err) {
           return asyncFailed(err);
         }
@@ -279,10 +277,8 @@ export function routes(
           scopeDispose();
         };
         target.appendChild(built.value);
-      },
-      (err) => {
-        if (isCurrent()) asyncFailed(err);
-      },
+      }),
+      (err) => settle(() => asyncFailed(err)),
     );
   }
 

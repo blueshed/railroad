@@ -360,9 +360,9 @@ function clearBetween(start: Node, end: Node): void {
 // of content at a time between brackets, with the scope that made it. Its
 // teardown, registered in the scope around it, latches `disposed` (nothing
 // rebuilds after it: the brackets can still sit in a detached-but-parented
-// subtree, so a parent check isn't enough) and clears.
+// subtree, so a parent check isn't enough) and clears. Returned with the
+// fragment holding the brackets, for the caller to return.
 interface Bracket {
-  frag: DocumentFragment; // the brackets, to return: content goes between
   start: Comment;
   end: Comment;
   dispose: Dispose | null; // the content's scope
@@ -371,12 +371,12 @@ interface Bracket {
   fill(built: { value: Node | null; dispose: Dispose }): void; // place a render's content and scope
 }
 
-function bracket(name: string): Bracket {
+function bracket(name: string): [Bracket, DocumentFragment] {
   const frag = document.createDocumentFragment();
   const start = frag.appendChild(document.createComment(name));
   const end = frag.appendChild(document.createComment(`/${name}`));
   const b: Bracket = {
-    frag, start, end, dispose: null, disposed: false,
+    start, end, dispose: null, disposed: false,
     clear() {
       b.dispose?.();
       b.dispose = null;
@@ -394,7 +394,7 @@ function bracket(name: string): Bracket {
     b.disposed = true;
     b.clear();
   });
-  return b;
+  return [b, frag];
 }
 
 // === Async components — thunk resolution ===
@@ -426,15 +426,16 @@ function bracket(name: string): Bracket {
  * resolved to, a thunk, as a render body under a scope of its own, adopting
  * what it built into `parent`'s namespace there. Throws, having disposed what
  * it made, if `resolution` isn't a thunk, the thunk throws, or it returns no
- * Node. `who` names the render in the error.
+ * Node. `where` names the render, as for untrackRender: "component" (then
+ * by `body`'s name) or a phrase such as "a route handler".
  */
 export function renderThunk(
   resolution: unknown,
-  who: string,
   where: string,
   body: Function,
   parent: Node,
 ): { value: Node; dispose: Dispose } {
+  const who = where === "component" ? `<${body.name || "anonymous"}>` : where;
   if (typeof resolution !== "function") {
     throw new Error(
       `[railroad] ${who} resolved to ${resolution instanceof Node ? "a Node" : "a non-thunk value"} — ` +
@@ -456,7 +457,7 @@ function asyncComponent(
   pending: Promise<unknown>,
   fallback: (() => Node) | undefined,
 ): Node {
-  const b = bracket(`async:${name}`);
+  const [b, frag] = bracket(`async:${name}`);
   if (fallback) {
     // Own sub-scope so the fallback's effects die at the swap, not with the
     // whole component. A fallback that throws has what it made disposed, and
@@ -471,7 +472,7 @@ function asyncComponent(
       const parent = b.end.parentNode;
       if (!parent) return; // brackets removed out of contract: nowhere to render
       try {
-        b.fill(renderThunk(resolution, `<${name}>`, "component", component, parent));
+        b.fill(renderThunk(resolution, "component", component, parent));
       } catch (err) {
         console.error(`[railroad/jsx] <${name}> async component failed:`, err);
       }
@@ -483,7 +484,7 @@ function asyncComponent(
     },
   );
 
-  return b.frag;
+  return frag;
 }
 
 // === Child rendering ===
@@ -590,7 +591,7 @@ export function when<T>(
   // around when(). Registered before the first swap, as list()'s is: a first
   // branch that throws leaves when() with its effect live, and if that scope
   // outlives the throw, what the next change builds must still go with it.
-  const b = bracket("when");
+  const [b, frag] = bracket("when");
   let wasTruthy: boolean | undefined = undefined;
   // The truthy branch's v$, fresh per build. It never holds a falsy value: a
   // falsy condition disposes the branch instead of writing v$. equals: () =>
@@ -604,7 +605,7 @@ export function when<T>(
 
   function swap() {
     if (b.disposed) return;
-    // On the first run the brackets are in b.frag, so the first branch renders
+    // On the first run the brackets are in frag, so the first branch renders
     // synchronously: it is in the DOM when mount()/appendChild returns.
     const parent = b.start.parentNode;
     if (!parent) return; // brackets removed out of contract — nowhere to render
@@ -640,7 +641,7 @@ export function when<T>(
     untrack(swap);
   });
 
-  return b.frag;
+  return frag;
 }
 
 // === list() — keyed reactive list rendering ===
