@@ -37,6 +37,13 @@ All notable changes to `@blueshed/railroad`. The format follows
   row built after the teardown never disposed. The list now stops at that
   row and disposes it.
 
+- **A `routes()` `onError` fallback for an async handler's failure has its
+  bindings disposed when the router moves on.** It rendered with no scope,
+  so a binding in it (`<p>{status}</p>`) went on updating after navigation
+  or `dispose()`. The fallback now renders under a scope of its own, as a
+  handler does. (A sync failure's fallback was already owned by the
+  router.)
+
 ### Changed
 
 - **A component that throws has what it made disposed at the throw**, as a

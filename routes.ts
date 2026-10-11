@@ -204,14 +204,19 @@ export function routes(
   // Show onError's fallback for a failed render (one that threw, rejected or
   // resolved to no thunk), or log it, and forget the route so the next
   // navigation runs it again. A throwing onError is logged, never thrown, so
-  // it can't escape as an unhandled rejection.
+  // it can't escape as an unhandled rejection. The fallback renders under a
+  // scope of its own, disposed when the router moves on, as a handler's is.
   function failed(err: unknown, log: string): void {
     activePattern = null;
     activeParams = null;
     try {
-      const fallback = options?.onError?.(err);
-      if (fallback instanceof Node) {
-        target.appendChild(adoptIntoSvg(fallback, target));
+      const fallback = scoped(() => {
+        const node = options?.onError?.(err);
+        return node instanceof Node ? adoptIntoSvg(node, target) : null;
+      });
+      activeDispose = fallback.dispose;
+      if (fallback.value) {
+        target.appendChild(fallback.value);
         return;
       }
     } catch (boundaryErr) {

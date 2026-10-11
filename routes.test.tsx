@@ -498,6 +498,50 @@ describe("routes(): async handlers, double dispose and onError", () => {
   });
 });
 
+// onError's fallback is a render like a handler's: its bindings live while it is shown, and go
+// when the router moves on or is disposed.
+describe("routes(): an onError fallback's bindings go with it", () => {
+  const setup = (failing: () => Node | Promise<() => Node>) => {
+    const label = signal("a");
+    let reads = 0;
+    const target = document.createElement("div");
+    const dispose = routes(target, {
+      "/fail": failing,
+      "/ok": () => <p>ok</p>,
+    }, {
+      onError: () => <p>{() => { reads++; return label.get(); }}</p>,
+    });
+    const readsAfter = (write: string) => { reads = 0; label.set(write); return reads; };
+    return { target, dispose, readsAfter };
+  };
+
+  for (const [path, failing] of [
+    ["a sync handler that throws", () => { throw new Error("sync"); }],
+    ["an async handler that rejects", async () => { await null; throw new Error("async"); }],
+  ] as const) {
+    test(`${path}: on navigation, and on dispose`, async () => {
+      location.hash = "#/fail";
+      await tick();
+      const first = setup(failing);
+      await tick();
+      expect(first.target.textContent).toBe("a");
+      expect(first.readsAfter("b")).toBe(1); // live while shown
+      navigate("/ok");
+      expect(first.target.textContent).toBe("ok");
+      expect(first.readsAfter("c")).toBe(0);
+      first.dispose();
+
+      location.hash = "#/fail";
+      await tick();
+      const second = setup(failing);
+      await tick();
+      expect(second.target.textContent).toBe("a");
+      second.dispose();
+      expect(second.readsAfter("d")).toBe(0);
+    });
+  }
+});
+
 describe("routes(): a keyed route re-runs its handler when the params change", () => {
   // A handler runs once per pattern, so `({ id }) => …` kept the first id after /users/1 → /users/2.
   // `{ keyed: true, handler }` re-runs it, as Solid's <Show keyed> does.
