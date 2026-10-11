@@ -373,6 +373,39 @@ function clearBetween(start: Node, end: Node): void {
   }
 }
 
+// A when() branch, or an async component's fallback then content: one piece
+// of content at a time between brackets, with the scope that made it. Its
+// teardown, registered in the scope around it, latches `disposed` (nothing
+// rebuilds after it: the brackets can still sit in a detached-but-parented
+// subtree, so a parent check isn't enough) and clears.
+interface Bracket {
+  frag: DocumentFragment; // the brackets, to return: content goes between
+  start: Comment;
+  end: Comment;
+  dispose: Dispose | null; // the content's scope
+  disposed: boolean;
+  clear(): void; // dispose the content and remove it
+}
+
+function bracket(name: string): Bracket {
+  const frag = document.createDocumentFragment();
+  const start = frag.appendChild(document.createComment(name));
+  const end = frag.appendChild(document.createComment(`/${name}`));
+  const b: Bracket = {
+    frag, start, end, dispose: null, disposed: false,
+    clear() {
+      b.dispose?.();
+      b.dispose = null;
+      clearBetween(start, end);
+    },
+  };
+  trackDispose(() => {
+    b.disposed = true;
+    b.clear();
+  });
+  return b;
+}
+
 // === Async components — thunk resolution ===
 //
 // A function component may be async. Its synchronous prefix (before the first
@@ -430,57 +463,38 @@ function asyncComponent(
   pending: Promise<unknown>,
   fallback: (() => Node) | undefined,
 ): Node {
-  const start = document.createComment(`async:${name}`);
-  const end = document.createComment(`/async:${name}`);
-  let currentDispose: Dispose | null = null;
-  let disposed = false;
-
-  // Content lives between the bracket comments (see clearBetween).
-  const clear = () => {
-    if (currentDispose) currentDispose();
-    currentDispose = null;
-    clearBetween(start, end);
-  };
-
-  const frag = document.createDocumentFragment();
-  frag.appendChild(start);
+  const b = bracket(`async:${name}`);
   if (fallback) {
     // Own sub-scope so the fallback's effects die at the swap, not with the
-    // whole component. A fallback that throws has what it made disposed: the
-    // throw leaves the component before its teardown below is registered.
+    // whole component. A fallback that throws has what it made disposed, and
+    // the throw leaves the component.
     const shown = scoped(() => untrackRender("a fallback", fallback, fallback));
-    frag.appendChild(shown.value);
-    currentDispose = shown.dispose;
+    b.frag.insertBefore(shown.value, b.end);
+    b.dispose = shown.dispose;
   }
-  frag.appendChild(end);
 
   pending.then(
     (resolution) => {
-      if (disposed) return;
-      clear(); // the fallback goes on every settlement path
-      const parent = end.parentNode;
+      if (b.disposed) return;
+      b.clear(); // the fallback goes on every settlement path
+      const parent = b.end.parentNode;
       if (!parent) return; // brackets removed out of contract: nowhere to render
       try {
         const built = renderThunk(resolution, `<${name}>`, "component", component);
-        currentDispose = built.dispose;
-        parent.insertBefore(adoptIntoSvg(built.value, parent), end);
+        b.dispose = built.dispose;
+        parent.insertBefore(adoptIntoSvg(built.value, parent), b.end);
       } catch (err) {
         console.error(`[railroad/jsx] <${name}> async component failed:`, err);
       }
     },
     (err) => {
-      if (disposed) return;
-      clear(); // a stuck fallback would hide the failure
+      if (b.disposed) return;
+      b.clear(); // a stuck fallback would hide the failure
       console.error(`[railroad/jsx] <${name}> async component rejected:`, err);
     },
   );
 
-  trackDispose(() => {
-    disposed = true;
-    clear();
-  });
-
-  return frag;
+  return b.frag;
 }
 
 // === Child rendering ===
@@ -583,40 +597,27 @@ export function when<T>(
 ): Node {
   if (!hasActiveDisposeScope()) warnScopeless("when");
   assertOwnSignal(condition);
-  // The branch lives between two bracket comments (see clearBetween).
-  const anchor = document.createComment("when");
-  const end = document.createComment("/when");
-  let currentDispose: Dispose | null = null;
+  // The branch lives between brackets, whose teardown goes with the scope
+  // around when(). Registered before the first swap, as list()'s is: a first
+  // branch that throws leaves when() with its effect live, and if that scope
+  // outlives the throw, what the next change builds must still go with it.
+  const b = bracket("when");
   let wasTruthy: boolean | undefined = undefined;
-  let disposed = false;
   // The truthy branch's v$, fresh per build. It never holds a falsy value: a
   // falsy condition disposes the branch instead of writing v$. equals: () =>
   // false, so it notifies whenever the condition did (the condition already
   // decided that), including a touch() that keeps the same reference.
   let value$: Signal<NonNullable<T>> | null = null;
 
-  // Brackets go into the fragment BEFORE the effect runs, so the first branch
-  // renders synchronously — it is in the DOM when mount()/appendChild returns.
-  const frag = document.createDocumentFragment();
-  frag.appendChild(anchor);
-  frag.appendChild(end);
-
   const sig: ReadonlySignal<T> = typeof condition === "function"
     ? computed(condition as () => T)
     : condition;
 
-  function clear() {
-    if (currentDispose) currentDispose();
-    currentDispose = null;
-    clearBetween(anchor, end);
-  }
-
   function swap() {
-    // An anchor.parentNode check is not enough to detect teardown — after a
-    // routes() teardown the anchor can still sit in a detached-but-parented
-    // subtree — so a disposed when() refuses to rebuild explicitly.
-    if (disposed) return;
-    const parent = anchor.parentNode;
+    if (b.disposed) return;
+    // On the first run the brackets are in b.frag, so the first branch renders
+    // synchronously: it is in the DOM when mount()/appendChild returns.
+    const parent = b.start.parentNode;
     if (!parent) return; // brackets removed out of contract — nowhere to render
     const value = sig.peek(); // the effect below tracked it
     const isTruthy = !!value;
@@ -630,27 +631,16 @@ export function when<T>(
     // nothing: what it made is disposed, the brackets stay empty, and the next
     // change of the condition builds again.
     wasTruthy = undefined;
-    clear();
+    b.clear();
     value$ = isTruthy ? signal(value as NonNullable<T>, { equals: () => false }) : null;
     const v$ = value$;
     const branch = scoped(() => v$
       ? untrackRender("a when() branch", truthy, () => truthy(v$))
       : falsy ? untrackRender("a when() branch", falsy, falsy) : null);
     wasTruthy = isTruthy;
-    currentDispose = branch.dispose;
-    if (branch.value) parent.insertBefore(adoptIntoSvg(branch.value, parent), end);
+    b.dispose = branch.dispose;
+    if (branch.value) parent.insertBefore(adoptIntoSvg(branch.value, parent), b.end);
   }
-
-  // The active branch's scope is otherwise only disposed on the next
-  // truthiness swap — without this, effects inside the branch outlive the
-  // parent scope (route/component teardown) and keep writing to detached DOM.
-  // Registered before the first swap, as list()'s is: a first branch that
-  // throws leaves when() with its effect live, and if the scope around it
-  // outlives the throw, what the next change builds must still go with it.
-  trackDispose(() => {
-    disposed = true;
-    clear();
-  });
 
   // Only the condition is tracked; the branch renders untracked, so a .get()
   // inside it doesn't re-run this effect.
@@ -659,7 +649,7 @@ export function when<T>(
     untrack(swap);
   });
 
-  return frag;
+  return b.frag;
 }
 
 // === list() — keyed reactive list rendering ===
@@ -722,7 +712,7 @@ export function list<T>(
   // renders rows synchronously (into the fragment, which the caller appends).
   const frag = document.createDocumentFragment();
   frag.appendChild(anchor);
-  let entries: Map<string | number, Entry> = new Map();
+  const entries = new Map<string | number, Entry>();
   let order: (string | number)[] = [];
   let disposed = false;
 
@@ -737,24 +727,11 @@ export function list<T>(
     return nodes;
   }
 
-  function removeEntry(key: string | number) {
-    const entry = entries.get(key);
-    if (entry) {
-      const range = rangeOf(entry); // snapshot before dispose mutates the row
-      entry.dispose();
-      for (const n of range) n.parentNode?.removeChild(n);
-      entries.delete(key);
-    }
-  }
-
-  function clearAll() {
-    for (const [, entry] of entries) {
-      const range = rangeOf(entry);
-      entry.dispose();
-      for (const n of range) n.parentNode?.removeChild(n);
-    }
-    entries = new Map();
-    order = [];
+  // Dispose a row and remove it, brackets and all.
+  function dropEntry(entry: Entry) {
+    const range = rangeOf(entry); // snapshot before dispose mutates the row
+    entry.dispose();
+    for (const n of range) n.parentNode?.removeChild(n);
   }
 
   // The index-based form's render, run as a render body.
@@ -784,7 +761,10 @@ export function list<T>(
 
     // Remove entries no longer in the list
     for (const key of order) {
-      if (!newKeySet.has(key)) removeEntry(key);
+      const entry = entries.get(key);
+      if (!entry || newKeySet.has(key)) continue;
+      dropEntry(entry);
+      entries.delete(key);
     }
 
     // The rows in the longest run already in order stay put (see above).
@@ -867,7 +847,8 @@ export function list<T>(
   // (the throw leaves list()), the rows made beside it still go with the scope.
   trackDispose(() => {
     disposed = true;
-    clearAll();
+    for (const entry of entries.values()) dropEntry(entry);
+    entries.clear();
   });
 
   // Only the items are tracked; rows render untracked, so a .get() inside a
