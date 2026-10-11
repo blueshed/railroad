@@ -560,7 +560,7 @@ When rows arrive by **in-place mutation plus `.touch()`**, pass `{ equals: () =>
 {list(rows, r => r.id, (row$) => <li>{row$.map(r => r.text)}</li>, { equals: () => false })}
 ```
 
-Streams that replace whole row objects keep the default. `@blueshed/delta` is one of them: it broadcasts a changed row as a whole-row replace.
+Streams that give a changed row a fresh object keep the default. `@blueshed/delta` is one of them: a holder is told the fields that changed, and its client gives the changed row (and the map holding it) a fresh object, so `list()` sees the change.
 
 A keyed reorder moves only the rows that changed position, so a row being typed in keeps its focus.
 
