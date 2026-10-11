@@ -394,7 +394,35 @@ function clearBetween(start: Node, end: Node): void {
 // inside a fresh scope whose disposer joins the component's cleanup, so
 // teardown is correct no matter when it happens — including before the
 // promise settles (the thunk then never runs). A resolution that is a bare
-// Node gets a pointed console.error naming the one-word fix.
+// Node gets a pointed console.error naming the one-word fix. routes() runs an
+// async handler's resolution the same way.
+
+/**
+ * @internal -- asyncComponent() and routes(): run what an async render
+ * resolved to, a thunk, as a render body under a scope of its own. Throws,
+ * having disposed what it made, if `resolution` isn't a thunk, the thunk
+ * throws, or it returns no Node. `who` names the render in the error.
+ */
+export function renderThunk(
+  resolution: unknown,
+  who: string,
+  where: string,
+  body: Function,
+): { value: Node; dispose: Dispose } {
+  if (typeof resolution !== "function") {
+    throw new Error(
+      `[railroad] ${who} resolved to ${resolution instanceof Node ? "a Node" : "a non-thunk value"} — ` +
+        "it must resolve to a thunk: `return () => <div>…</div>`. " +
+        "Effects created after an await have no owner scope; the thunk gives railroad " +
+        "a synchronous moment to provide one.",
+    );
+  }
+  return scoped(() => {
+    const node = untrackRender(where, body, resolution as () => unknown);
+    if (!(node instanceof Node)) throw new Error(`[railroad] ${who}'s thunk returned a non-Node — return DOM from the thunk.`);
+    return node;
+  });
+}
 
 function asyncComponent(
   component: Function,
@@ -430,38 +458,14 @@ function asyncComponent(
     (resolution) => {
       if (disposed) return;
       clear(); // the fallback goes on every settlement path
-      if (typeof resolution !== "function") {
-        console.error(
-          `[railroad/jsx] <${name}> resolved to ${resolution instanceof Node ? "a Node" : "a non-thunk value"} — ` +
-            "an async component must resolve to a thunk: `return () => <div>…</div>`. " +
-            "Effects created after an await have no owner scope; the thunk gives railroad " +
-            "a synchronous moment to provide one.",
-        );
-        return;
-      }
-      let built: { value: unknown; dispose: Dispose };
-      try {
-        built = scoped(() => untrackRender("component", component, resolution as () => unknown));
-      } catch (err) {
-        console.error(`[railroad/jsx] <${name}> async thunk threw:`, err);
-        return;
-      }
-      const result = built.value;
-      currentDispose = built.dispose;
-      if (!(result instanceof Node)) {
-        currentDispose();
-        currentDispose = null;
-        console.error(`[railroad/jsx] <${name}> async thunk returned a non-Node — return DOM from the thunk.`);
-        return;
-      }
       const parent = end.parentNode;
-      if (parent) {
-        parent.insertBefore(adoptIntoSvg(result, parent), end);
-      } else {
-        // Brackets left the DOM without a dispose (out-of-contract removal) —
-        // drop the built branch rather than leak it.
-        currentDispose();
-        currentDispose = null;
+      if (!parent) return; // brackets removed out of contract: nowhere to render
+      try {
+        const built = renderThunk(resolution, `<${name}>`, "component", component);
+        currentDispose = built.dispose;
+        parent.insertBefore(adoptIntoSvg(built.value, parent), end);
+      } catch (err) {
+        console.error(`[railroad/jsx] <${name}> async component failed:`, err);
       }
     },
     (err) => {

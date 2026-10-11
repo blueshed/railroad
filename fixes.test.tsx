@@ -813,7 +813,8 @@ describe("async components: thunk resolution + fallback", () => {
     await tick();
     expect(root.textContent).toBe(""); // fallback cleared, node not inserted
     expect(
-      errorSpy.mock.calls.some((c) => String(c[0]).includes("resolve to a thunk")),
+      // the error, which names the fix, is logged after the component's name
+      errorSpy.mock.calls.some((c) => c.some((arg) => String(arg).includes("resolve to a thunk"))),
     ).toBe(true);
     errorSpy.mockRestore();
     dispose();

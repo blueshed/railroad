@@ -23,7 +23,11 @@ All notable changes to `@blueshed/railroad`. The format follows
   around it went. Internal: every render under a scope of its own (a
   component, a fallback, an async thunk, a `when()` branch, a `list()` row,
   `mount()`, a route handler) goes through one helper that closes the scope
-  on every path, where seven wrote it by hand.
+  on every path, where seven wrote it by hand; an async component and an
+  async route handler run their thunk through one function, so a bare-Node
+  resolution, a thunk that throws and one that returns no Node are reported
+  alike (an async component's as `<Name> async component failed:` and the
+  error).
 
 ## [0.15.1] - 2026-09-28
 

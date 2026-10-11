@@ -72,7 +72,7 @@
 
 import { Signal, signal, computed, effect, untrack, untrackRender, scoped, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
-import { adoptIntoSvg } from "./jsx";
+import { adoptIntoSvg, renderThunk } from "./jsx";
 
 let hashSignal: Signal<string> | null = null;
 let hashListenerCount = 0;
@@ -203,104 +203,79 @@ export function routes(
     target.replaceChildren();
   }
 
-  // Route the error through onError (if present) or console.error. Used by both
-  // the sync-throw and async-reject paths so they behave identically — and so a
-  // throwing onError can never escape as an unhandled rejection.
-  function handleError(err: unknown): boolean {
-    if (options?.onError) {
-      try {
-        const fallback = options.onError(err);
-        if (fallback instanceof Node) {
-          target.appendChild(adoptIntoSvg(fallback, target));
-          return true;
-        }
-      } catch (boundaryErr) {
-        console.error("[railroad/routes] onError boundary threw:", boundaryErr);
-        return true;
+  // Show onError's fallback for a failed render (one that threw, rejected or
+  // resolved to no thunk), or log it, and forget the route so the next
+  // navigation runs it again. A throwing onError is logged, never thrown, so
+  // it can't escape as an unhandled rejection.
+  function failed(err: unknown, log: string): void {
+    activePattern = null;
+    activeParams = null;
+    try {
+      const fallback = options?.onError?.(err);
+      if (fallback instanceof Node) {
+        target.appendChild(adoptIntoSvg(fallback, target));
+        return;
       }
+    } catch (boundaryErr) {
+      console.error("[railroad/routes] onError boundary threw:", boundaryErr);
+      return;
     }
-    return false;
+    console.error(log, err);
   }
 
   function run(handler: RouteHandler, params: Record<string, string>) {
     const myRunId = ++runId;
-    activeParams = signal(params);
-
-    // The handler's scope closes before run() returns, never across an await:
-    // what it builds after one is owned through the thunk below.
-    const params$ = activeParams;
+    const params$ = signal(params);
+    activeParams = params$;
     let ran: { value: Node | Promise<() => Node>; dispose: Dispose };
     try {
       ran = scoped(() => untrackRender("a route handler", handler, () => handler(params, params$)));
     } catch (err) {
-      // What it made before the throw is disposed; route the error.
-      activePattern = null;
-      activeParams = null;
-      if (handleError(err)) return;
-      throw err;
+      return failed(err, "[railroad/routes] handler threw:");
     }
     const { value: result, dispose: scopeDispose } = ran;
-
-    if (result instanceof Promise) {
-      asyncPending = true;
-      result.then(
-        (resolved) => {
-          if (myRunId !== runId) {
-            scopeDispose(); // navigated away during await — drop orphaned children
-            return;
-          }
-          asyncPending = false;
-          const fail = (err: unknown) => {
-            scopeDispose();
-            activePattern = null;
-            activeParams = null;
-            if (handleError(err)) return;
-            console.error("[railroad/routes] async handler failed:", err);
-          };
-          // The thunk is the owner scope for what the handler builds after its
-          // first await (browser JS has no AsyncContext to carry one across).
-          if (typeof resolved !== "function") {
-            return fail(new Error(
-              `[railroad/routes] an async route handler resolved to ${(resolved as unknown) instanceof Node ? "a Node" : "a non-thunk value"} — ` +
-                "it must resolve to a thunk: `return () => <div>…</div>`. " +
-                "Effects created after an await have no owner scope; the thunk gives railroad " +
-                "a synchronous moment to provide one.",
-            ));
-          }
-          let built: { value: unknown; dispose: Dispose };
-          try {
-            built = scoped(() => untrackRender("a route handler", handler, resolved));
-          } catch (err) {
-            return fail(err);
-          }
-          if (!(built.value instanceof Node)) {
-            built.dispose();
-            return fail(new Error("[railroad/routes] async handler thunk returned a non-Node"));
-          }
-          const thunkDispose = built.dispose;
-          activeDispose = () => {
-            thunkDispose();
-            scopeDispose();
-          };
-          target.appendChild(adoptIntoSvg(built.value, target));
-        },
-        (err) => {
-          if (myRunId !== runId) {
-            scopeDispose();
-            return;
-          }
-          asyncPending = false;
-          scopeDispose();
-          activePattern = null;
-          activeParams = null;
-          if (handleError(err)) return;
-          console.error("[railroad/routes] async handler rejected:", err);
-        },
-      );
-    } else {
+    if (!(result instanceof Promise)) {
       activeDispose = scopeDispose;
       target.appendChild(adoptIntoSvg(result, target));
+      return;
     }
+
+    // Async. The handler's scope has closed (never across an await) and holds
+    // what it made before its first one; the thunk it resolves to builds the
+    // rest under a scope of its own. A settlement after navigating away (a
+    // newer run) only disposes.
+    asyncPending = true;
+    const isCurrent = (): boolean => {
+      if (myRunId !== runId) {
+        scopeDispose();
+        return false;
+      }
+      asyncPending = false;
+      return true;
+    };
+    const asyncFailed = (err: unknown) => {
+      scopeDispose();
+      failed(err, "[railroad/routes] async handler failed:");
+    };
+    result.then(
+      (resolved) => {
+        if (!isCurrent()) return;
+        let built: { value: Node; dispose: Dispose };
+        try {
+          built = renderThunk(resolved, "an async route handler", "a route handler", handler);
+        } catch (err) {
+          return asyncFailed(err);
+        }
+        activeDispose = () => {
+          built.dispose();
+          scopeDispose();
+        };
+        target.appendChild(adoptIntoSvg(built.value, target));
+      },
+      (err) => {
+        if (isCurrent()) asyncFailed(err);
+      },
+    );
   }
 
   // Register the outer dispose into the caller's scope BEFORE creating the
@@ -342,13 +317,7 @@ export function routes(
       }
       teardown();
       activePattern = pattern;
-      try {
-        run(handler, params);
-      } catch (err) {
-        // A throwing handler must not kill the router. run() already balanced
-        // the dispose stack and reset its state; surface the error.
-        console.error("[railroad/routes] handler threw:", err);
-      }
+      run(handler, params);
       return;
     }
     teardown();
