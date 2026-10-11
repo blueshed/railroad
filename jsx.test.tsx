@@ -920,6 +920,22 @@ describe("component error handling", () => {
     expect(() => popDisposeScope()).not.toThrow();
     expect(() => popDisposeScope()).toThrow(/imbalance/);
   });
+
+  // Its scope went into the scope around it, so what it made lived until that one was disposed.
+  test("a throwing component has what it made disposed at the throw", () => {
+    const probe = signal(0);
+    let runs = 0;
+    const Bad = () => {
+      effect(() => { probe.get(); runs++; });
+      throw new Error("boom");
+    };
+    pushDisposeScope();
+    expect(() => <Bad />).toThrow("boom");
+    runs = 0;
+    probe.set(1); // the scope around it is still open
+    expect(runs).toBe(0);
+    popDisposeScope()();
+  });
 });
 
 describe("async components: thunk resolution + fallback", () => {
@@ -2032,6 +2048,51 @@ describe("list(): a row that disposes the list's owner mid-sync", () => {
     probe.set(1);
     expect(runs).toBe(0); // before: row 2's effect, built after the teardown, ran on
     expect(root.querySelectorAll("li")).toHaveLength(0);
+  });
+});
+
+// when() and an async component latch `disposed` in their teardown, so nothing rebuilds after it:
+// nested in an element, their brackets keep a (detached) parent, so a parent check can't tell.
+describe("when() and async components: nothing builds after dispose", () => {
+  test("a when() branch cleanup that writes the condition during teardown rebuilds nothing", () => {
+    const cond = signal(1);
+    const dep = signal(0);
+    let builds = 0;
+    let runs = 0;
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => (
+      <div>{when(cond, () => {
+        builds++;
+        effect(() => { dep.get(); runs++; return () => { cond.set(0); }; });
+        return <span />;
+      }, () => { builds++; effect(() => { dep.get(); runs++; }); return <b />; })}</div>
+    ));
+    expect(builds).toBe(1);
+    dispose();
+    expect(builds).toBe(1); // the cleanup's write would otherwise build the falsy branch
+    const r = runs;
+    dep.set(1);
+    expect(runs).toBe(r);
+    root.remove();
+  });
+
+  test("an async component disposed before it resolves never runs its thunk", async () => {
+    let thunkRuns = 0;
+    const d = defer<void>();
+    async function Widget() {
+      await d.promise;
+      return () => { thunkRuns++; return <i>late</i>; };
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <div><Widget /></div>);
+    dispose();
+    d.resolve();
+    await flush();
+    await flush();
+    expect(thunkRuns).toBe(0);
+    root.remove();
   });
 });
 

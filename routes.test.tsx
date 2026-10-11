@@ -694,6 +694,27 @@ describe("types: a route handler's params$ is read-only", () => {
   });
 });
 
+// A scope's disposer runs its disposers again if called twice; route()'s share of the hashchange
+// listener must be released once, or the count goes below the routers still using it.
+describe("route(): releasing the hash once", () => {
+  test("its scope disposed twice doesn't detach a sibling router", async () => {
+    location.hash = "#/";
+    await tick();
+    pushDisposeScope();
+    route("/x");
+    const disposeScope = popDisposeScope();
+    const target = document.createElement("div");
+    const dispose = routes(target, { "/": () => <span>home</span>, "/about": () => <span>about</span> });
+    expect(target.textContent).toBe("home");
+    disposeScope();
+    disposeScope();
+    location.hash = "#/about"; // through the hashchange listener, not navigate()
+    await tick();
+    expect(target.textContent).toBe("about");
+    dispose();
+  });
+});
+
 describe("route()", () => {
   test("returns matching params, null when unmatched", async () => {
     location.hash = "#/users/7";
