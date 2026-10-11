@@ -35,7 +35,9 @@ All notable changes to `@blueshed/railroad`. The format follows
   list (a navigation, say) left the list placing rows into what its
   teardown had just removed: a `DOMException` from `insertBefore`, and the
   row built after the teardown never disposed. The list now stops at that
-  row and disposes it.
+  row and disposes it. A `when()` branch or an async component's thunk
+  that does the same is no longer inserted after the teardown, and what it
+  made is disposed (it stayed live).
 
 - **A `routes()` `onError` fallback for an async handler's failure has its
   bindings disposed when the router moves on.** It rendered with no scope,

@@ -368,6 +368,7 @@ interface Bracket {
   dispose: Dispose | null; // the content's scope
   disposed: boolean;
   clear(): void; // dispose the content and remove it
+  fill(built: { value: Node | null; dispose: Dispose }): void; // place a render's content and scope
 }
 
 function bracket(name: string): Bracket {
@@ -380,6 +381,13 @@ function bracket(name: string): Bracket {
       b.dispose?.();
       b.dispose = null;
       clearBetween(start, end);
+    },
+    // A render that disposed the bracket's owner (a navigation, say) ran
+    // after the teardown: what it built is dropped, not placed.
+    fill(built) {
+      if (b.disposed) return built.dispose();
+      b.dispose = built.dispose;
+      if (built.value) end.parentNode!.insertBefore(built.value, end);
     },
   };
   trackDispose(() => {
@@ -453,9 +461,7 @@ function asyncComponent(
     // Own sub-scope so the fallback's effects die at the swap, not with the
     // whole component. A fallback that throws has what it made disposed, and
     // the throw leaves the component.
-    const shown = scoped(() => untrackRender("a fallback", fallback, fallback));
-    b.frag.insertBefore(shown.value, b.end);
-    b.dispose = shown.dispose;
+    b.fill(scoped(() => untrackRender("a fallback", fallback, fallback)));
   }
 
   pending.then(
@@ -465,9 +471,7 @@ function asyncComponent(
       const parent = b.end.parentNode;
       if (!parent) return; // brackets removed out of contract: nowhere to render
       try {
-        const built = renderThunk(resolution, `<${name}>`, "component", component, parent);
-        b.dispose = built.dispose;
-        parent.insertBefore(built.value, b.end);
+        b.fill(renderThunk(resolution, `<${name}>`, "component", component, parent));
       } catch (err) {
         console.error(`[railroad/jsx] <${name}> async component failed:`, err);
       }
@@ -626,8 +630,7 @@ export function when<T>(
       return node && adoptIntoSvg(node, parent);
     });
     wasTruthy = isTruthy;
-    b.dispose = branch.dispose;
-    if (branch.value) parent.insertBefore(branch.value, b.end);
+    b.fill(branch);
   }
 
   // Only the condition is tracked; the branch renders untracked, so a .get()

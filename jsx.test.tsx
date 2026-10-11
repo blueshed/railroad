@@ -2035,6 +2035,58 @@ describe("list(): a row that disposes the list's owner mid-sync", () => {
   });
 });
 
+// The same for a when() branch and an async component's thunk: a render that disposes the scope
+// owning it (a navigation, say) ran after the teardown, so it was inserted and stayed live.
+describe("when() and async components: a render that disposes its owner", () => {
+  test("a when() branch is not inserted, and nothing it made outlives the owner", () => {
+    const cond = signal(0);
+    const probe = signal(0);
+    let runs = 0;
+    let disposeOwner = () => {};
+    const root = document.createElement("div");
+    pushDisposeScope();
+    root.append(
+      <div>
+        {when(cond, (v$) => {
+          effect(() => { probe.get(); runs++; });
+          if (v$.peek() === 2) disposeOwner();
+          return <p>{v$.peek()}</p>;
+        })}
+      </div>,
+    );
+    disposeOwner = popDisposeScope();
+    cond.set(2);
+    runs = 0;
+    probe.set(1);
+    expect(runs).toBe(0); // before: 1, the branch's effect ran on
+    expect(root.querySelector("p")).toBeNull(); // before: inserted after the teardown
+  });
+
+  test("an async component's thunk is not inserted, and nothing it made outlives the owner", async () => {
+    const probe = signal(0);
+    let runs = 0;
+    let disposeOwner = () => {};
+    async function A() {
+      await Promise.resolve();
+      return () => {
+        effect(() => { probe.get(); runs++; });
+        disposeOwner();
+        return <p>a</p>;
+      };
+    }
+    const root = document.createElement("div");
+    pushDisposeScope();
+    root.append(<div><A /></div>);
+    disposeOwner = popDisposeScope();
+    await flush();
+    await flush();
+    runs = 0;
+    probe.set(1);
+    expect(runs).toBe(0);
+    expect(root.querySelector("p")).toBeNull();
+  });
+});
+
 describe("list(): a reorder moves only the rows that moved", () => {
   // The right-to-left pass moved every row whose successor changed, so moving the last row to
   // the front moved all the others instead, and a focused <input> in one of them lost focus.
