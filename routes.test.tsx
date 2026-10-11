@@ -574,6 +574,23 @@ describe("routes(): a sync handler that returns no Node is an error", () => {
   });
 });
 
+describe("routes(): an async handler's thunk that returns no Node is an error", () => {
+  test("it reaches onError, and the router goes on", async () => {
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    const dispose = routes(target, {
+      "/": async () => () => "text" as any,
+      "/b": () => <p>b</p>,
+    }, { onError: (err) => <p>{String(err).includes("non-Node") ? "caught" : "?"}</p> });
+    await tick();
+    expect(target.textContent).toBe("caught");
+    navigate("/b");
+    expect(target.textContent).toBe("b");
+    dispose();
+  });
+});
+
 describe("routes(): a keyed route re-runs its handler when the params change", () => {
   // A handler runs once per pattern, so `({ id }) => …` kept the first id after /users/1 → /users/2.
   // `{ keyed: true, handler }` re-runs it, as Solid's <Show keyed> does.

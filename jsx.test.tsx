@@ -1011,6 +1011,22 @@ describe("async components: thunk resolution + fallback", () => {
     dispose();
   });
 
+  test("a thunk that returns no Node is reported and renders nothing", async () => {
+    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    async function Wrong() {
+      await Promise.resolve();
+      return () => "text" as any; // a thunk, but of a string
+    }
+    const root = document.createElement("div");
+    document.body.append(root);
+    const dispose = mount(root, () => <Wrong fallback={() => <p>…</p>} />);
+    await tick();
+    expect(root.textContent).toBe("");
+    expect(errorSpy.mock.calls.some((c) => c.some((arg) => String(arg).includes("returned a non-Node")))).toBe(true);
+    errorSpy.mockRestore();
+    dispose();
+  });
+
   test("a rejecting async component clears its fallback and reports", async () => {
     const errorSpy = spyOn(console, "error").mockImplementation(() => {});
     const d = defer<never>();
