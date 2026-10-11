@@ -123,7 +123,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   run the example if you change it.
 - The manual is `.claude/skills/railroad/reference.md`; the checklist of what
   bites is `SKILL.md`. Don't copy either into this file or the README.
-- Skills carry `version:` in frontmatter. Leave the number alone; `/publish`
+- Skills carry `metadata: version:` in frontmatter. Leave the number alone; `/publish`
   stamps it.
 
 ## The Claude Code web sandbox
