@@ -3,13 +3,15 @@
 **railroad changes a page exactly where the data changed, and nowhere else, with no build step:
 a tsconfig is the whole setup.**
 
-You write components in JSX, and each runs once, returning real DOM nodes. The values they show
-are signals: when one changes, only the text and attributes that read it are updated. No virtual
+You write components in JSX, and each runs once, returning real DOM nodes. The values that
+change live in signals. A signal is a value in a box: `signal(0)` makes one, `.set(5)` or
+`.update((n) => n + 1)` changes what is inside, and any text or attribute on the page that was
+given the box, not a copy of its value, updates to match. Nothing else is touched: no virtual
 DOM, no re-rendering, no hooks. Lists keep their rows by key, and the hash router hands a page
 its params as a signal, so going from `/users/1` to `/users/2` updates the page in place.
 
-Bun already serves HTML imports, bundles the TSX, reloads on save, builds one binary and runs
-headless browser tests. railroad is the small reactive layer Bun was missing: no compiler, no
+Bun already serves an HTML file straight from disk, bundles the TSX its `<script>` tag names,
+reloads on save, builds one binary and runs headless browser tests. railroad is the small reactive layer Bun was missing: no compiler, no
 build config, no runtime dependencies. It's small enough to read in one sitting, by a person or
 an AI, and the mistakes people actually make fit on one page. It pairs with delta: an open delta
 document is a railroad signal, so live shared data drops straight into the page.
@@ -78,7 +80,8 @@ bun ./index.html
 
 Open the URL it prints and click the button. `{count}` is the signal itself,
 not its value, so only that text node changes; `Counter` never runs again.
-Bun bundles the TSX on request and reloads on save.
+`{count.get()}` would put the value in once, and the button would say 0
+forever. Bun bundles the TSX on request and reloads on save.
 
 When the app needs its own server (an API, a WebSocket), import the page into
 `Bun.serve` (and `bun add -d @types/bun`, so the editor knows `Bun` and HTML imports):
@@ -116,9 +119,9 @@ a worker with no DOM and no JSX.
   documents and syncs them over one WebSocket. `openDoc("name").data` is a
   railroad signal, so a document drops straight into JSX, `when()` and
   `list()`.
-- **eta** (private) ties documents to people and to server-rendered pages.
-
-`bun create blueshed my-app` scaffolds railroad and delta together.
+- **[paintbrush](https://github.com/blueshed/paintbrush)** is a starting
+  website: Bun routes and resources, railroad for the page, a delta document
+  when a resource needs one. `bun create blueshed my-app` makes one (Bun 1.4).
 
 ## What it is not
 
@@ -141,9 +144,9 @@ a worker with no DOM and no JSX.
 Both skills ship in the package. To use them with Claude Code, copy them in:
 
 ```sh
+mkdir -p .claude/skills
 cp -r node_modules/@blueshed/railroad/.claude/skills/* .claude/skills/
-# or for every project:
-cp -r node_modules/@blueshed/railroad/.claude/skills/* ~/.claude/skills/
+# or for every project, use ~/.claude/skills in both lines
 ```
 
 `railroad` covers the library; `bun-route` scaffolds Bun HTML routes and
