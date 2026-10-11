@@ -233,8 +233,10 @@ export function routes(
     let ran: { value: Node | Promise<() => Node>; dispose: Dispose };
     try {
       ran = scoped(() => {
-        const r = untrackRender("a route handler", handler, () => handler(params, params$));
-        return r instanceof Promise ? r : adoptIntoSvg(r, target);
+        const r: unknown = untrackRender("a route handler", handler, () => handler(params, params$));
+        if (r instanceof Promise) return r as Promise<() => Node>;
+        if (!(r instanceof Node)) throw new Error("[railroad] a route handler returned a non-Node — return DOM, or a Promise of a thunk.");
+        return adoptIntoSvg(r, target);
       });
     } catch (err) {
       return failed(err, "[railroad/routes] handler threw:");

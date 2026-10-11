@@ -44,6 +44,12 @@ All notable changes to `@blueshed/railroad`. The format follows
   handler does. (A sync failure's fallback was already owned by the
   router.)
 
+- **A `routes()` handler that returns something other than a Node is an
+  error, to `onError` or the console.** Placing it threw from
+  `appendChild`: out of `routes()` itself on the first render, before its
+  disposer existed (a router nothing could dispose, still rendering on
+  every `hashchange`), and out of the `hashchange` listener after that.
+
 ### Changed
 
 - **A component that throws has what it made disposed at the throw**, as a

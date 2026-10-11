@@ -542,6 +542,38 @@ describe("routes(): an onError fallback's bindings go with it", () => {
   }
 });
 
+// A handler is typed to return a Node, but plain JS (or an `as any`) can return anything. Placing
+// a non-Node threw from appendChild outside the handler's try: out of routes() itself on the first
+// render, before its handle existed, leaving a router no one could dispose.
+describe("routes(): a sync handler that returns no Node is an error", () => {
+  test("routes() returns its handle, the error is reported, and the router goes on", async () => {
+    location.hash = "#/";
+    await tick();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    const target = document.createElement("div");
+    const dispose = routes(target, { "/": () => null as any, "/b": () => <p>b</p> });
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("handler threw"))).toBe(true);
+    expect(errors.mock.calls.some((c) => String(c[1]).includes("returned a non-Node"))).toBe(true);
+    navigate("/b");
+    expect(target.textContent).toBe("b");
+    dispose();
+    navigate("/");
+    expect(target.textContent).toBe(""); // disposed: nothing renders on navigation
+    errors.mockRestore();
+  });
+
+  test("onError renders its fallback for it", async () => {
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    const dispose = routes(target, { "/": () => "text" as any }, {
+      onError: (err) => <p>{String(err).includes("non-Node") ? "caught" : "?"}</p>,
+    });
+    expect(target.textContent).toBe("caught");
+    dispose();
+  });
+});
+
 describe("routes(): a keyed route re-runs its handler when the params change", () => {
   // A handler runs once per pattern, so `({ id }) => …` kept the first id after /users/1 → /users/2.
   // `{ keyed: true, handler }` re-runs it, as Solid's <Show keyed> does.
