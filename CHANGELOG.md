@@ -10,6 +10,20 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 - `@types/bun` is `^1.4.2`, the latest published, beside the Bun 1.4.3 that CI pins.
 
+### Fixed
+
+- **An app's production build drops railroad's development warnings.** The
+  development flag was set inside a `try`, which no minifier folds, so a
+  production bundle still carried the render-body `.get()` warning and the
+  second-copy check. Defining `process.env.NODE_ENV` as `"production"`
+  (`bun build --production`, Bun.serve with `development: false`, esbuild and
+  Vite by default) now removes both: a page with `signal`, `when`, `list` and
+  `mount` goes from 5051 to 4713 B gzipped (−338 B), the whole package from
+  7609 to 7301 B (Bun.build, minified). Development, and a page served
+  unbundled with no `process`, still warn. The second-copy `console.error` is
+  now development-only; a Signal from another copy still throws where it is
+  rendered.
+
 ## [0.16.0] - 2026-10-11
 
 ### Removed

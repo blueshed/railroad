@@ -108,7 +108,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   `signals.test.tsx` pins it. Other effects see an effect's writes, its first
   run's included, after its body returns, so an effect never re-enters
   itself.
-- **One copy per page.** A second copy of railroad logs an error naming both;
+- **One copy per page.** In development a second copy of railroad logs an error naming both;
   signals, scopes and providers never cross copies, and a Signal from another
   copy throws where JSX, `when()` or `list()` is given it. The copies are not
   made to cooperate: that would freeze signals.ts's internals as a contract

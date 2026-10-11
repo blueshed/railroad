@@ -301,6 +301,35 @@ describe.skipIf(noBrowser)("Bun.WebView — railroad fixture app", () => {
     )).toBe("http://www.w3.org/1999/xhtml");
   });
 
+  test("a page served unbundled, with no process, gets the development warnings", async () => {
+    // The flag that turns them on reads process.env.NODE_ENV bare, so an app's production build
+    // can drop them; in a browser with no bundler that read throws, and must mean development.
+    // Bun's bundler replaces process.env.NODE_ENV wherever it can, so it is defined as itself.
+    const built = await Bun.build({
+      entrypoints: [new URL("./fixtures/unbundled.tsx", import.meta.url).pathname],
+      target: "browser",
+      define: { "process.env.NODE_ENV": "process.env.NODE_ENV" },
+    });
+    const code = await built.outputs[0]!.text();
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate("about:blank");
+    await view.evaluate(`(() => {
+      window.said = [];
+      const warn = console.warn;
+      console.warn = (...a) => { said.push(a.join(" ")); warn(...a); };
+      const script = document.createElement("script");
+      script.type = "module";
+      script.textContent = ${JSON.stringify(code)};
+      document.head.append(script);
+    })()`);
+    await waitFor(
+      () => evalStr(view, `document.querySelector('[data-testid=read]')?.textContent`),
+      (v) => v === "read once",
+    );
+    expect(await evalBool(view, `typeof process === "undefined"`)).toBe(true);
+    expect(await evalStr(view, `said.join("\\n")`)).toContain(".get() in a render body (<View>)");
+  });
+
   test("async route resolves and renders", async () => {
     await using view = new Bun.WebView({ width: 800, height: 600 });
     await view.navigate(url);

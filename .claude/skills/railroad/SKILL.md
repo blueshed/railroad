@@ -188,7 +188,7 @@ The `delta-doc` skill, installed with `@blueshed/delta`, has the full API and ba
 
 ## One copy of railroad per page
 
-Two copies (usually a `file:` link or `bun link` to a delta checkout) can't see each other's signals, scopes or providers: the UI stops updating, `inject(WS)` finds no provider, `openDoc()` never auto-closes. Railroad logs `A second copy of @blueshed/railroad has loaded (…)`. The fix (install a packed tarball) is in reference.md › *Local development across repos*.
+Two copies (usually a `file:` link or `bun link` to a delta checkout) can't see each other's signals, scopes or providers: the UI stops updating, `inject(WS)` finds no provider, `openDoc()` never auto-closes. In development railroad logs `A second copy of @blueshed/railroad has loaded (…)`. The fix (install a packed tarball) is in reference.md › *Local development across repos*.
 
 ## Don't
 

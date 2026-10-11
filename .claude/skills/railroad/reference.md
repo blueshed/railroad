@@ -204,7 +204,10 @@ A child that is a signal or a function renders its value as text. `null`,
 A component body runs once and **untracked**: a `.get()` in it, or in a `when()`
 branch, a `list()` row, a route handler or `mount()`'s render, is a one-shot read
 that subscribes nothing. In development railroad warns once per render body, naming
-it. A production build turns that check off. `.peek()` and `untrack()` don't warn.
+it. `.peek()` and `untrack()` don't warn. A production build leaves this warning,
+and the second-copy check, out of the bundle: define `process.env.NODE_ENV` as
+`"production"` (`bun build --production` and Bun.serve with `development: false`
+do; so do esbuild and Vite). Served unbundled, with no `process`, railroad warns.
 
 ### Props
 
@@ -727,7 +730,7 @@ The rules marked ↗ are explained in the mistakes section above, so they are no
 
 A page must load **one copy** of railroad. Each copy has its own `Signal` class, scopes and provider registry, so the two cannot see each other, and railroad does not bridge them. Symptoms: the UI stops updating, an effect reading delta's `doc.data` never re-runs, `inject(WS)` finds no provider, and `openDoc()` in a component never auto-closes.
 
-Railroad reports it. A second copy logs `A second copy of @blueshed/railroad has loaded (…)`, and rendering the other copy's signal throws, naming both copies.
+Railroad reports it. In development a second copy logs `A second copy of @blueshed/railroad has loaded (…)`, and rendering the other copy's signal throws, naming both copies.
 
 The usual cause is a `file:` link or `bun link` to a delta checkout, which brings its own `node_modules/@blueshed/railroad`. Install a packed tarball instead, which carries no `node_modules`, so delta's peer resolves to the app's railroad:
 

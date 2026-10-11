@@ -1316,12 +1316,14 @@ describe("a .get() in a render body warns once per render body, in development",
       const { signal } = await import("./signals.ts");
       const s = signal(1);
       mount(document.body, () => createElement(function View() { return createElement("p", null, s.get()); }, null));`;
-    const run = (NODE_ENV: string) => Bun.spawnSync(
-      [process.execPath, "--preload", "./happy-dom.setup.ts", "-e", script],
+    const run = (NODE_ENV: string, prelude = "") => Bun.spawnSync(
+      [process.execPath, "--preload", "./happy-dom.setup.ts", "-e", prelude + script],
       { cwd, env: { ...process.env, NODE_ENV } },
     ).stderr.toString();
     expect(run("development")).toContain("reads once");
     expect(run("production")).not.toContain("reads once");
+    // A page served unbundled has no `process` at all: that is development too.
+    expect(run("production", "delete globalThis.process;")).toContain("reads once");
   });
 });
 

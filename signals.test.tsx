@@ -979,6 +979,25 @@ describe("computed() returns ReadonlySignal (RFC-flavoured)", () => {
 
 // Import matchRoute at top level for route tests
 
+describe("an app's production build drops the development warnings", () => {
+  // The development flag was set inside a try, which no minifier folds, so a production bundle
+  // still carried the render-body warning and the second-copy check (244 B gzipped on a page).
+  test("their text is in a development bundle and not in a production one", async () => {
+    const entry = new URL("./index.ts", import.meta.url).pathname;
+    const bundle = async (NODE_ENV: string) => {
+      const built = await Bun.build({
+        entrypoints: [entry], minify: true, target: "browser",
+        define: { "process.env.NODE_ENV": JSON.stringify(NODE_ENV) },
+      });
+      return built.outputs[0]!.text();
+    };
+    const said = (text: string) => ["reads once and never updates", "A second copy of @blueshed/railroad"]
+      .filter((warning) => text.includes(warning));
+    expect(said(await bundle("development")).length).toBe(2);
+    expect(said(await bundle("production"))).toEqual([]);
+  });
+});
+
 describe("a second copy of railroad says so when it loads", () => {
   // Two copies (a linked checkout bringing its own node_modules/@blueshed/railroad) can't see each
   // other's signals, scopes or providers: the UI just stops updating, with nothing on the console.

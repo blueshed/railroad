@@ -71,11 +71,16 @@
  * however often it renders, a list() row function however many rows);
  * .peek() is the silent one-shot read, and untrack() says the same on purpose.
  *
+ * Development warnings: an app's production build drops them (this one and the
+ * second-copy check) by defining process.env.NODE_ENV as "production", as
+ * `bun build --production`, Bun.serve with `development: false`, esbuild and
+ * Vite do. Served unbundled, with no `process`, railroad is in development.
+ *
  * One copy per page: signals, scopes and providers don't cross copies of
- * railroad, so a second copy logs a console.error naming both when it loads,
- * and a Signal made by one copy throws where the other's JSX, when() or
- * list() is given it. They are not made to cooperate: that would freeze this
- * file's internals as a contract between versions.
+ * railroad, so in development a second copy logs a console.error naming both
+ * when it loads, and a Signal made by one copy throws where the other's JSX,
+ * when() or list() is given it. They are not made to cooperate: that would
+ * freeze this file's internals as a contract between versions.
  */
 
 // === One copy per page ===
@@ -85,20 +90,23 @@
 // re-runs on a signal from the other, and inject() in one can't find what the
 // other provided. The usual cause is a linked checkout (a `file:` or `bun
 // link` dependency) that brings its own node_modules/@blueshed/railroad.
-// Nothing else would say so, so say it here. The same file evaluated again
-// under the Bun runtime is `bun --hot`, not a copy; in a browser nothing
-// re-evaluates a module, and copies bundled together share one URL.
+// Nothing else would say so, so say it here, in development (see
+// "Development", below). The same file evaluated again under the Bun runtime
+// is `bun --hot`, not a copy; in a browser nothing re-evaluates a module, and
+// copies bundled together share one URL.
 const COPY = Symbol.for("@blueshed/railroad");
 const copyUrl = (import.meta as { url?: string }).url ?? "(unknown)";
 const firstCopy = (globalThis as { [COPY]?: string })[COPY];
-if (firstCopy !== undefined && (firstCopy !== copyUrl || !("Bun" in globalThis))) {
+(globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
+
+function warnIfSecondCopy(): void {
+  if (firstCopy === undefined || (firstCopy === copyUrl && "Bun" in globalThis)) return;
   console.error(
     `[railroad] A second copy of @blueshed/railroad has loaded (${copyUrl}; the first: ${firstCopy}). ` +
       "Signals, scopes and provide()/inject() don't cross copies, so the UI will not update. " +
       "Make it one copy: see the railroad skill, \"Local development across repos\".",
   );
 }
-(globalThis as { [COPY]?: string })[COPY] ??= copyUrl;
 
 // Every Signal carries the URL of the copy that made it, under a key all
 // copies share, so a copy handed another's signal can say so where it is used
@@ -140,17 +148,9 @@ let currentDeps: Set<Signal<any>> | null = null;
 
 // === A .get() in a render body ===
 //
-// Development is anything but a production build. Bun's bundler replaces the
-// literal `process.env.NODE_ENV` (not `typeof process`, not `process?.env`),
-// so it is read bare; the declaration is local, so no ambient type is needed,
-// and the try covers a page served unbundled, with no `process` at all.
-declare const process: { env: { NODE_ENV?: string } };
-let DEV = true;
-try {
-  DEV = process.env.NODE_ENV !== "production";
-} catch {
-  // no process: not a production build
-}
+// The warning is set in development only (see "Development", below), and
+// nothing else names warnOneShot, so a production build drops its text.
+let warnRenderRead: (() => void) | null = null;
 
 // True while a render body runs (in development only): a .get() with no
 // listener then is a one-shot read that looks like a binding. renderBody is
@@ -183,6 +183,28 @@ function warnOneShot(): void {
       "(Once per render body, in development.)",
   );
 }
+
+// === Development ===
+//
+// Development is anything but a production build. In an app's production
+// build (see the header) the try below becomes `try { if (false) … }`, a
+// minifier removes the whole statement, and the warnings it alone names go
+// with it. Bundlers replace only the bare `process.env.NODE_ENV` (not
+// `typeof process`, not `process?.env`, not a try's result), so it is read
+// bare, under a local declaration (no ambient type needed). Served unbundled,
+// with no `process` at all, the read throws, and the catch turns development
+// on.
+declare const process: { env: { NODE_ENV?: string } };
+function startDevelopment(): void {
+  warnIfSecondCopy();
+  warnRenderRead = warnOneShot;
+}
+try {
+  if (process.env.NODE_ENV !== "production") startDevelopment();
+} catch {
+  startDevelopment();
+}
+
 let batchDepth = 0;
 const pendingEffects = new Set<Listener>();
 
@@ -416,7 +438,7 @@ export class Signal<T> implements ReadonlySignal<T> {
   get(): T {
     if (activeFlush && this.level >= activeFlush.floor) freshen(activeFlush, this);
     if (currentListener) this.listeners.add(currentListener);
-    else if (rendering) warnOneShot();
+    else if (rendering) warnRenderRead!();
     if (currentDeps) currentDeps.add(this);
     return this.value;
   }
@@ -700,7 +722,7 @@ export function untrack<T>(fn: () => T): T {
  * a phrase such as "a list() row".
  */
 export function untrackRender<T>(where: string, body: Function, fn: () => T): T {
-  return runUntracked(fn, DEV, where, body);
+  return runUntracked(fn, warnRenderRead !== null, where, body);
 }
 
 function runUntracked<T>(fn: () => T, render: boolean, where: string, body: Function | null): T {
