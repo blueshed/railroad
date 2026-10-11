@@ -16,6 +16,20 @@ All notable changes to `@blueshed/railroad`. The format follows
   **How to move across:** resolve to a thunk:
   `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
 
+### Fixed
+
+- **An `<a>`, `<script>`, `<style>` or `<title>` adopted into an `<svg>`
+  keeps its reactive props exactly as long as the render that placed it**
+  (todo #9). These four are created as HTML and adopted (made afresh, their
+  props applied again) as they are placed; outside a `list()` row that
+  happened after the render's scope had closed. In a `when()` branch the
+  adopted props stopped updating at the condition's next change of truthy
+  value (`href.set()` left the old `href`); placed by `mount()`, an async
+  component's thunk or a `routes()` handler (sync or async) into an
+  `<svg>`, they went on updating after `dispose()` or navigation, and a sync
+  handler's stopped at a change of params. Each is now adopted inside its
+  render's scope, as a `list()` row already was.
+
 ### Changed
 
 - **A component that throws has what it made disposed at the throw**, as a

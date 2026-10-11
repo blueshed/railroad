@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createElement, when, list } from "./jsx";
+import { createElement, when, list, mount } from "./jsx";
 import { signal, pushDisposeScope, popDisposeScope } from "./signals";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -422,5 +422,63 @@ describe("when() and list() composition", () => {
     ]);
     await flushMicrotasks();
     expect(li1.querySelector(".body")).toBeNull();
+  });
+});
+
+// An <a> (as <script>, <style>, <title>) is created as HTML and adopted as it is placed in an
+// <svg>: a fresh element, with its props applied again. Those prop effects belong to the render
+// that placed it, so it is adopted inside that render's scope (todo #9).
+describe("an adopted SVG <a> keeps its props for as long as its render, and no longer", () => {
+  const hrefOf = (svg: Element) => svg.querySelector("a")!.getAttribute("href");
+
+  test("in a when() branch: through a change of truthy value, and gone with the branch", () => {
+    pushDisposeScope();
+    const cond = signal(0);
+    const href = signal("#1");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = mount(svg, () => <g>{when(cond, () => <a href={href}>x</a>)}</g>);
+    cond.set(1); // the branch builds in place, inside the <g>: adopted there
+    expect(svg.querySelector("a")!.namespaceURI).toBe(SVG_NS);
+    cond.set(2); // same branch, new value: when()'s effect runs again
+    href.set("#2");
+    expect(hrefOf(svg)).toBe("#2"); // before: "#1", the adopted href went with that run
+    const a = svg.querySelector("a")!;
+    cond.set(0);
+    href.set("#3");
+    expect(a.getAttribute("href")).toBe("#2"); // went with its branch
+    dispose();
+    popDisposeScope()();
+  });
+
+  test("mount() into an <svg>: gone with the mount", () => {
+    const href = signal("#1");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = mount(svg, () => <a href={href}>x</a>);
+    const a = svg.querySelector("a")!;
+    expect(a.namespaceURI).toBe(SVG_NS);
+    href.set("#2");
+    expect(a.getAttribute("href")).toBe("#2");
+    dispose();
+    href.set("#3");
+    expect(a.getAttribute("href")).toBe("#2"); // before: "#3", it outlived the mount
+  });
+
+  test("an async component's thunk: gone with the component", async () => {
+    const href = signal("#1");
+    async function Link() {
+      await Promise.resolve();
+      return () => <a href={href}>x</a>;
+    }
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = mount(svg, () => <g><Link /></g>);
+    await flushMicrotasks();
+    await flushMicrotasks();
+    const a = svg.querySelector("a")!;
+    expect(a.namespaceURI).toBe(SVG_NS);
+    href.set("#2");
+    expect(a.getAttribute("href")).toBe("#2");
+    dispose();
+    href.set("#3");
+    expect(a.getAttribute("href")).toBe("#2"); // before: "#3", it outlived the component
   });
 });

@@ -227,14 +227,17 @@ export function routes(
     activeParams = params$;
     let ran: { value: Node | Promise<() => Node>; dispose: Dispose };
     try {
-      ran = scoped(() => untrackRender("a route handler", handler, () => handler(params, params$)));
+      ran = scoped(() => {
+        const r = untrackRender("a route handler", handler, () => handler(params, params$));
+        return r instanceof Promise ? r : adoptIntoSvg(r, target);
+      });
     } catch (err) {
       return failed(err, "[railroad/routes] handler threw:");
     }
     const { value: result, dispose: scopeDispose } = ran;
     if (!(result instanceof Promise)) {
       activeDispose = scopeDispose;
-      target.appendChild(adoptIntoSvg(result, target));
+      target.appendChild(result);
       return;
     }
 
@@ -260,7 +263,7 @@ export function routes(
         if (!isCurrent()) return;
         let built: { value: Node; dispose: Dispose };
         try {
-          built = renderThunk(resolved, "an async route handler", "a route handler", handler);
+          built = renderThunk(resolved, "an async route handler", "a route handler", handler, target);
         } catch (err) {
           return asyncFailed(err);
         }
@@ -268,7 +271,7 @@ export function routes(
           built.dispose();
           scopeDispose();
         };
-        target.appendChild(adoptIntoSvg(built.value, target));
+        target.appendChild(built.value);
       },
       (err) => {
         if (isCurrent()) asyncFailed(err);

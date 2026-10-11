@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { routes, route, navigate } from "./routes";
 import { effect, signal } from "./signals";
+import { createElement } from "./jsx";
 
 function tick(): Promise<void> {
   // happy-dom dispatches `hashchange` on the next macrotask, not as a
@@ -441,3 +442,45 @@ describe("navigate()", () => {
 
 // Touch suppress-unused warnings for imports the test file references.
 void signal;
+
+// A handler's <a> placed in an <svg> target is adopted (created afresh, its props applied again),
+// inside the handler's scope: its props live as long as the route (todo #9).
+describe("routes() into an <svg>: an adopted <a> keeps its props for as long as the route", () => {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  test("a sync handler's, through a change of params", async () => {
+    location.hash = "#/u/1";
+    await tick();
+    const href = signal("#1");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = routes(svg, { "/u/:id": () => createElement("a", { href }, "x") });
+    expect(svg.querySelector("a")!.namespaceURI).toBe(SVG_NS);
+    navigate("/u/2"); // same pattern: params$ moves, the router's effect runs again
+    href.set("#2");
+    expect(svg.querySelector("a")!.getAttribute("href")).toBe("#2"); // before: "#1"
+    dispose();
+  });
+
+  test("an async handler's thunk, and gone on navigation", async () => {
+    location.hash = "#/a";
+    await tick();
+    const href = signal("#1");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    const dispose = routes(svg, {
+      "/a": async () => {
+        await null;
+        return () => createElement("a", { href }, "x");
+      },
+      "/b": () => createElement("g", null),
+    });
+    await tick();
+    const a = svg.querySelector("a")!;
+    expect(a.namespaceURI).toBe(SVG_NS);
+    href.set("#2");
+    expect(a.getAttribute("href")).toBe("#2");
+    navigate("/b");
+    href.set("#3");
+    expect(a.getAttribute("href")).toBe("#2"); // before: "#3", it outlived the route
+    dispose();
+  });
+});

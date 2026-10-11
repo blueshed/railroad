@@ -415,15 +415,17 @@ function bracket(name: string): Bracket {
 
 /**
  * @internal -- asyncComponent() and routes(): run what an async render
- * resolved to, a thunk, as a render body under a scope of its own. Throws,
- * having disposed what it made, if `resolution` isn't a thunk, the thunk
- * throws, or it returns no Node. `who` names the render in the error.
+ * resolved to, a thunk, as a render body under a scope of its own, adopting
+ * what it built into `parent`'s namespace there. Throws, having disposed what
+ * it made, if `resolution` isn't a thunk, the thunk throws, or it returns no
+ * Node. `who` names the render in the error.
  */
 export function renderThunk(
   resolution: unknown,
   who: string,
   where: string,
   body: Function,
+  parent: Node,
 ): { value: Node; dispose: Dispose } {
   if (typeof resolution !== "function") {
     throw new Error(
@@ -436,7 +438,7 @@ export function renderThunk(
   return scoped(() => {
     const node = untrackRender(where, body, resolution as () => unknown);
     if (!(node instanceof Node)) throw new Error(`[railroad] ${who}'s thunk returned a non-Node — return DOM from the thunk.`);
-    return node;
+    return adoptIntoSvg(node, parent);
   });
 }
 
@@ -463,9 +465,9 @@ function asyncComponent(
       const parent = b.end.parentNode;
       if (!parent) return; // brackets removed out of contract: nowhere to render
       try {
-        const built = renderThunk(resolution, `<${name}>`, "component", component);
+        const built = renderThunk(resolution, `<${name}>`, "component", component, parent);
         b.dispose = built.dispose;
-        parent.insertBefore(adoptIntoSvg(built.value, parent), b.end);
+        parent.insertBefore(built.value, b.end);
       } catch (err) {
         console.error(`[railroad/jsx] <${name}> async component failed:`, err);
       }
@@ -536,8 +538,8 @@ function appendChildren(parent: Node, children: any[]): void {
  *   const dispose = mount(document.getElementById("root")!, () => <App />);
  */
 export function mount(target: Element, render: () => Node): Dispose {
-  const { value: result, dispose: scopeDispose } = scoped(() => untrackRender("mount()'s render", render, render));
-  const adopted = adoptIntoSvg(result, target);
+  const { value: adopted, dispose: scopeDispose } = scoped(() =>
+    adoptIntoSvg(untrackRender("mount()'s render", render, render), target));
   const nodes = adopted instanceof DocumentFragment
     ? [...adopted.childNodes]
     : [adopted];
@@ -617,12 +619,15 @@ export function when<T>(
     b.clear();
     value$ = isTruthy ? signal(value as NonNullable<T>, { equals: () => false }) : null;
     const v$ = value$;
-    const branch = scoped(() => v$
-      ? untrackRender("a when() branch", truthy, () => truthy(v$))
-      : falsy ? untrackRender("a when() branch", falsy, falsy) : null);
+    const branch = scoped(() => {
+      const node = v$
+        ? untrackRender("a when() branch", truthy, () => truthy(v$))
+        : falsy ? untrackRender("a when() branch", falsy, falsy) : null;
+      return node && adoptIntoSvg(node, parent);
+    });
     wasTruthy = isTruthy;
     b.dispose = branch.dispose;
-    if (branch.value) parent.insertBefore(adoptIntoSvg(branch.value, parent), b.end);
+    if (branch.value) parent.insertBefore(branch.value, b.end);
   }
 
   // Only the condition is tracked; the branch renders untracked, so a .get()
