@@ -1,0 +1,42 @@
+[
+  {
+    "skills": ["railroad"],
+    "query": "In a Bun app using @blueshed/railroad, show a live list of build jobs. A WebSocket at /ws sends messages like {\"id\": 3, \"status\": \"running\"}; a message for a new id adds a job, and a message for a known id changes that job's status. There can be thousands of jobs, so change the job objects in place rather than cloning the array on every message. Render each job as an <li> with its id and status, and a button that removes it from the list.",
+    "files": [],
+    "expected_behavior": [
+      "Renders the jobs with keyed list(jobs, (j) => j.id, (job$) => ...), not jobs.get().map(...) or jobs.peek().map(...) in JSX",
+      "Reads row fields through the row signal (job$.map((j) => j.status)), never by destructuring the row argument",
+      "Passes { equals: () => false } as list()'s fourth argument, because rows are changed in place",
+      "On a message, mutates the existing array or job object from jobs.peek() and then calls jobs.touch(); does not .set() a spread copy",
+      "No .get() inside JSX or a component body; the text binds {job$.map(...)} or a function child",
+      "The remove button uses a lowercase onclick with a function: onclick={() => ...}",
+      "The page is started with mount() or routes(), not a bare append of the component"
+    ]
+  },
+  {
+    "skills": ["railroad"],
+    "query": "Add hash routes to a railroad app: \"/\" lists three users from a local array, \"/users/new\" shows a form placeholder, and \"/users/:id\" shows one user's name with a link to the next user (#/users/2 from user 1, and so on). Clicking the link from /users/1 must show user 2.",
+    "files": [],
+    "expected_behavior": [
+      "Calls routes(element, { ... }) with the root element, started at page load",
+      "The /users/:id handler reads the id through its second argument (_, params$) => ... params$.map((p) => ...), or the route is { keyed: true, handler: ({ id }) => ... }",
+      "Does not destructure ({ id }) in an unkeyed /users/:id handler and render from it",
+      "Declares \"/users/new\" before \"/users/:id\"",
+      "Links use href=\"#/users/2\" (a hash path) or call navigate(\"/users/2\")",
+      "Imports nothing from react; uses class, not className"
+    ]
+  },
+  {
+    "skills": ["railroad"],
+    "query": "In a railroad app, add a Profile component that fetches /api/me ({ name, avatarUrl }) and shows the name and avatar, with \"loading...\" while it waits. Also add a route \"/posts/:id\" that fetches /api/posts/:id and shows the post title; going from /posts/1 to /posts/2 must load post 2.",
+    "files": [],
+    "expected_behavior": [
+      "Profile is an async function whose return after the await is a thunk: return () => <div>...</div>, not a bare JSX element",
+      "The loading message is passed as a thunk: <Profile fallback={() => <p>loading...</p>} />",
+      "No effect(async () => ...); any async work started from an effect writes its result to a signal",
+      "The /posts/:id route either is { keyed: true, handler: async ({ id }) => { ...; return () => <...>; } } or refetches from params$ inside an effect that writes a signal shown with when()",
+      "An async route handler, if used, resolves to a thunk () => <Node>, not a Node",
+      "Does not destructure ({ id }) in an unkeyed async /posts/:id handler"
+    ]
+  }
+]

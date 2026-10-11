@@ -1,0 +1,44 @@
+[
+  {
+    "skills": ["bun-route", "railroad"],
+    "query": "In an empty folder, start a Bun app that uses @blueshed/railroad, with a home page and an /about page that has a button counting clicks.",
+    "files": [],
+    "expected_behavior": [
+      "Runs bun init -y, deletes the generated index.ts, and installs @blueshed/railroad plus bun-types as a dev dependency",
+      "tsconfig compilerOptions is the complete tsx-railroad block: jsx react-jsx, jsxImportSource @blueshed/railroad, types [\"bun-types\"], moduleResolution bundler, strict",
+      "The home page is index.html, index.css and index.tsx in the project root, not in an index/ directory",
+      "The about page is about/about.html, about/about.css and about/about.tsx, each HTML referencing its CSS and script by relative path",
+      "Each route's CSS is self-contained; there is no shared base.css",
+      "server.ts imports both HTML files and registers them in Bun.serve({ routes }) with development: { hmr: true, console: true }",
+      "The client script starts the page with mount() or routes(), and the counter binds {count}, not {count.get()}, with a lowercase onclick",
+      "Checks the route with curl for a 200, or asks the user to start the server first"
+    ]
+  },
+  {
+    "skills": ["bun-route"],
+    "query": "Add a /contact page to this Bun project. It is plain TypeScript: package.json has no dependencies, tsconfig.json has no jsx settings, and server.ts already serves index.html at \"/\" with Bun.serve.",
+    "files": [],
+    "expected_behavior": [
+      "Detects ts mode: the client script is contact/contact.ts, with no JSX and no railroad or react import",
+      "Builds the DOM with plain DOM calls (document.createElement, append, innerHTML or similar)",
+      "Creates contact/contact.html and contact/contact.css, the CSS self-contained",
+      "Adds import contactPage from \"./contact/contact.html\" to server.ts and \"/contact\": contactPage to its routes, leaving the existing route alone",
+      "Does not add an external bundler, a build script or a framework dependency"
+    ]
+  },
+  {
+    "skills": ["bun-route"],
+    "query": "This Bun app's / page has a form with a #name input and a #submit button that is disabled until the input has text; submitting shows \"Hello, <name>\" in #greeting. server.ts calls Bun.serve on port 3000 at the top level. Write a Bun.WebView test that types a name, submits, and checks the greeting.",
+    "files": [],
+    "expected_behavior": [
+      "Refactors server.ts into an exported startServer(opts) that takes a port, with an if (import.meta.main) guard for running it directly",
+      "The test starts the server with startServer({ port: 0 }) in beforeAll, uses server.url.href (no hard-coded localhost:3000), and stops it in afterAll",
+      "Opens the view with await using view = new Bun.WebView(...) inside the test, not shared across tests",
+      "Waits for #submit to be enabled before clicking it (a polling waitFor helper or equivalent), since click does not wait for enabled",
+      "Every view.evaluate call passes a type argument, e.g. evaluate<string>(...)",
+      "Each evaluate argument is a single expression, or multi-statement code wrapped in Function(\"...; return ...;\")()",
+      "Uses no waitForSelector or waitForFunction, which Bun.WebView does not have",
+      "Runs with plain bun test, no --browser flag"
+    ]
+  }
+]
