@@ -98,7 +98,7 @@ Railroad didn't start this focused. The first release was a 400-line "micro UI f
 
 That was a mistake, and the most important release was the one where we *removed* things: we split the sync machinery out into `@blueshed/delta` and refocused railroad on being the reactive layer and nothing more. Two libraries that each do one thing beat one library that does two things and makes you take both.
 
-The releases since have been about earning trust rather than adding surface. Signals became glitch-free — propagation is now topologically scheduled, so a diamond (`a → b`, `a → c`, an effect reading both) settles in one consistent pass and never observes half-updated state. Dispose scopes got a real API and a guardrail that warns when a `when()` or `list()` is created somewhere it would leak. SVG became first-class, namespace and all, verified in real Chrome through `Bun.WebView`. Most of that came out of deliberate, adversarial correctness reviews. The library got *better* without getting bigger.
+The releases since have been about earning trust rather than adding surface. Signals became glitch-free — propagation is now topologically scheduled, so a diamond (`a → b`, `a → c`, an effect reading both) settles in one consistent pass and never observes half-updated state. Dispose scopes got a real API and a guardrail that warns, in development, when a `when()` or `list()` is created somewhere it would leak. SVG became first-class, namespace and all, verified in real Chrome through `Bun.WebView`. Most of that came out of deliberate, adversarial correctness reviews. The library got *better* without getting bigger.
 
 ## What it isn't
 
