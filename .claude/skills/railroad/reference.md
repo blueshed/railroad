@@ -104,7 +104,7 @@ import home from "./index.html";
 
 Bun.serve({
   routes: { "/": home },
-  development: { hmr: true, console: true },
+  development: process.env.NODE_ENV !== "production" && { hmr: true, console: true },
 });
 ```
 
@@ -421,7 +421,7 @@ await registerDoc(ws, "board:1", {
 Bun.serve({
   routes: { "/": home, [ws.path]: ws.upgrade },
   websocket: ws.websocket,
-  development: { hmr: true, console: true },
+  development: process.env.NODE_ENV !== "production" && { hmr: true, console: true },
 });
 ```
 

@@ -44,7 +44,7 @@ If there is no `package.json` and no server entry file, bootstrap first:
    - **tsx-railroad**: `bun add @blueshed/railroad && bun add -d bun-types`.
    - **tsx-react**: `bun add react react-dom && bun add -d bun-types @types/react @types/react-dom`.
 4. For **ts** or **tsx** modes, replace `compilerOptions` in the tsconfig with the complete block for the mode from reference.md. Don't merge two snippets.
-5. Create the server entry (`server.js` or `server.ts`) with `Bun.serve({ routes, development: { hmr: true, console: true } })`. Always enable `development.hmr` and `development.console`. They are stripped automatically in production. See reference.md for the template.
+5. Create the server entry (`server.js` or `server.ts`) with `Bun.serve({ routes, development: process.env.NODE_ENV !== "production" && { hmr: true, console: true } })`. Always enable `development.hmr` and `development.console` in development, and gate them as shown: Bun keeps HMR under `NODE_ENV=production`. See reference.md for the template.
 6. Create the route files as in Step 3.
 
 ## Step 2: Parse arguments

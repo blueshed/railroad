@@ -111,7 +111,7 @@ createRoot(document.getElementById("root")!).render(<Page />);
 
 Use `Bun.serve` (not `import { serve } from "bun"` — both work, but `Bun.serve` matches the official docs and avoids one extra import line).
 
-Always enable HMR and browser-console mirroring in dev — they're free wins from Bun 1.3 and the headline reasons to use the fullstack server. They're stripped from production builds automatically.
+Always enable HMR and browser-console mirroring in dev — they're free wins from Bun 1.3 and the headline reasons to use the fullstack server — and gate them on `NODE_ENV`, as below.
 
 ```ts
 import homepage from "./index.html";
@@ -123,7 +123,8 @@ const server = Bun.serve({
     "/": homepage,
     "/about": aboutPage,
   },
-  development: {
+  // Development only: Bun keeps HMR under NODE_ENV=production unless the server drops it.
+  development: process.env.NODE_ENV !== "production" && {
     hmr: true,       // import.meta.hot — Vite-shaped API
     console: true,   // mirror browser console.* to the terminal
   },
@@ -132,7 +133,7 @@ const server = Bun.serve({
 console.log(`Listening on ${server.url}`);
 ```
 
-`development` is ignored when Bun is started with `NODE_ENV=production` (or via `bun build --production`), so you don't have to gate it manually — leave it on.
+Gate `development` yourself: a server started with `NODE_ENV=production` still serves the HMR client if `development.hmr` is set (checked on Bun 1.4.3).
 
 ## API routes alongside HTML routes
 
@@ -212,7 +213,7 @@ export async function startServer(opts: StartOptions = {}) {
   const server = Bun.serve({
     port: opts.port ?? Number(process.env.PORT ?? 3000),
     routes: { "/": indexHtml },
-    development: { hmr: true, console: true },
+    development: process.env.NODE_ENV !== "production" && { hmr: true, console: true },
   });
   return { server };
 }

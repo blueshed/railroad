@@ -26,6 +26,12 @@ All notable changes to `@blueshed/railroad`. The format follows
   minified). Development, and a page served unbundled with no `process`, still
   warn. What throws, and the errors logged for a failed async component or
   route, are the same in production.
+- **The server examples turn HMR off in production.** README, the manual and
+  bun-route's templates set `development: { hmr: true, console: true }` and
+  said Bun drops it in production; on Bun 1.4.3 a server started with
+  `NODE_ENV=production` still serves the HMR client. They now write
+  `development: process.env.NODE_ENV !== "production" && { hmr: true, console: true }`,
+  and a test runs that server both ways.
 
 ### Docs
 
