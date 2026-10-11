@@ -51,7 +51,9 @@ All notable changes to `@blueshed/railroad`. The format follows
   `selected`/`src`/`srcdoc` are DOM properties and `innerHTML` replaces the
   children, `matchRoute`'s first-match, trailing-slash and query rules, an
   adopted SVG `<a>`'s `on*` listener, a computed run owning its effects,
-  `LOG_LEVEL` from the environment, and every module loading with no DOM.
+  `LOG_LEVEL` from the environment, every module loading with no DOM, the
+  README's Try it run as written in a browser, and `bun build --compile`
+  making its server one binary.
 
 ## [0.16.0] - 2026-10-11
 

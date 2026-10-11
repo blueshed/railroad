@@ -9,6 +9,7 @@
 
 import { test, expect, beforeAll, afterAll, describe, setDefaultTimeout } from "bun:test";
 import { startServer } from "./server";
+import readmeHtml from "./fixtures/readme/index.html";
 
 // Real-browser tests pay a cold Chrome/CDP launch on the first test (slow on CI
 // Linux runners), which can blow Bun's default 5s per-test timeout. Give the
@@ -336,6 +337,22 @@ describe.skipIf(noBrowser)("Bun.WebView — railroad fixture app", () => {
     await view.click("[data-testid=href-next]");
     await Bun.sleep(50);
     expect(await evalStr(view, `window.svgLink.getAttribute('href')`)).toBe("#/svg/2");
+  });
+
+  test("the README's Try it counts clicks", async () => {
+    // tests/fixtures/readme is README.md's three files, as written (tests/readme.test.ts checks).
+    const readme = Bun.serve({ port: 0, routes: { "/": readmeHtml }, development: false });
+    try {
+      await using view = new Bun.WebView({ width: 800, height: 600 });
+      await view.navigate(readme.url.href);
+      const text = () => evalStr(view, `document.querySelector('button')?.textContent ?? ''`);
+      expect(await waitFor(text, (v) => v !== "")).toBe("Clicked 0 times");
+      await view.click("button");
+      await view.click("button");
+      await waitFor(text, (v) => v === "Clicked 2 times");
+    } finally {
+      readme.stop(true);
+    }
   });
 
   test("a page served unbundled, with no process, gets the development warnings", async () => {

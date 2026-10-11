@@ -9,8 +9,8 @@ setDefaultTimeout(30_000);
 const here = import.meta.dir;
 
 // Starts `cmd`, which prints "Listening on <url>", and returns the process and that URL.
-async function listen(cmd: string[], env: Record<string, string> = {}) {
-  const proc = Bun.spawn(cmd, { cwd: here, env: { ...process.env, PORT: "0", ...env }, stdout: "pipe" });
+async function listen(cmd: string[], env: Record<string, string> = {}, cwd = here) {
+  const proc = Bun.spawn(cmd, { cwd, env: { ...process.env, PORT: "0", ...env }, stdout: "pipe" });
   const reader = proc.stdout.getReader();
   let out = "";
   while (true) {
@@ -57,4 +57,36 @@ test("each module loads with no DOM, and signals run there", () => {
   const run = Bun.spawnSync([process.execPath, "-e", script], { cwd: here });
   expect(run.stderr.toString()).toBe("");
   expect(run.stdout.toString().trim()).toBe("seen 4");
+});
+
+test("the README's Try it files are tests/fixtures/readme, as written", async () => {
+  // tests/webview.test.ts runs that fixture in a browser, so this keeps the two the same.
+  const readme = await Bun.file(`${here}/../README.md`).text();
+  for (const [name, lang] of [["tsconfig.json", "json"], ["index.html", "html"], ["app.tsx", "tsx"]] as const) {
+    const block = readme.match(new RegExp("```" + lang + "\\n[^\\n]*" + name.replace(".", "\\.") + "[^\\n]*\\n([\\s\\S]*?)```"));
+    expect(await Bun.file(`${here}/fixtures/readme/${name}`).text()).toBe(block![1]!);
+  }
+});
+
+test("bun build --compile makes the README's server one binary", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(`${tmpdir()}/railroad-compile-`);
+  try {
+    const built = Bun.spawnSync([process.execPath, "build", "--compile", "fixtures/serve.ts", "--outfile", `${dir}/app`], { cwd: here });
+    expect(built.exitCode).toBe(0);
+    // Run from elsewhere, so nothing comes from the source tree.
+    const { proc, url } = await listen([`${dir}/app`], { NODE_ENV: "production" }, dir);
+    try {
+      const html = await (await Bun.fetch(url)).text();
+      const script = html.match(/<script[^>]*src="([^"]+)"/)?.[1];
+      expect(script).toBeDefined();
+      expect(await (await Bun.fetch(new URL(script!, url))).text()).toContain("data-route");
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

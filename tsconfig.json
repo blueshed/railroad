@@ -11,5 +11,5 @@
     "skipLibCheck": false,
     "noEmit": true
   },
-  "exclude": ["tests/consumer-types"]
+  "exclude": ["tests/consumer-types", "tests/fixtures/readme"]
 }
