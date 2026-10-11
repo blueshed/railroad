@@ -75,6 +75,11 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
+- **bun-route's WebView footguns gain five found in paintbrush's tests**: await every
+  call, `click` doesn't scroll, `type` appends, `view.title` is empty on WebKit after the
+  first navigate, one WebView per file. Its render check names any browser tool, not
+  Playwright.
+
 - **The README explains a signal where it first uses one, and its skills
   copy works in a fresh project** (`mkdir -p .claude/skills` first; `cp`
   failed with "Not a directory"). It names paintbrush, which

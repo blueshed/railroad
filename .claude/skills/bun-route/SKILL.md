@@ -76,7 +76,7 @@ Ask the user to start or restart the server if it is not running. Then:
 
 1. Read the server entry for the port. The default is 3000.
 2. Run `curl -s -o /dev/null -w "%{http_code}" http://localhost:<port>/<route>` and confirm it returns `200`.
-3. If a Playwright MCP browser is available, open the page and take a screenshot to check that it renders. If that Playwright MCP runs in Docker, `localhost` inside the container is the container itself, so use `http://host.docker.internal:<port>/<route>` in its place. Use `localhost` only when the browser runs on the host.
+3. If a browser tool is available, open the page and take a screenshot to check that it renders. A browser running in Docker reaches the host's server at `http://host.docker.internal:<port>/<route>`, not `localhost`.
 4. Check that the new CSS matches the existing route CSS: layout, typography and interactive elements.
 
 ## Step 6: Tests (when the route has interaction worth locking down)
@@ -92,9 +92,14 @@ Check `bun --version` before relying on a 1.3.14 option, and tell the user if th
 
 The server must be **importable**. Refactor its entry into an exported `startServer(opts)` factory so tests can bind to `port: 0` and inject throwaway paths. Then use `await using view = new Bun.WebView(...)` and drive it with `navigate`, `click` and `evaluate`.
 
-Three footguns:
+Footguns:
 - `view.evaluate` takes one **expression**, not statement bodies. For multi-statement code, wrap it in `Function("…; return …;")()`.
 - `view.evaluate<T = unknown>` defaults to `unknown`, which makes `expect()` pick the wrong overload. Always pass a type argument: `evaluate<string>(...)`, `evaluate<number>(...)`, `evaluate<boolean>(...)`.
 - There is no `waitForSelector` or `waitForFunction`. Selector methods auto-wait until the element is attached, visible, stable and not obscured, with a per-call `timeout` (default 30000 ms). They do **not** wait for it to be enabled: wait for a disabled button to enable before clicking it. For anything else, such as an async WebSocket update landing in the DOM or a file write, poll with a small `waitFor` helper.
+- `await` every call. A view takes one `navigate`, `evaluate`, screenshot or input at a time, or throws `ERR_INVALID_STATE`.
+- `click(selector)` does not scroll. Bring an element below the fold into view with `scrollTo(selector)` first.
+- `type()` appends. To replace a field's text, clear it in `evaluate` (set `value = ""` and dispatch an `input` event), then `click` and `type`.
+- On macOS WebKit `view.title` is empty after the first `navigate`: read `document.title` with `evaluate<string>`.
+- One WebView per test file. A test that needs a second window opens its own and closes it in a `finally`.
 
 The full patterns, the `Function(...)()` idiom, synthetic events for pointer-drag and wheel, and the order-independent test structure are in reference.md under **Testing routes with `Bun.WebView`**.
