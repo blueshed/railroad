@@ -361,6 +361,15 @@ describe("SVG: tags get their namespace at creation", () => {
     expect(htmlLink.namespaceURI).not.toBe(SVG_NS);
   });
 
+  test("an adopted <a>'s on* listener is re-applied, and fires once", () => {
+    let clicks = 0;
+    const svg = (<svg><a onclick={() => clicks++}><circle r="1" /></a></svg>) as unknown as SVGElement;
+    const link = svg.querySelector("a")!;
+    expect(link.namespaceURI).toBe(SVG_NS);
+    link.dispatchEvent(new Event("click"));
+    expect(clicks).toBe(1);
+  });
+
   test("a function prop on an SVG-adopted tag keeps exactly one live effect", () => {
     const href = signal("#a");
     let reads = 0;
@@ -447,6 +456,20 @@ describe("an adopted SVG <a> keeps its props for as long as its render, and no l
     dispose();
     href.set("#3");
     expect(a.getAttribute("href")).toBe("#2"); // before: "#3", it outlived the component
+  });
+});
+
+describe("props set as DOM properties, and innerHTML", () => {
+  test("selected, src and srcdoc are DOM properties", () => {
+    const option = (<option selected={true} />) as HTMLOptionElement;
+    expect([option.selected, option.hasAttribute("selected")]).toEqual([true, false]);
+    expect(((<img src="/x.png" />) as HTMLImageElement).src).toEndWith("/x.png");
+    expect(((<iframe srcdoc="<p>x</p>" />) as HTMLIFrameElement).srcdoc).toBe("<p>x</p>");
+  });
+
+  test("innerHTML replaces the JSX children", () => {
+    const div = (<div innerHTML="<b>x</b>"><i>child</i></div>) as HTMLElement;
+    expect(div.innerHTML).toBe("<b>x</b>");
   });
 });
 
@@ -1763,7 +1786,7 @@ describe("when(cond, (v$) => …): the branch reads the current truthy value", (
   });
 });
 
-describe("list(): duplicate keys warn", () => {
+describe("list(): duplicate keys warn, and collapse into one row", () => {
   // when()/list() warn outside a dispose scope — bracket each test in one.
   beforeEach(() => { document.body.innerHTML = ""; pushDisposeScope(); });
   afterEach(() => { popDisposeScope()(); });
@@ -1778,6 +1801,16 @@ describe("list(): duplicate keys warn", () => {
     expect(
       warnSpy.mock.calls.some((c) => String(c[0]).includes("duplicate keys")),
     ).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  test("items sharing a key are one row, the rest dropped", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const rows = signal([{ id: 1, t: "a" }, { id: 1, t: "b" }, { id: 2, t: "c" }]);
+    const ul = (
+      <ul>{list(rows, (r) => r.id, (r$) => <li>{r$.map((r) => r.t)}</li>)}</ul>
+    ) as HTMLElement;
+    expect([...ul.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["a", "c"]);
     warnSpy.mockRestore();
   });
 });

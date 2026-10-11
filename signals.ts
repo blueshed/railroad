@@ -13,8 +13,7 @@
  * half-updated state. Depth follows the reads: a computed that switches what
  * it reads (`flag.get() ? b.get() : a.get()`) moves itself and its readers
  * deeper, and a computed read before it has settled in the pass is brought up
- * to date first, so no listener reads a half-updated value. Two bounds:
- * siblings at the same depth run in subscription order, and an effect that
+ * to date first, so no listener reads a half-updated value. An effect that
  * writes signals re-queues their consumers within the same pass, settling
  * them before the next effect runs (a true cycle throws after the same
  * listener re-runs ~100 times). batch() coalesces MULTIPLE writes (a

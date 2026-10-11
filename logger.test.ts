@@ -107,6 +107,19 @@ describe("logger", () => {
   });
 });
 
+describe("logger: LOG_LEVEL from the environment", () => {
+  test("LOG_LEVEL=warn hides info and shows warn", () => {
+    const script = `const { createLogger } = await import("./logger.ts");
+      const log = createLogger("[t]"); log.info("info line"); log.warn("warn line");`;
+    const run = Bun.spawnSync([process.execPath, "-e", script], {
+      cwd: import.meta.dir,
+      env: { ...process.env, LOG_LEVEL: "warn" },
+    });
+    expect(run.stdout.toString()).not.toContain("info line");
+    expect(run.stderr.toString()).toContain("warn line");
+  });
+});
+
 describe("loggedRequest", () => {
   let logSpy: ReturnType<typeof spyOn>;
 

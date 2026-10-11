@@ -44,8 +44,14 @@ All notable changes to `@blueshed/railroad`. The format follows
   makes a paintbrush app with railroad (delta comes later, through its
   `evolve` skill), not "railroad, delta and invoket"; browser tests run as
   their own step because they skip where no browser is found, not because a
-  bare `bun test` drops them from discovery; the README's signals row and
-  why-railroad no longer promise more than is tested.
+  bare `bun test` drops them from discovery; the README's signals row,
+  why-railroad and the manual's "siblings run in subscription order" no
+  longer promise more than is tested. New tests pin what stays: duplicate
+  keys collapse to one row, a two-effect and a two-computed cycle throw,
+  `selected`/`src`/`srcdoc` are DOM properties and `innerHTML` replaces the
+  children, `matchRoute`'s first-match, trailing-slash and query rules, an
+  adopted SVG `<a>`'s `on*` listener, a computed run owning its effects,
+  `LOG_LEVEL` from the environment, and every module loading with no DOM.
 
 ## [0.16.0] - 2026-10-11
 

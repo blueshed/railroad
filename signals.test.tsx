@@ -270,6 +270,29 @@ describe("effect() and batch(): dispose, the depth guard, a masked error", () =>
     expect(bRuns).toBe(0); // B was disposed by A before its queued run
   });
 
+  test("two effects that feed each other throw", () => {
+    const x = signal(0);
+    const y = signal(0);
+    pushDisposeScope();
+    try {
+      expect(() => {
+        effect(() => { y.set(x.get() + 1); });
+        effect(() => { x.set(y.get() + 1); });
+      }).toThrow(/Maximum effect depth/);
+    } finally {
+      popDisposeScope()();
+    }
+  });
+
+  test("two computeds that come to read each other throw", () => {
+    // A computed runs as it is made, so a cycle forms when one switches to read the other.
+    const closed = signal(false);
+    let b: ReadonlySignal<number> | undefined;
+    const a = computed((): number => (closed.get() ? b!.get() : 0) + 1);
+    b = computed((): number => a.get() + 1);
+    expect(() => closed.set(true)).toThrow(/Maximum effect depth/);
+  });
+
   test("MAX_EFFECT_DEPTH throws on a self-feeding effect", () => {
     const s = signal(0);
     expect(() => {
@@ -341,6 +364,22 @@ describe("effect(): each run owns what it creates", () => {
     dispose();
     a.set(99);
     expect(innerRuns).toBe(5);
+  });
+
+  test("a computed's re-run disposes the effect its last run made", () => {
+    const s = signal(0);
+    const other = signal(0);
+    let innerRuns = 0;
+    const c = computed(() => {
+      effect(() => { other.get(); innerRuns++; });
+      return s.get();
+    });
+    const dispose = effect(() => { c.get(); });
+    s.set(1); // c runs again: the first run's effect must go
+    innerRuns = 0;
+    other.set(1);
+    expect(innerRuns).toBe(1); // only the live one
+    dispose();
   });
 
   test("a nested effect is disposed before re-run and on dispose", () => {

@@ -41,3 +41,20 @@ test("the README's server has HMR in development and none in production", async 
   expect(await page(serve, { NODE_ENV: "development" })).toContain("data-bun-dev-server-script");
   expect(await page(serve, { NODE_ENV: "production" })).not.toContain("data-bun-dev-server-script");
 });
+
+test("each module loads with no DOM, and signals run there", () => {
+  // A child with no happy-dom: a server or a worker, as the README says.
+  const script = `
+    if (typeof document !== "undefined") throw new Error("a DOM is here");
+    for (const path of ["", "/signals", "/routes", "/shared", "/logger"]) await import("@blueshed/railroad" + path);
+    const { signal, computed, effect } = await import("@blueshed/railroad/signals");
+    const n = signal(1);
+    const doubled = computed(() => n.get() * 2);
+    let seen = 0;
+    effect(() => { seen = doubled.get(); });
+    n.set(2);
+    console.log("seen", seen);`;
+  const run = Bun.spawnSync([process.execPath, "-e", script], { cwd: here });
+  expect(run.stderr.toString()).toBe("");
+  expect(run.stdout.toString().trim()).toBe("seen 4");
+});

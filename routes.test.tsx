@@ -938,6 +938,23 @@ describe("routes() into an <svg> target", () => {
 
 describe("matchRoute", () => {
 
+  test("a trailing slash is a segment, and a query string is not split off", () => {
+    expect(matchRoute("/users/:id", "/users/42/")).toBeNull();
+    expect(matchRoute("/users/:id", "/users/42?tab=1")).toEqual({ id: "42?tab=1" });
+  });
+
+  test("routes() takes the first pattern that matches, in declaration order", () => {
+    const target = document.createElement("div");
+    navigate("/users/new");
+    const dispose = routes(target, {
+      "/users/:id": () => <p>by id</p>,
+      "/users/new": () => <p>new</p>,
+    });
+    expect(target.textContent).toBe("by id");
+    dispose();
+    navigate("/");
+  });
+
   test("exact match", () => {
     expect(matchRoute("/", "/")).toEqual({});
     expect(matchRoute("/about", "/about")).toEqual({});

@@ -716,7 +716,7 @@ The `d$` in a `when()` branch notifies whenever the condition does while it stay
 
 The rules marked ↗ are explained in the mistakes section above, so they are not repeated here.
 
-- **Propagation is topologically ordered.** One write, or one `batch()`, runs each affected computed or effect at most once per settled pass, upstream before downstream. That holds for a computed that switches what it reads. A diamond never observes half-updated state. Siblings run in subscription order. An effect that writes signals re-queues their consumers in the same pass, and they settle before the next effect runs. A true cycle throws.
+- **Propagation is topologically ordered.** One write, or one `batch()`, runs each affected computed or effect at most once per settled pass, upstream before downstream. That holds for a computed that switches what it reads. A diamond never observes half-updated state. An effect that writes signals re-queues their consumers in the same pass, and they settle before the next effect runs. A true cycle throws.
 - **Effects own what they create.** ↗ mistake §4.
 - **`when()` and `list()` need a dispose scope.** ↗ mistake §4.
 - **Routes match in declaration order, on segments only.** The first match wins, so `/users/new` goes before `/users/:id`. A trailing slash is a real empty segment: `/users/42/` does not match `/users/:id`. There is no query-string handling; split `?` off yourself.
