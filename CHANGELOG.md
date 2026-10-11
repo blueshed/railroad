@@ -6,6 +6,11 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `loggedRequest` reads the path with `new URL(req.url)` directly: a `Request` always has a
+  URL that parses, so the fallback for one that doesn't is gone.
+
 ## [0.16.2] - 2026-10-11
 
 ### Changed

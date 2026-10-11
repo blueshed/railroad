@@ -13,8 +13,3 @@ export async function startServer(opts: StartOptions = {}) {
   });
   return { server };
 }
-
-if (import.meta.main) {
-  const { server } = await startServer();
-  console.log(`Listening on ${server.url}`);
-}
