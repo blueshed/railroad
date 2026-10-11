@@ -27,11 +27,8 @@
  * THUNK (() => Node): railroad runs the thunk under a scope it owns, so
  * reactive bindings built after the first await are disposed on navigation.
  *   "/users/:id": async ({ id }) => { const u = await load(id); return () => <User u={u} />; }
- * DEPRECATED: a handler resolving to a bare Promise<Node> still renders, but
- * its post-await bindings have no owner scope (browser JS has no
- * AsyncContext) and outlive the route. routes() given such a handler is
- * marked @deprecated (an editor strikes it through); a later release drops
- * the form from the type.
+ * A promise that resolves to a bare Node is an error (onError, or the
+ * console): what it built after its first await would have no owner scope.
  *   params  — the params at the time the handler ran. A handler runs once
  *             per pattern, so `({ id }) => <h1>{id}</h1>` still shows the
  *             first id after /users/1 → /users/2 (unless the route is keyed).
@@ -173,17 +170,6 @@ type RouteHandler = (
   params$: ReadonlySignal<Record<string, string>>,
 ) => Node | Promise<() => Node>;
 
-/**
- * @deprecated A handler whose Promise resolves to a bare Node. What it builds
- * after its first await has no owner scope and outlives the route. Resolve to
- * a thunk instead: `async () => { const u = await load(); return () => <User u={u} />; }`.
- * It still renders; a later release drops it from the type.
- */
-type DeprecatedRouteHandler = (
-  params: Record<string, string>,
-  params$: ReadonlySignal<Record<string, string>>,
-) => Node | Promise<Node | (() => Node)>;
-
 /** A table entry: a handler, or `{ handler, keyed }`. With `keyed: true` the
  *  handler re-runs (a fresh scope, the old one disposed) whenever the matched
  *  params change, instead of running once per pattern. */
@@ -196,21 +182,6 @@ export interface RouterOptions {
 export function routes(
   target: Element,
   table: Record<string, RouteEntry<RouteHandler>>,
-  options?: RouterOptions,
-): Dispose;
-/**
- * @deprecated A handler in this table resolves to a bare `Promise<Node>`, whose
- * post-await bindings outlive the route. Resolve to a thunk instead:
- * `async () => { const u = await load(); return () => <User u={u} />; }`.
- */
-export function routes(
-  target: Element,
-  table: Record<string, RouteEntry<DeprecatedRouteHandler>>,
-  options?: RouterOptions,
-): Dispose;
-export function routes(
-  target: Element,
-  table: Record<string, RouteEntry<DeprecatedRouteHandler>>,
   options?: RouterOptions,
 ): Dispose {
   const hash = getHash();
@@ -251,14 +222,14 @@ export function routes(
     return false;
   }
 
-  function run(handler: DeprecatedRouteHandler, params: Record<string, string>) {
+  function run(handler: RouteHandler, params: Record<string, string>) {
     const myRunId = ++runId;
     activeParams = signal(params);
 
     // The handler's scope closes before run() returns, never across an await:
     // what it builds after one is owned through the thunk below.
     const params$ = activeParams;
-    let ran: { value: Node | Promise<Node | (() => Node)>; dispose: Dispose };
+    let ran: { value: Node | Promise<() => Node>; dispose: Dispose };
     try {
       ran = scoped(() => untrackRender("a route handler", handler, () => handler(params, params$)));
     } catch (err) {
@@ -279,39 +250,39 @@ export function routes(
             return;
           }
           asyncPending = false;
-          if (typeof resolved === "function") {
-            // Thunk resolution — the owner scope for post-await bindings. A
-            // bare Node resolution stays supported, but anything reactive it
-            // created after the first await is ownerless (browser JS has no
-            // AsyncContext to carry the scope across an await); resolve to a
-            // thunk so railroad can bracket its construction.
-            const fail = (err: unknown) => {
-              scopeDispose();
-              activePattern = null;
-              activeParams = null;
-              if (handleError(err)) return;
-              console.error("[railroad/routes] async handler thunk failed:", err);
-            };
-            let built: { value: unknown; dispose: Dispose };
-            try {
-              built = scoped(() => untrackRender("a route handler", handler, resolved));
-            } catch (err) {
-              return fail(err);
-            }
-            if (!(built.value instanceof Node)) {
-              built.dispose();
-              return fail(new Error("[railroad/routes] async handler thunk returned a non-Node"));
-            }
-            const thunkDispose = built.dispose;
-            activeDispose = () => {
-              thunkDispose();
-              scopeDispose();
-            };
-            target.appendChild(adoptIntoSvg(built.value as Node, target));
-            return;
+          const fail = (err: unknown) => {
+            scopeDispose();
+            activePattern = null;
+            activeParams = null;
+            if (handleError(err)) return;
+            console.error("[railroad/routes] async handler failed:", err);
+          };
+          // The thunk is the owner scope for what the handler builds after its
+          // first await (browser JS has no AsyncContext to carry one across).
+          if (typeof resolved !== "function") {
+            return fail(new Error(
+              `[railroad/routes] an async route handler resolved to ${(resolved as unknown) instanceof Node ? "a Node" : "a non-thunk value"} — ` +
+                "it must resolve to a thunk: `return () => <div>…</div>`. " +
+                "Effects created after an await have no owner scope; the thunk gives railroad " +
+                "a synchronous moment to provide one.",
+            ));
           }
-          activeDispose = scopeDispose;
-          target.appendChild(adoptIntoSvg(resolved, target));
+          let built: { value: unknown; dispose: Dispose };
+          try {
+            built = scoped(() => untrackRender("a route handler", handler, resolved));
+          } catch (err) {
+            return fail(err);
+          }
+          if (!(built.value instanceof Node)) {
+            built.dispose();
+            return fail(new Error("[railroad/routes] async handler thunk returned a non-Node"));
+          }
+          const thunkDispose = built.dispose;
+          activeDispose = () => {
+            thunkDispose();
+            scopeDispose();
+          };
+          target.appendChild(adoptIntoSvg(built.value, target));
         },
         (err) => {
           if (myRunId !== runId) {

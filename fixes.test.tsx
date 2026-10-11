@@ -564,7 +564,7 @@ describe("routes: async scope / idempotency / param race / onError", () => {
       "/": async () => {
         const el = document.createElement("section");
         el.textContent = "home";
-        return el;
+        return () => el;
       },
     });
     const parentDispose = popDisposeScope();
@@ -633,12 +633,12 @@ describe("routes: async scope / idempotency / param race / onError", () => {
     await tick();
 
     const calls: string[] = [];
-    const deferreds = new Map<string, ReturnType<typeof defer<Node>>>();
+    const deferreds = new Map<string, ReturnType<typeof defer<() => Node>>>();
     const dispose = routes(target, {
       "/users/:id": (params) => {
         const id = params.id!;
         calls.push(id);
-        const d = defer<Node>();
+        const d = defer<() => Node>();
         deferreds.set(id, d);
         return d.promise;
       },
@@ -651,10 +651,10 @@ describe("routes: async scope / idempotency / param race / onError", () => {
 
     // Resolve the stale "1" render — it must be discarded.
     const stale = document.createElement("span"); stale.textContent = "user 1";
-    deferreds.get("1")!.resolve(stale);
+    deferreds.get("1")!.resolve(() => stale);
     // Resolve "2" — it should paint.
     const fresh = document.createElement("span"); fresh.textContent = "user 2";
-    deferreds.get("2")!.resolve(fresh);
+    deferreds.get("2")!.resolve(() => fresh);
     await tick();
     expect(target.textContent).toBe("user 2");
     dispose();
@@ -667,7 +667,7 @@ describe("routes: async scope / idempotency / param race / onError", () => {
     location.hash = "#/x";
     await tick();
 
-    const d = defer<Node>();
+    const d = defer<() => Node>();
     const dispose = routes(
       target,
       { "/x": () => d.promise },
@@ -2143,42 +2143,33 @@ describe("navigate(): route() and routes() are current as it returns", () => {
   });
 });
 
-describe("routes(): a handler resolving to a bare Promise<Node> is deprecated", () => {
-  // Its post-await bindings have no owner scope and outlive the route; the thunk form is the
-  // supported one. tsc doesn't print deprecations, so ask the language service, as an editor does.
-  test("the editor strikes through routes() for a bare Promise<Node>, not for a thunk", async () => {
-    const ts = (await import("typescript")).default;
-    const dir = new URL(".", import.meta.url).pathname;
-    const probe = dir + "__deprecation_probe.tsx";
-    const lines = [
-      'import { createElement } from "./jsx";',
-      'import { routes } from "./routes";',
-      "declare const el: Element;",
-      'routes(el, { "/": () => <p />, "/a": async () => { await null; return () => <p />; } });',
-      'routes(el, { "/": () => <p />, "/b": async () => { await null; return <p />; } });',
-    ];
-    const cfg = ts.getParsedCommandLineOfConfigFile(dir + "tsconfig.json", {}, {
-      ...ts.sys,
-      onUnRecoverableConfigFileDiagnostic: () => {},
-    })!;
-    const service = ts.createLanguageService({
-      getScriptFileNames: () => [probe],
-      getScriptVersion: () => "1",
-      getScriptSnapshot: (f) => f === probe
-        ? ts.ScriptSnapshot.fromString(lines.join("\n"))
-        : ts.sys.fileExists(f) ? ts.ScriptSnapshot.fromString(ts.sys.readFile(f)!) : undefined,
-      getCurrentDirectory: () => dir,
-      getCompilationSettings: () => cfg.options,
-      getDefaultLibFileName: ts.getDefaultLibFilePath,
-      fileExists: (f) => f === probe || ts.sys.fileExists(f),
-      readFile: (f) => f === probe ? lines.join("\n") : ts.sys.readFile(f),
-    });
-    expect(service.getSemanticDiagnostics(probe).map((d) => d.code)).toEqual([]);
-    const deprecated = service.getSuggestionDiagnostics(probe)
-      .filter((d) => d.code === 6387) // "The signature … is deprecated"
-      .map((d) => d.file!.getLineAndCharacterOfPosition(d.start!).line + 1);
-    expect(deprecated).toEqual([5]); // the bare Promise<Node> only
-  }, 30_000);
+describe("routes(): a handler resolving to a bare Node is an error", () => {
+  // What it built after its first await would have no owner scope and outlive the route; a
+  // thunk gives railroad a synchronous moment to own it. Deprecated in 0.14.0, removed in 0.16.0.
+  test("it doesn't compile, and at run time goes to onError with the fix named", async () => {
+    location.hash = "#/";
+    await tick();
+    const target = document.createElement("div");
+    const errors: unknown[] = [];
+    const name = signal("a");
+    let effectRuns = 0;
+    const dispose = routes(target, {
+      // @ts-expect-error -- a bare Promise<Node> is not a route handler (it compiled, deprecated, before)
+      "/": async () => {
+        effect(() => { name.get(); effectRuns++; }); // made before the await: the handler's scope
+        await null;
+        return <p>bare</p>;
+      },
+    }, { onError: (err) => { errors.push(err); return <p>failed</p>; } });
+    await tick();
+    expect(target.textContent).toBe("failed");
+    expect(String(errors[0])).toContain("resolved to a Node");
+    expect(String(errors[0])).toContain("return () => <div>…</div>");
+    name.set("b");
+    expect(effectRuns).toBe(1); // the handler's scope was disposed with the failure
+    dispose();
+    location.hash = "";
+  });
 });
 
 describe("types: railroad declares no global JSX", () => {

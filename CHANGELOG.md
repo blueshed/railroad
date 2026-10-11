@@ -6,6 +6,16 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **An async route handler that resolves to a bare `Promise<Node>`**
+  (deprecated in 0.14.0). What it built after its first `await` had no owner
+  scope and outlived the route. It no longer compiles (the `@deprecated`
+  overload is gone), and at run time it is an error, to `onError` or the
+  console, naming the fix, as an async component's already was.
+  **How to move across:** resolve to a thunk:
+  `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
+
 ### Changed
 
 - **A component that throws has what it made disposed at the throw**, as a

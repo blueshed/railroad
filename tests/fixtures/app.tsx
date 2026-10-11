@@ -136,18 +136,14 @@ function SvgPage() {
 }
 
 // === Slow async route ===
-function SlowPage(): Promise<Node> {
-  return new Promise<Node>((resolve) => {
-    setTimeout(() => {
-      const el = (
-        <section data-route="slow">
-          <h1 data-testid="slow-loaded">loaded</h1>
-          <a data-testid="back-home" href="#/">home</a>
-        </section>
-      ) as Node;
-      resolve(el);
-    }, 100);
-  });
+async function SlowPage(): Promise<() => Node> {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return () => (
+    <section data-route="slow">
+      <h1 data-testid="slow-loaded">loaded</h1>
+      <a data-testid="back-home" href="#/">home</a>
+    </section>
+  );
 }
 
 const root = document.getElementById("root")!;

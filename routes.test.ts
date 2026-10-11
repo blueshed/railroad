@@ -164,7 +164,7 @@ describe("routes()", () => {
     location.hash = "#/slow";
     await tick();
 
-    const d = defer<Node>();
+    const d = defer<() => Node>();
     const dispose = routes(target, {
       "/slow": () => d.promise,
     });
@@ -172,7 +172,7 @@ describe("routes()", () => {
 
     const el = document.createElement("span");
     el.textContent = "loaded";
-    d.resolve(el);
+    d.resolve(() => el);
     await d.promise;
     await tick();
     expect(target.textContent).toBe("loaded");
@@ -186,7 +186,7 @@ describe("routes()", () => {
     location.hash = "#/slow";
     await tick();
 
-    const slow = defer<Node>();
+    const slow = defer<() => Node>();
     const dispose = routes(target, {
       "/slow": () => slow.promise,
       "/fast": () => {
@@ -204,7 +204,7 @@ describe("routes()", () => {
     // Resolve the stale promise — it must NOT replace the current content.
     const stale = document.createElement("span");
     stale.textContent = "slow";
-    slow.resolve(stale);
+    slow.resolve(() => stale);
     await slow.promise;
     await tick();
     expect(target.textContent).toBe("fast");
@@ -274,7 +274,7 @@ describe("routes()", () => {
     location.hash = "#/slow-boom";
     await tick();
 
-    const d = defer<Node>();
+    const d = defer<() => Node>();
     const dispose = routes(
       target,
       {
