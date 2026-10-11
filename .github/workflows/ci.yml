@@ -36,7 +36,6 @@ jobs:
 
       - run: bun test
 
-      # Bare `bun test` non-deterministically drops files under tests/ from
-      # discovery, so run the WebView suite explicitly — the real-browser layer
-      # must never be silently skipped behind a green check.
+      # The WebView suite again, as its own step, so the real-browser layer shows
+      # on its own. In CI a missing browser fails it rather than skipping it.
       - run: bun test ./tests/webview.test.ts

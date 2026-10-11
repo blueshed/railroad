@@ -103,7 +103,7 @@ binary.
 
 | Import | What it does |
 |---|---|
-| `signal` `computed` `effect` `batch` | Push-based reactive values. A write settles every dependent in depth order: once each, with no half-updated reads, even when a computed switches what it reads. |
+| `signal` `computed` `effect` `batch` | Push-based reactive values. A write updates each dependent once, never half-updated. |
 | JSX, `mount` `when` `list` | Real-DOM rendering. Signals and functions bind to text and attributes; `when` swaps branches; `list` keeps keyed rows. |
 | `routes` `route` `navigate` | Hash router with reactive params, so `/users/1` to `/users/2` updates without remounting. |
 | `provide` `inject` | Typed dependency injection without passing props down. |

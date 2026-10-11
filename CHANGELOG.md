@@ -40,6 +40,12 @@ All notable changes to `@blueshed/railroad`. The format follows
   development, while rendering its signal throws in both; and
   `bun build --minify` alone is not a production build (Bun takes
   `NODE_ENV` as development unless told).
+- **Claims the tests didn't back are corrected or cut.** `bun create blueshed`
+  makes a paintbrush app with railroad (delta comes later, through its
+  `evolve` skill), not "railroad, delta and invoket"; browser tests run as
+  their own step because they skip where no browser is found, not because a
+  bare `bun test` drops them from discovery; the README's signals row and
+  why-railroad no longer promise more than is tested.
 
 ## [0.16.0] - 2026-10-11
 

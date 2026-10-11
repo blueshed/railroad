@@ -39,8 +39,9 @@ signals to real DOM. There is no virtual DOM, no compiler and no SSR.
 bun add @blueshed/railroad
 ```
 
-`bun create blueshed my-app` scaffolds a full app: railroad, `@blueshed/delta`
-and invoket, with agent wiring. For adding pages to an existing app, use the
+`bun create blueshed my-app` makes a paintbrush app (Bun 1.4): Bun routes and
+resources, with railroad for the page. Its `evolve` skill adds a `@blueshed/delta`
+document when a resource needs one. For adding pages to an existing app, use the
 `bun-route` skill.
 
 **Bun or another bundler only.** Railroad ships TypeScript source with no build
@@ -453,9 +454,10 @@ test("counter increments", async () => {
 });
 ```
 
-Keep browser tests in their own file and run them by explicit path (this repo runs
-`bun test ./tests/webview.test.ts`): a bare `bun test` can leave files under `tests/`
-out of discovery. The `bun-route` skill has the full WebView
+Keep browser tests in their own file and run them by explicit path too (this repo
+runs `bun test ./tests/webview.test.ts` as its own step): where no browser is found
+they skip with a warning, so a green bare `bun test` doesn't prove they ran. The
+`bun-route` skill has the full WebView
 patterns, the version notes and the test footguns.
 
 `navigate(path)` updates the route synchronously, so a unit test needs no tick

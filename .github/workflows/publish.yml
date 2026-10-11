@@ -29,8 +29,8 @@ jobs:
 
       - run: bun test
 
-      # Run the WebView suite explicitly — bare `bun test` can drop it from
-      # discovery, and the real-browser layer must gate a publish.
+      # The WebView suite again, as its own step: the real-browser layer gates a
+      # publish, and in CI a missing browser fails it rather than skipping it.
       - run: bun test ./tests/webview.test.ts
 
       - run: bun check
