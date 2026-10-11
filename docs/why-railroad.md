@@ -65,7 +65,7 @@ function Greeting() {
 
 When you put a bare signal in the JSX, the runtime wires it to a text node that updates when the signal changes. A signal as a prop becomes a reactive attribute. A function child auto-tracks whatever signals it reads. The component never runs again — only the specific text nodes and attributes that depend on a changed signal do any work.
 
-This is the same family as Vue's `ref`, Solid's `createSignal`, and Preact's signals: push-based, fine-grained. It is deliberately *not* a TC39 Signals implementation or anything clever enough to need a paper. The entire library is around a thousand lines and has zero runtime dependencies. Every module — signals, jsx, routes, the DI container, the logger — is independent and importable on its own, so you can take just the signals into a CLI or a worker and never touch the JSX.
+This is the same family as Vue's `ref`, Solid's `createSignal`, and Preact's signals: push-based, fine-grained. It is deliberately *not* a TC39 Signals implementation or anything clever enough to need a paper. The entire library is about 1,300 lines of code and has zero runtime dependencies. Every module — signals, jsx, routes, the DI container, the logger — is independent and importable on its own, so you can take just the signals into a CLI or a worker and never touch the JSX.
 
 ## The reason it actually exists: realtime
 
@@ -88,7 +88,7 @@ This is also why railroad has a sibling, [`@blueshed/delta`](https://www.npmjs.c
 
 There's one more design driver, and it's the one I'd defend hardest. Railroad is built so that **you can hold all of it in your head** — and so that an LLM can use it correctly without re-reading the documentation every time.
 
-That second part isn't a gimmick. We write a lot of code with AI assistance now, and a framework that an assistant gets subtly wrong — `className` instead of `class`, a `.get()` snuck into JSX where it silently kills reactivity, an effect left to leak at module scope — is a framework that generates a steady drip of plausible-looking bugs. So legibility became a hard requirement, not a nice-to-have. The library ships its own Claude Code skills. Every source file's JSDoc header is the authoritative API reference. The skill isn't a tutorial — it's a checklist of *the failure modes that have actually shown up in development*: the seven things that bite if you're not careful. The whole surface is small and predictable enough that "the obvious thing" is usually the correct thing, for a person or a model.
+That second part isn't a gimmick. We write a lot of code with AI assistance now, and a framework that an assistant gets subtly wrong — `className` instead of `class`, a `.get()` snuck into JSX where it silently kills reactivity, an effect left to leak at module scope — is a framework that generates a steady drip of plausible-looking bugs. So legibility became a hard requirement, not a nice-to-have. The library ships its own Claude Code skills. Every source file's JSDoc header is the authoritative API reference. The skill isn't a tutorial — it's a checklist of *the failure modes that have actually shown up in development*: the nine things that bite if you're not careful. The whole surface is small and predictable enough that "the obvious thing" is usually the correct thing, for a person or a model.
 
 A framework you can fully understand is a framework you can debug, trust, and own. That's worth more than features.
 
