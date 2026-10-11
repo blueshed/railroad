@@ -65,6 +65,13 @@ All notable changes to `@blueshed/railroad`. The format follows
   alike (an async component's as `<Name> async component failed:` and the
   error).
 
+### Docs
+
+- **The README explains a signal where it first uses one, and its skills
+  copy works in a fresh project** (`mkdir -p .claude/skills` first; `cp`
+  failed with "Not a directory"). It names paintbrush, which
+  `bun create blueshed` scaffolds, in place of the private eta.
+
 ## [0.15.1] - 2026-09-28
 
 ### Fixed
