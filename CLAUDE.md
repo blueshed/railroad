@@ -38,7 +38,9 @@ example uses (`jsx: react-jsx`, `jsxImportSource`, `strict`), beside a
 React-style global `JSX` it must not clash with; and `react-app.tsx` under
 `tsconfig.react.json` (`jsx: react`, `jsxFactory: "createElement"`), which
 proves railroad declares no global `JSX`. They are the only gates on the JSX
-paths users compile against. Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
+paths users compile against. It also compiles `tests/fixtures/readme/`, the
+README's Try it files under the README's own `tsconfig.json` (which leaves
+`@types/bun` visible from the repo's `node_modules`). Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
 use of the `typescript` dev dependency): users compile railroad's source with
 their own TypeScript. Drop the `tsc` half once 5.x users are gone.
 
