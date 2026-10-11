@@ -14,7 +14,9 @@ All notable changes to `@blueshed/railroad`. The format follows
   overload is gone), and at run time it is an error, to `onError` or the
   console, naming the fix, as an async component's already was.
   **How to move across:** resolve to a thunk:
-  `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
+  `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`
+  (keyed, `{ keyed: true, handler }`, when it reads its params, so `/users/1` →
+  `/users/2` loads again).
 
 ### Fixed
 
@@ -242,7 +244,9 @@ All notable changes to `@blueshed/railroad`. The format follows
   to a `@deprecated` overload, so an editor strikes the call through; a later
   release drops the form from the type.
   **How to move across:** resolve to a thunk, which railroad runs under a
-  scope it owns: `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`.
+  scope it owns: `async ({ id }) => { const u = await load(id); return () => <User u={u} />; }`
+  (keyed, `{ keyed: true, handler }`, when it reads its params, so `/users/1` →
+  `/users/2` loads again).
 
 ### Added
 

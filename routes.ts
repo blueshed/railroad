@@ -26,7 +26,8 @@
  * Handlers receive (params, params$) and return a Node, or a Promise of a
  * THUNK (() => Node): railroad runs the thunk under a scope it owns, so
  * reactive bindings built after the first await are disposed on navigation.
- *   "/users/:id": async ({ id }) => { const u = await load(id); return () => <User u={u} />; }
+ *   "/users/:id": { keyed: true, handler: async ({ id }) => {
+ *     const u = await load(id); return () => <User u={u} />; } }
  * A promise that resolves to a bare Node is an error (onError, or the
  * console): what it built after its first await would have no owner scope.
  *   params  — the params at the time the handler ran. A handler runs once
