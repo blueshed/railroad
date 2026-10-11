@@ -83,10 +83,8 @@
  * annotate: `import type { JSX } from "@blueshed/railroad"` (JSX.Element is Node).
  */
 
-import { Signal, signal, effect, computed, untrack, untrackRender, pushDisposeScope, popDisposeScope, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
+import { Signal, signal, effect, computed, untrack, untrackRender, scoped, trackDispose, hasActiveDisposeScope, assertOwnSignal } from "./signals";
 import type { Dispose, ReadonlySignal, SignalOptions } from "./signals";
-
-// pushDisposeScope / popDisposeScope are internal — used by createElement, when, list, routes
 
 // === SVG namespace ===
 
@@ -238,33 +236,27 @@ export function createElement(
 ): Node {
   if (typeof tag === "function") {
     const componentProps: Record<string, any> = { ...props, children };
-    pushDisposeScope();
-    // finally (not a trailing pop) so a throwing component still balances the
-    // dispose stack — otherwise the leaked scope corrupts every later push/pop.
-    try {
+    const { value, dispose } = scoped(() => {
       // Untracked: a component runs once, so a .get() in its body is a one-shot
       // read and must not subscribe whatever effect is building it.
       const result = untrackRender("component", tag, () => tag(componentProps));
-      if (result instanceof Promise) {
-        // Async component. Its synchronous prefix (before the first await) ran
-        // under this component scope and is captured by the finally below; the
-        // continuation's creations are owned via the thunk contract — see
-        // asyncComponent(). Called here, inside the scope, so its teardown
-        // registers with the component and disposes with the parent.
-        const name = tag.name || "anonymous";
-        const fb = componentProps.fallback;
-        if (fb != null && typeof fb !== "function") {
-          console.warn(
-            `[railroad/jsx] <${name}> fallback must be a thunk ` +
-              `(fallback={() => <p>…</p>}) — got ${fb instanceof Node ? "a Node" : `a ${typeof fb}`}; ignoring.`,
-          );
-        }
-        return asyncComponent(tag, name, result, typeof fb === "function" ? fb : undefined);
+      if (!(result instanceof Promise)) return result;
+      // Async component. Its synchronous prefix (before the first await) ran
+      // under this component scope; the continuation's creations are owned via
+      // the thunk contract — see asyncComponent(). Called here, inside the
+      // scope, so its teardown registers with the component.
+      const name = tag.name || "anonymous";
+      const fb = componentProps.fallback;
+      if (fb != null && typeof fb !== "function") {
+        console.warn(
+          `[railroad/jsx] <${name}> fallback must be a thunk ` +
+            `(fallback={() => <p>…</p>}) — got ${fb instanceof Node ? "a Node" : `a ${typeof fb}`}; ignoring.`,
+        );
       }
-      return result;
-    } finally {
-      trackDispose(popDisposeScope());
-    }
+      return asyncComponent(tag, name, result, typeof fb === "function" ? fb : undefined);
+    });
+    trackDispose(dispose); // the component goes with the scope around it
+    return value;
   }
 
   // SVG-only tags are created in the SVG namespace outright; only the
@@ -428,14 +420,9 @@ function asyncComponent(
     // Own sub-scope so the fallback's effects die at the swap, not with the
     // whole component. A fallback that throws has what it made disposed: the
     // throw leaves the component before its teardown below is registered.
-    pushDisposeScope();
-    try {
-      frag.appendChild(untrackRender("a fallback", fallback, fallback));
-    } catch (err) {
-      popDisposeScope()();
-      throw err;
-    }
-    currentDispose = popDisposeScope();
+    const shown = scoped(() => untrackRender("a fallback", fallback, fallback));
+    frag.appendChild(shown.value);
+    currentDispose = shown.dispose;
   }
   frag.appendChild(end);
 
@@ -452,16 +439,15 @@ function asyncComponent(
         );
         return;
       }
-      pushDisposeScope();
-      let result: unknown;
+      let built: { value: unknown; dispose: Dispose };
       try {
-        result = untrackRender("component", component, resolution as () => unknown);
+        built = scoped(() => untrackRender("component", component, resolution as () => unknown));
       } catch (err) {
-        popDisposeScope()();
         console.error(`[railroad/jsx] <${name}> async thunk threw:`, err);
         return;
       }
-      currentDispose = popDisposeScope();
+      const result = built.value;
+      currentDispose = built.dispose;
       if (!(result instanceof Node)) {
         currentDispose();
         currentDispose = null;
@@ -549,15 +535,7 @@ function appendChildren(parent: Node, children: any[]): void {
  *   const dispose = mount(document.getElementById("root")!, () => <App />);
  */
 export function mount(target: Element, render: () => Node): Dispose {
-  pushDisposeScope();
-  let result: Node;
-  try {
-    result = untrackRender("mount()'s render", render, render);
-  } catch (err) {
-    popDisposeScope()(); // dispose children created before the throw
-    throw err;
-  }
-  const scopeDispose = popDisposeScope();
+  const { value: result, dispose: scopeDispose } = scoped(() => untrackRender("mount()'s render", render, render));
   const adopted = adoptIntoSvg(result, target);
   const nodes = adopted instanceof DocumentFragment
     ? [...adopted.childNodes]
@@ -644,27 +622,19 @@ export function when<T>(
       if (isTruthy) value$!.set(value as NonNullable<T>);
       return;
     }
-    wasTruthy = isTruthy;
-
+    // Unset until the new branch has built. A branch that throws keeps
+    // nothing: what it made is disposed, the brackets stay empty, and the next
+    // change of the condition builds again.
+    wasTruthy = undefined;
     clear();
     value$ = isTruthy ? signal(value as NonNullable<T>, { equals: () => false }) : null;
-    pushDisposeScope();
-    let result: Node | null;
-    try {
-      const v$ = value$;
-      result = v$
-        ? untrackRender("a when() branch", truthy, () => truthy(v$))
-        : falsy ? untrackRender("a when() branch", falsy, falsy) : null;
-    } catch (err) {
-      // A branch that throws keeps nothing: what it made is disposed (on the
-      // first render the throw leaves when() before its teardown exists), the
-      // brackets stay empty, and the next change of the condition builds again.
-      popDisposeScope()();
-      wasTruthy = undefined;
-      throw err;
-    }
-    currentDispose = popDisposeScope();
-    if (result) parent.insertBefore(adoptIntoSvg(result, parent), end);
+    const v$ = value$;
+    const branch = scoped(() => v$
+      ? untrackRender("a when() branch", truthy, () => truthy(v$))
+      : falsy ? untrackRender("a when() branch", falsy, falsy) : null);
+    wasTruthy = isTruthy;
+    currentDispose = branch.dispose;
+    if (branch.value) parent.insertBefore(adoptIntoSvg(branch.value, parent), end);
   }
 
   // The active branch's scope is otherwise only disposed on the next
@@ -823,18 +793,14 @@ export function list<T>(
     // between its brackets. The other rows still render, and the first error
     // is rethrown once the list is in place, as a flush does for its effects.
     let thrown: { error: unknown } | undefined;
-    const scoped = (render: () => Node): { node: Node; dispose: Dispose } | null => {
-      pushDisposeScope();
-      let node: Node;
+    const scopedRow = (render: () => Node): { value: Node; dispose: Dispose } | null => {
       try {
         // Adoption re-applies props, so its effects belong to the row too.
-        node = adoptIntoSvg(render(), parent);
+        return scoped(() => adoptIntoSvg(render(), parent));
       } catch (error) {
-        popDisposeScope()();
         thrown ??= { error };
         return null;
       }
-      return { node, dispose: popDisposeScope() };
     };
 
     // Add or reorder entries
@@ -848,21 +814,21 @@ export function list<T>(
         // the shared move step below inserts the whole range into position.
         const start = document.createComment("row");
         const end = document.createComment("/row");
-        let row: { node: Node; dispose: Dispose } | null;
+        let row: { value: Node; dispose: Dispose } | null;
         if (hasKeyFn) {
           const itemSig = signal(arr[i]!, options);
           const indexSig = signal(i);
-          row = scoped(() => untrackRender("a list() row", maybeRender!, () => maybeRender!(itemSig, indexSig)));
+          row = scopedRow(() => untrackRender("a list() row", maybeRender!, () => maybeRender!(itemSig, indexSig)));
           if (!row) continue; // left out: the next sync finds it new
           entry = { start, end, dispose: row.dispose, item: itemSig, index: indexSig };
         } else {
-          row = scoped(() => renderRow(arr[i]!, i));
+          row = scopedRow(() => renderRow(arr[i]!, i));
           if (!row) continue;
           entry = { start, end, dispose: row.dispose };
         }
         const frag = document.createDocumentFragment();
         frag.appendChild(start);
-        frag.appendChild(row.node);
+        frag.appendChild(row.value);
         frag.appendChild(end);
         entries.set(key, entry);
       } else if (hasKeyFn) {
@@ -875,9 +841,9 @@ export function list<T>(
         const { start, end } = entry;
         entry.dispose();
         clearBetween(start, end);
-        const row = scoped(() => renderRow(arr[i]!, i));
+        const row = scopedRow(() => renderRow(arr[i]!, i));
         entry.dispose = row?.dispose ?? (() => {}); // the old scope is spent: never run it twice
-        if (row) end.parentNode?.insertBefore(row.node, end);
+        if (row) end.parentNode?.insertBefore(row.value, end);
       }
 
       // Move or insert into correct position — the whole bracket range, so

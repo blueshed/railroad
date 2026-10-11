@@ -6,6 +6,15 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A component that throws has what it made disposed at the throw**, as a
+  `when()` branch or a `list()` row already did, rather than when the scope
+  around it went. Internal: every render under a scope of its own (a
+  component, a fallback, an async thunk, a `when()` branch, a `list()` row,
+  `mount()`, a route handler) goes through one helper that closes the scope
+  on every path, where seven wrote it by hand.
+
 ## [0.15.1] - 2026-09-28
 
 ### Fixed

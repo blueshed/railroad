@@ -73,7 +73,7 @@
  * always a leak; for route() it's a legitimate app-lifetime binding.
  */
 
-import { Signal, signal, computed, effect, untrack, untrackRender, pushDisposeScope, popDisposeScope, trackDispose } from "./signals";
+import { Signal, signal, computed, effect, untrack, untrackRender, scoped, trackDispose } from "./signals";
 import type { Dispose, ReadonlySignal } from "./signals";
 import { adoptIntoSvg } from "./jsx";
 
@@ -255,27 +255,20 @@ export function routes(
     const myRunId = ++runId;
     activeParams = signal(params);
 
-    // Always pop the scope synchronously before run() returns — never leave it
-    // pushed across an await. Otherwise an async first render returns with the
-    // global dispose stack imbalanced, so a parent scope pops the wrong scope
-    // (leaking its own disposers) and the resolving .then() captures the parent
-    // scope into activeDispose, recursing into a stack overflow on teardown.
-    pushDisposeScope();
-    let result: Node | Promise<Node | (() => Node)>;
+    // The handler's scope closes before run() returns, never across an await:
+    // what it builds after one is owned through the thunk below.
+    const params$ = activeParams;
+    let ran: { value: Node | Promise<Node | (() => Node)>; dispose: Dispose };
     try {
-      const params$ = activeParams;
-      result = untrackRender("a route handler", handler, () => handler(params, params$));
+      ran = scoped(() => untrackRender("a route handler", handler, () => handler(params, params$)));
     } catch (err) {
-      // Synchronous throw — pop+dispose the children created so far so the
-      // stack stays balanced, then route through the error boundary.
-      popDisposeScope()();
+      // What it made before the throw is disposed; route the error.
       activePattern = null;
       activeParams = null;
       if (handleError(err)) return;
       throw err;
     }
-    // No synchronous throw: pop now (balanced) and capture the disposer.
-    const scopeDispose = popDisposeScope();
+    const { value: result, dispose: scopeDispose } = ran;
 
     if (result instanceof Promise) {
       asyncPending = true;
@@ -292,35 +285,29 @@ export function routes(
             // created after the first await is ownerless (browser JS has no
             // AsyncContext to carry the scope across an await); resolve to a
             // thunk so railroad can bracket its construction.
-            pushDisposeScope();
-            let built: unknown;
-            let thrown: unknown;
-            let didThrow = false;
-            try {
-              built = untrackRender("a route handler", handler, resolved);
-            } catch (err) {
-              didThrow = true;
-              thrown = err;
-            }
-            const thunkDispose = popDisposeScope();
-            if (didThrow || !(built instanceof Node)) {
-              thunkDispose();
+            const fail = (err: unknown) => {
               scopeDispose();
               activePattern = null;
               activeParams = null;
-              const err = didThrow
-                ? thrown
-                : new Error("[railroad/routes] async handler thunk returned a non-Node");
               if (handleError(err)) return;
               console.error("[railroad/routes] async handler thunk failed:", err);
-              return;
+            };
+            let built: { value: unknown; dispose: Dispose };
+            try {
+              built = scoped(() => untrackRender("a route handler", handler, resolved));
+            } catch (err) {
+              return fail(err);
             }
-            const preAwaitDispose = scopeDispose;
+            if (!(built.value instanceof Node)) {
+              built.dispose();
+              return fail(new Error("[railroad/routes] async handler thunk returned a non-Node"));
+            }
+            const thunkDispose = built.dispose;
             activeDispose = () => {
               thunkDispose();
-              preAwaitDispose();
+              scopeDispose();
             };
-            target.appendChild(adoptIntoSvg(built, target));
+            target.appendChild(adoptIntoSvg(built.value as Node, target));
             return;
           }
           activeDispose = scopeDispose;

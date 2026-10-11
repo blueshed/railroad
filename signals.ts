@@ -613,6 +613,23 @@ export function popDisposeScope(): Dispose {
   return () => disposers.forEach((d) => d());
 }
 
+/**
+ * @internal -- jsx.ts, routes.ts: run `fn` under a dispose scope of its own,
+ * popped on every path. Returns what it made and the scope's disposer; a throw
+ * disposes what it made before the throw and rethrows.
+ */
+export function scoped<T>(fn: () => T): { value: T; dispose: Dispose } {
+  pushDisposeScope();
+  let value: T;
+  try {
+    value = fn();
+  } catch (err) {
+    popDisposeScope()();
+    throw err;
+  }
+  return { value, dispose: popDisposeScope() };
+}
+
 export function trackDispose(d: Dispose): void {
   const scope = disposeStack[disposeStack.length - 1];
   if (scope) scope.push(d);
