@@ -74,11 +74,16 @@ import { Signal, signal, computed, effect, untrack, untrackRender, scoped, track
 import type { Dispose, ReadonlySignal } from "./signals";
 import { adoptIntoSvg, renderThunk } from "./jsx";
 
+// The hash as a signal, shared by every route() and routes() through one
+// hashchange listener, counted.
 let hashSignal: Signal<string> | null = null;
 let hashListenerCount = 0;
 let hashListener: (() => void) | null = null;
 
-function getHash(): Signal<string> {
+// A share of the hash signal, and its release. The release runs once however
+// often it is called, so disposing a scope twice can't drive the count
+// negative and detach the listener from other routers; the last removes it.
+function getHash(): { hash: Signal<string>; release: Dispose } {
   if (!hashSignal) {
     hashSignal = new Signal(location.hash.slice(1) || "/");
     hashListener = () => {
@@ -87,16 +92,17 @@ function getHash(): Signal<string> {
     window.addEventListener("hashchange", hashListener);
   }
   hashListenerCount++;
-  return hashSignal;
-}
-
-function releaseHash(): void {
-  hashListenerCount--;
-  if (hashListenerCount === 0 && hashListener) {
-    window.removeEventListener("hashchange", hashListener);
-    hashListener = null;
-    hashSignal = null;
-  }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    if (--hashListenerCount === 0) {
+      window.removeEventListener("hashchange", hashListener!);
+      hashListener = null;
+      hashSignal = null;
+    }
+  };
+  return { hash: hashSignal, release };
 }
 
 export function matchRoute(
@@ -141,16 +147,8 @@ function sameParams(a: Record<string, string>, b: Record<string, string>): boole
 export function route<
   T extends Record<string, string> = Record<string, string>,
 >(pattern: string): ReadonlySignal<T | null> {
-  const hash = getHash();
-  // Idempotent release — disposing the scope more than once must not drive the
-  // shared hashListenerCount negative and tear the listener out from under
-  // other live routers.
-  let released = false;
-  trackDispose(() => {
-    if (released) return;
-    released = true;
-    releaseHash();
-  });
+  const { hash, release } = getHash();
+  trackDispose(release);
   return computed(() => matchRoute(pattern, hash.get()) as T | null);
 }
 
@@ -184,7 +182,7 @@ export function routes(
   table: Record<string, RouteEntry<RouteHandler>>,
   options?: RouterOptions,
 ): Dispose {
-  const hash = getHash();
+  const { hash, release } = getHash();
   let activePattern: string | null = null;
   let activeParams: Signal<Record<string, string>> | null = null;
   let activeDispose: Dispose | null = null;
@@ -285,14 +283,13 @@ export function routes(
   let disposeEffect: Dispose | null = null;
   let disposed = false;
   const dispose = () => {
-    // Idempotent — calling dispose() more than once (or via both the returned
-    // handle and a parent scope) must release the shared hash refcount exactly
-    // once, or it goes negative and detaches the listener from other routers.
+    // Idempotent: called by the returned handle and by a parent scope, it
+    // tears down once.
     if (disposed) return;
     disposed = true;
     if (disposeEffect) disposeEffect();
     teardown();
-    releaseHash();
+    release();
   };
   trackDispose(dispose);
 
