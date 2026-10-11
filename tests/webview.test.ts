@@ -301,6 +301,43 @@ describe.skipIf(noBrowser)("Bun.WebView — railroad fixture app", () => {
     )).toBe("http://www.w3.org/1999/xhtml");
   });
 
+  test("an <a> adopted into <svg> keeps its reactive href while its when() branch stands", async () => {
+    // Pinned under happy-dom too (jsx.test.tsx); here a real browser adopts it (todo #9).
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate(url);
+    await waitFor(
+      () => evalBool(view, `document.querySelector('[data-testid=to-svg]') != null`),
+      (v) => v === true,
+    );
+    await navHash(view, "#/svg");
+    await waitFor(
+      () => evalBool(view, `document.querySelector('[data-testid=link-next]') != null`),
+      (v) => v === true,
+    );
+    const linkHref = `document.querySelector('[data-testid=svg-link]')?.getAttribute('href')`;
+    await view.click("[data-testid=link-next]"); // the branch builds, inside the <g>: adopted there
+    await waitFor(() => evalStr(view, linkHref), (v) => v === "#/svg/1");
+    expect(await evalStr(view,
+      `document.querySelector('[data-testid=svg-link]').namespaceURI`,
+    )).toBe("http://www.w3.org/2000/svg");
+    expect(await evalBool(view,
+      `document.querySelector('[data-testid=svg-link]') instanceof SVGAElement`,
+    )).toBe(true);
+    await view.click("[data-testid=link-next]"); // same branch, new truthy value
+    await view.click("[data-testid=href-next]");
+    await waitFor(() => evalStr(view, linkHref), (v) => v === "#/svg/2"); // before the fix: stuck at 1
+    // Keep the element, end its branch, and move the href on: it must not follow.
+    await view.evaluate(`(window.svgLink = document.querySelector('[data-testid=svg-link]'), true)`);
+    await view.click("[data-testid=link-off]");
+    await waitFor(
+      () => evalBool(view, `document.querySelector('[data-testid=svg-link]') == null`),
+      (v) => v === true,
+    );
+    await view.click("[data-testid=href-next]");
+    await Bun.sleep(50);
+    expect(await evalStr(view, `window.svgLink.getAttribute('href')`)).toBe("#/svg/2");
+  });
+
   test("a page served unbundled, with no process, gets the development warnings", async () => {
     // The flag that turns them on reads process.env.NODE_ENV bare, so an app's production build
     // can drop them; in a browser with no bundler that read throws, and must mean development.

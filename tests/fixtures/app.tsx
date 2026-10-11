@@ -114,6 +114,10 @@ function usersHandler(
 function SvgPage() {
   const cx = signal(50);
   const move = () => cx.update((n) => n + 10);
+  // An <a> in an <svg> is made as HTML and adopted as its when() branch places it: its reactive
+  // href must live as long as that branch, through a new truthy value, and no longer (todo #9).
+  const link = signal(0);
+  const href = signal(1);
   return (
     <section data-route="svg">
       <h1>svg</h1>
@@ -128,8 +132,12 @@ function SvgPage() {
         <foreignObject x="100" y="0" width="100" height="100" data-testid="fo">
           <div data-testid="fo-html">html island</div>
         </foreignObject>
+        <g>{when(link, () => <a data-testid="svg-link" href={() => `#/svg/${href.get()}`}><text y="90">link</text></a>)}</g>
       </svg>
       <button data-testid="move" onclick={move}>move</button>
+      <button data-testid="link-next" onclick={() => link.update((n) => n + 1)}>link: next truthy value</button>
+      <button data-testid="link-off" onclick={() => link.set(0)}>link: off</button>
+      <button data-testid="href-next" onclick={() => href.update((n) => n + 1)}>next href</button>
       <a data-testid="back-home" href="#/">home</a>
     </section>
   );
