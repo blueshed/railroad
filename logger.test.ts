@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { createLogger, setLogLevel, getLogLevel, loggedRequest } from "./logger";
 
 describe("logger", () => {
@@ -142,5 +142,19 @@ describe("loggedRequest", () => {
     expect(output).toContain("boom");
     expect(output).toContain("/fail");
     errorSpy.mockRestore();
+  });
+});
+
+describe("logger: color", () => {
+  test("does not emit ANSI escapes when stdout is not a TTY", () => {
+    // bun test runs piped (non-TTY); colors must be suppressed so piped logs and
+    // log files stay clean. Skip if running in an interactive terminal.
+    if ((process as any).stdout?.isTTY) return;
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    setLogLevel("info");
+    createLogger("[t]").info("plain");
+    expect(String(logSpy.mock.calls[0]![0])).not.toContain("\x1b[");
+    logSpy.mockRestore();
+    setLogLevel("info");
   });
 });

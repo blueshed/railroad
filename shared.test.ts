@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { key, provide, inject, tryInject } from "./shared";
+import { describe, test, expect, afterEach } from "bun:test";
+import { key, provide, inject, tryInject, clearProviders } from "./shared";
 
 describe("shared", () => {
   test("provide and inject", () => {
@@ -38,5 +38,23 @@ describe("shared", () => {
     provide(K, "old");
     provide(K, "new");
     expect(inject(K)).toBe("new");
+  });
+});
+
+describe("provide(undefined) and clearProviders()", () => {
+  afterEach(() => clearProviders());
+  test("provide(undefined) is honored — inject does not throw", () => {
+    const K = key<number | undefined>("opt");
+    provide(K, undefined);
+    expect(() => inject(K)).not.toThrow();
+    expect(inject(K)).toBeUndefined();
+  });
+
+  test("clearProviders resets the registry", () => {
+    const K = key<string>("x");
+    provide(K, "v");
+    expect(inject(K)).toBe("v");
+    clearProviders();
+    expect(() => inject(K)).toThrow(/No provider/);
   });
 });

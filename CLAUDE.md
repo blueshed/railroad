@@ -51,17 +51,20 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 
   | File | Exports | Depends on |
   |---|---|---|
-  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` (and `assertOwnSignal`, internal: for `jsx.ts`) | — |
-  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount`, the `JSX` types (on `createElement`, not global; and `adoptIntoSvg`, internal: for `routes.ts`) | signals |
+  | `signals.ts` | `signal` `computed` `effect` `batch` `untrack` `Signal` `trackDispose` `pushDisposeScope` `popDisposeScope` `hasActiveDisposeScope` (and `assertOwnSignal`, `untrackRender`, `scoped`, internal: for `jsx.ts` and `routes.ts`) | — |
+  | `jsx.ts` | `createElement` `Fragment` `when` `list` `mount`, the `JSX` types (on `createElement`, not global; and `adoptIntoSvg`, `renderThunk`, internal: for `routes.ts`) | signals |
   | `routes.ts` | `routes` `route` `navigate` `matchRoute` | signals, jsx (SVG adoption only; loads without a DOM) |
   | `shared.ts` | `key` `provide` `inject` `tryInject` `clearProviders` | — |
   | `logger.ts` | `createLogger` `setLogLevel` `getLogLevel` `loggedRequest` | — |
   | `index.ts` | the public surface | all of the above |
   | `jsx-runtime.ts` / `jsx-dev-runtime.ts` | `jsx` `jsxs` `jsxDEV` `Fragment`, and `JSX` re-exported from jsx | jsx |
 
-- **Tests pin the behaviour.** `signals.test.ts`, `jsx.test.tsx`,
-  `routes.test.ts`, `shared.test.ts`, `logger.test.ts` per module;
-  `fixes.test.tsx` holds one regression test per fixed bug — add yours there.
+- **Tests pin the behaviour.** `signals.test.tsx`, `jsx.test.tsx`,
+  `routes.test.tsx`, `shared.test.ts`, `logger.test.ts`, one per module,
+  grouped by feature (a `describe` per feature). A regression test goes in
+  its module's file, in the describe for the feature it pins (or a new one
+  beside it), with a comment saying what was wrong. Shared helpers
+  (`tick`, `flush`, `defer`, `SVG_NS`) are in `tests/helpers.ts`.
   `tests/webview.test.ts` drives `tests/server.ts` + `tests/fixtures/` in a
   real browser.
 - **`CHANGELOG.md`** — Keep a Changelog. Add to `## [Unreleased]` as work
@@ -100,7 +103,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   computed read before it has settled is brought up to date first, and a
   batch holds writes back only outside a pass). Every write settles
   consistently, and a true cycle throws. The randomized checker in
-  `fixes.test.tsx` pins it. Other effects see an effect's writes, its first
+  `signals.test.tsx` pins it. Other effects see an effect's writes, its first
   run's included, after its body returns, so an effect never re-enters
   itself.
 - **One copy per page.** A second copy of railroad logs an error naming both;
