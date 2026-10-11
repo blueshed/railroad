@@ -82,7 +82,7 @@ ws.onmessage = (ev) => {
 
 `.touch()` fires subscribers without replacing the reference. `.mutate()` gives you the safer `structuredClone`-then-mutate middle ground. `.patch()` shallow-merges object signals. And `list()` — a keyed reactive list — does surgical per-row DOM updates, so a patch that touches one row touches one row's nodes, not the whole list.
 
-This is also why railroad has a sibling, [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta): a turnkey WebSocket sync layer whose document's `data` field *is* a railroad signal, not a wrapper around one. It drops straight into `list()` and `when()` with no glue. Railroad is the reactive half; delta is the sync half; they were designed to be the same idiom.
+This is also why railroad has a sibling, [`@blueshed/delta`](https://www.npmjs.com/package/@blueshed/delta). delta keeps documents: what someone needs in front of them to take an action. To place an order you need the menu and your order, two documents on one page; the kitchen needs every open order, another document over the same rows. A document is never a poster on the wall. It's a conversation: open it and you're subscribed, so every change anyone makes reaches you as it happens, and you change it yourself with add, replace or remove on a path. Its `data` *is* a railroad signal (read-only: you change a document by sending to it), not a wrapper around one, so it drops straight into `list()` and `when()` with no glue. Railroad draws the conversation; delta keeps it. They were designed to be the same idiom.
 
 ## The constraint that shaped everything: legibility
 
