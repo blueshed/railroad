@@ -4,8 +4,8 @@
     "query": "In an empty folder, start a Bun app that uses @blueshed/railroad, with a home page and an /about page that has a button counting clicks.",
     "files": [],
     "expected_behavior": [
-      "Runs bun init -y, deletes the generated index.ts, and installs @blueshed/railroad plus bun-types as a dev dependency",
-      "tsconfig compilerOptions is the complete tsx-railroad block: jsx react-jsx, jsxImportSource @blueshed/railroad, types [\"bun-types\"], moduleResolution bundler, strict",
+      "Runs bun init -y, deletes the generated index.ts, installs @blueshed/railroad, and keeps the @types/bun bun init added (no bun-types beside it)",
+      "tsconfig compilerOptions is the complete tsx-railroad block: jsx react-jsx, jsxImportSource @blueshed/railroad, types [\"bun\"], moduleResolution bundler, strict",
       "The home page is index.html, index.css and index.tsx in the project root, not in an index/ directory",
       "The about page is about/about.html, about/about.css and about/about.tsx, each HTML referencing its CSS and script by relative path",
       "Each route's CSS is self-contained; there is no shared base.css",

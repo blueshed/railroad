@@ -395,7 +395,7 @@ expect(after.x - before.x).toBeCloseTo(120, 0);
 
 ## tsconfig.json
 
-`bun init` creates a tsconfig. Replace `compilerOptions` with the complete block for the detected mode — copy-paste, don't merge two snippets.
+`bun init` creates a tsconfig and adds `@types/bun`. Replace `compilerOptions` with the complete block for the detected mode — copy-paste, don't merge two snippets. Keep `"types": ["bun"]`: since TypeScript 6 no `@types` package is included unless `types` names it, so without it `Bun`, `bun:test` and `.html` imports go unresolved.
 
 **ts mode** (no JSX):
 
@@ -403,7 +403,7 @@ expect(after.x - before.x).toBeCloseTo(120, 0);
 {
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["bun-types"],
+    "types": ["bun"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
@@ -418,7 +418,7 @@ expect(after.x - before.x).toBeCloseTo(120, 0);
 {
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["bun-types"],
+    "types": ["bun"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
@@ -435,7 +435,7 @@ expect(after.x - before.x).toBeCloseTo(120, 0);
 {
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["bun-types"],
+    "types": ["bun"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",

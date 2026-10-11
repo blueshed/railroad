@@ -11,6 +11,12 @@ All notable changes to `@blueshed/railroad`. The format follows
 - `loggedRequest` reads the path with `new URL(req.url)` directly: a `Request` always has a
   URL that parses, so the fallback for one that doesn't is gone.
 
+### Docs
+
+- **The skills set up Bun's types the way TypeScript 6+ needs** (found by running the skill
+  evaluations on Haiku): `@types/bun` with `"types": ["bun"]`, never `bun-types` beside the
+  `@types/bun` that `bun init` adds (the two copies clash); railroad's tsconfig names it too.
+
 ## [0.16.2] - 2026-10-11
 
 ### Changed

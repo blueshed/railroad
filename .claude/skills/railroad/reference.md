@@ -61,10 +61,13 @@ A complete app, with a router:
     "module": "esnext",
     "target": "esnext",
     "moduleResolution": "bundler",
-    "strict": true
+    "strict": true,
+    "types": ["bun"]
   }
 }
 ```
+
+`"types": ["bun"]` needs `@types/bun` (`bun init` adds it; elsewhere `bun add -d @types/bun`).
 
 ```html
 <!-- index.html -->

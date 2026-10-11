@@ -38,11 +38,10 @@ If there is no `package.json` and no server entry file, bootstrap first:
 
 1. Run `bun init -y` to create `package.json` and `tsconfig.json`.
 2. Delete the generated `index.ts`. The route files replace it.
-3. Install only what the mode needs:
-   - **js**: nothing extra.
-   - **ts**: `bun add -d bun-types`.
-   - **tsx-railroad**: `bun add @blueshed/railroad && bun add -d bun-types`.
-   - **tsx-react**: `bun add react react-dom && bun add -d bun-types @types/react @types/react-dom`.
+3. Install only what the mode needs. `bun init` already adds `@types/bun` (Bun's types); never add `bun-types` beside it, as the two copies clash.
+   - **js** and **ts**: nothing extra.
+   - **tsx-railroad**: `bun add @blueshed/railroad`.
+   - **tsx-react**: `bun add react react-dom && bun add -d @types/react @types/react-dom`.
 4. For **ts** or **tsx** modes, replace `compilerOptions` in the tsconfig with the complete block for the mode from reference.md. Don't merge two snippets.
 5. Create the server entry (`server.js` or `server.ts`) with `Bun.serve({ routes, development: process.env.NODE_ENV !== "production" && { hmr: true, console: true } })`. Always enable `development.hmr` and `development.console` in development, and gate them as shown: Bun keeps HMR under `NODE_ENV=production`. See reference.md for the template.
 6. Create the route files as in Step 3.
@@ -69,6 +68,8 @@ Find the server entry: the file that calls `Bun.serve()`, usually `server.ts` or
 - Add to the `routes` object: `"/<route>": <name>Page,`
 
 If the file still uses `import { serve } from "bun"`, leave it. Both forms work. New scaffolds use `Bun.serve` directly.
+
+In a **ts** or **tsx** project, `bun check` needs Bun's types for `Bun` and the `.html` import: if `package.json` has no `@types/bun`, run `bun add -d @types/bun`, and make sure tsconfig's `types` includes `"bun"`.
 
 ## Step 5: Verify
 
