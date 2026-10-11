@@ -764,20 +764,26 @@ export function list<T>(
     // it placed: a new row is left out, an index-based rebuild left empty
     // between its brackets. The other rows still render, and the first error
     // is rethrown once the list is in place, as a flush does for its effects.
+    // A row that disposes the list's owner (a navigation, say) stops the sync:
+    // the list's teardown has run, so the row it built is disposed here.
     let thrown: { error: unknown } | undefined;
     const scopedRow = (render: () => Node): { value: Node; dispose: Dispose } | null => {
+      let row: { value: Node; dispose: Dispose };
       try {
         // Adoption re-applies props, so its effects belong to the row too.
-        return scoped(() => adoptIntoSvg(render(), parent));
+        row = scoped(() => adoptIntoSvg(render(), parent));
       } catch (error) {
         thrown ??= { error };
         return null;
       }
+      if (!disposed) return row;
+      row.dispose();
+      return null;
     };
 
     // Add or reorder entries
     let insertBefore: Node = anchor;
-    for (let i = newKeys.length - 1; i >= 0; i--) {
+    for (let i = newKeys.length - 1; i >= 0 && !disposed; i--) {
       const key = newKeys[i]!;
       let entry = entries.get(key);
 

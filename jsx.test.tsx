@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createElement, when, list, mount } from "./jsx";
-import { signal, pushDisposeScope, popDisposeScope } from "./signals";
+import { signal, effect, pushDisposeScope, popDisposeScope } from "./signals";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -480,5 +480,35 @@ describe("an adopted SVG <a> keeps its props for as long as its render, and no l
     dispose();
     href.set("#3");
     expect(a.getAttribute("href")).toBe("#2"); // before: "#3", it outlived the component
+  });
+});
+
+// A row whose render disposes the scope that owns the list (a navigation, say) runs the list's
+// teardown mid-sync: the sync must stop there, and the row it just built must go too (todo #10).
+describe("list(): a row that disposes the list's owner mid-sync", () => {
+  test("the sync stops without a throw, and nothing it built outlives the owner", () => {
+    const items = signal([1]);
+    const probe = signal(0);
+    let runs = 0;
+    let disposeOwner = () => {};
+    const root = document.createElement("div");
+    pushDisposeScope();
+    root.append(
+      <ul>
+        {list(items, (i) => i, (i$) => {
+          const i = i$.peek();
+          effect(() => { probe.get(); runs++; });
+          if (i === 2) disposeOwner();
+          return <li>{i}</li>;
+        })}
+      </ul>,
+    );
+    disposeOwner = popDisposeScope();
+    // Rows render from the end: 3 is placed, then 2 disposes the owner, row 3 and row 1 with it.
+    expect(() => items.set([1, 2, 3])).not.toThrow(); // before: insertBefore a removed row
+    runs = 0;
+    probe.set(1);
+    expect(runs).toBe(0); // before: row 2's effect, built after the teardown, ran on
+    expect(root.querySelectorAll("li")).toHaveLength(0);
   });
 });

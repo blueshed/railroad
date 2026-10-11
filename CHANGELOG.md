@@ -30,6 +30,13 @@ All notable changes to `@blueshed/railroad`. The format follows
   handler's stopped at a change of params. Each is now adopted inside its
   render's scope, as a `list()` row already was.
 
+- **A `list()` row that disposes the list's owner mid-render stops the
+  render** (todo #10). A row whose render disposed the scope that owns the
+  list (a navigation, say) left the list placing rows into what its
+  teardown had just removed: a `DOMException` from `insertBefore`, and the
+  row built after the teardown never disposed. The list now stops at that
+  row and disposes it.
+
 ### Changed
 
 - **A component that throws has what it made disposed at the throw**, as a
