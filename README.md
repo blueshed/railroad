@@ -122,7 +122,7 @@ a worker with no DOM and no JSX.
   `list()`.
 - **[paintbrush](https://github.com/blueshed/paintbrush)** is a starting
   website: Bun routes and resources, railroad for the page, a delta document
-  when a resource needs one. `bun create blueshed my-app` makes one (Bun 1.4).
+  when a resource needs one. `bun create blueshed/paintbrush my-app` makes one (Bun 1.4).
 
 ## What it is not
 

@@ -65,7 +65,7 @@ bun build --compile server.ts                        # one binary
 The server step adds `"types": ["bun"]` to the tsconfig, which needs `@types/bun` (`bun init` adds it; else `bun add -d @types/bun`).
 
 - A routed app calls `routes(root, table)` in place of `mount()`: see [routes](routes.md). Adding pages to an app, server entries and `Bun.WebView` tests: the `bun-route` skill.
-- `bun create blueshed my-app` makes a paintbrush app (Bun 1.4): Bun routes and resources, railroad for the page; its `evolve` skill adds a delta document when a resource needs one.
+- `bun create blueshed/paintbrush my-app` makes a paintbrush app (Bun 1.4): Bun routes and resources, railroad for the page; its `evolve` skill adds a delta document when a resource needs one.
 - Bun or another bundler only: railroad ships TypeScript source with extensionless imports, so it needs `moduleResolution: "bundler"` (or `"bun"`), never Node's `node16`/`nodenext`.
 - No global `JSX`, so railroad sits beside React's types. `react-jsx` + `jsxImportSource` finds the types in `@blueshed/railroad/jsx-runtime`; classic `"jsx": "react"` with `jsxFactory: "createElement"`, `jsxFragmentFactory: "Fragment"` (import `createElement` per file) finds them on `createElement.JSX`.
 - To annotate: `import type { JSX } from "@blueshed/railroad"`. `JSX.Element` is a DOM `Node`.
