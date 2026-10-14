@@ -135,10 +135,9 @@ a worker with no DOM and no JSX.
 
 ## Where to go next
 
-- [The manual](.claude/skills/railroad/reference.md): setup, every API,
-  props, routes, realtime patterns, testing, sharp edges.
 - [What bites](.claude/skills/railroad/SKILL.md): the short checklist of
-  mistakes that actually happen.
+  mistakes that actually happen, and which page of
+  [the manual](.claude/skills/railroad/reference/) to read for which job.
 - The contract: the comment at the top of each source file.
 - [What changed](CHANGELOG.md).
 

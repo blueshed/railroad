@@ -22,6 +22,8 @@ The thing that's easy to miss about Bun is that it quietly absorbed the parts of
 - **`bun build --compile`** — the entire HTML + TSX + server graph compiled into a single static binary you can `scp` to a box. No Node, no install, no Docker layer.
 - **`Bun.WebView`** — a real headless browser you can drive from the same `bun test` you already run for unit tests.
 
+Each arrived in a release: HTML imports in `Bun.serve` in [1.2](https://bun.com/blog/bun-v1.2), HMR with console mirroring and `bun build --compile` of the whole graph in [1.3](https://bun.com/blog/bun-v1.3), `Bun.WebView` in [1.3.12](https://bun.com/blog/bun-v1.3.12).
+
 Look at that list and the realization arrives on its own: Bun ships the build pipeline. The dev server, the bundler, the transpiler, the asset hashing, the HMR, even the browser-test harness — all of it, in the runtime, with zero config.
 
 So what's actually left? One thing. A way to bind state to the DOM and have the DOM update when the state changes. Reactivity. That's the whole gap.

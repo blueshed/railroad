@@ -13,6 +13,16 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
+- **The skills are cut to a compass, and each manual is a folder of topics.** `railroad`'s
+  `reference.md` and `bun-route`'s are gone: each skill's `reference/` holds one topic a file
+  (railroad: setup, signals, scopes, jsx, async, when-list, routes, realtime, testing,
+  shared-logger, one-copy; bun-route: templates, server, tsconfig, webview, webview-recipes),
+  each leading with an example that runs, and each `SKILL.md` is under 600 words and says
+  which file is for which job. Options tables became pointers to the types; the Bun release
+  history moved to `docs/why-railroad.md`. To move across: copy the skill folders again
+  (`cp -r node_modules/@blueshed/railroad/.claude/skills/* .claude/skills/`) and delete the
+  old `.claude/skills/railroad/reference.md` and `.claude/skills/bun-route/reference.md`,
+  which a copy over the top leaves behind.
 - **The skills set up Bun's types the way TypeScript 6+ needs** (found by running the skill
   evaluations on Haiku): `@types/bun` with `"types": ["bun"]`, never `bun-types` beside the
   `@types/bun` that `bun init` adds (the two copies clash); railroad's tsconfig names it too.

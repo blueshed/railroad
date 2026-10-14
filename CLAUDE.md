@@ -6,9 +6,9 @@ why: [README.md](README.md). How to use it: the `railroad` skill.
 ## Which skill to load
 
 - **`railroad`** (`.claude/skills/railroad/SKILL.md`, manual in
-  `reference.md` beside it) — before changing behaviour, writing examples, or
-  touching docs. Both files ship to users; keep them true to the code on
-  `main`.
+  `reference/` beside it, one topic a file) — before changing behaviour,
+  writing examples, or touching docs. All of it ships to users; keep it true
+  to the code on `main`.
 - **`bun-route`** (`.claude/skills/bun-route/`) — Bun HTML routes and
   `Bun.WebView` test patterns.
 - **`/publish`** (`.claude/commands/publish.md`) — the release procedure,
@@ -136,8 +136,14 @@ so after a dependency change run `bun install` and commit `bun.lock`.
 - `README.md` is for someone deciding whether to use railroad: the pitch, one
   example that runs, what it pairs with, where to go next. Keep it short, and
   run the example if you change it.
-- The manual is `.claude/skills/railroad/reference.md`; the checklist of what
-  bites is `SKILL.md`. Don't copy either into this file or the README.
+- The manual is `.claude/skills/railroad/reference/`, a file a topic; the
+  checklist of what bites is `SKILL.md`. Don't copy either into this file or
+  the README.
+- The skills are cut to one standard, shared with delta and eta: `SKILL.md` under ~600
+  words (model, order of work, invariants, which file for which job); each
+  reference file under ~600 (aim 200-400), leading with one complete example
+  that runs; point to the types, never re-type them; history and rationale
+  go to `docs/`, not the skill.
 - Skills carry `metadata: version:` in frontmatter. Leave the number alone; `/publish`
   stamps it.
 
