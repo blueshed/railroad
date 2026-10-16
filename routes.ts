@@ -286,7 +286,7 @@ export function routes(
   // Register the outer dispose into the caller's scope BEFORE creating the
   // effect, so dispose lands in the caller's scope (not the router's own
   // internal one). run() keeps the dispose stack balanced across async first
-  // renders, so this is now purely about attributing dispose to the right scope.
+  // renders, so this is about attributing dispose to the right scope.
   let disposeEffect: Dispose | null = null;
   let disposed = false;
   const dispose = () => {

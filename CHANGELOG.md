@@ -13,6 +13,10 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
+- **The documents say what is built**: `docs/why-railroad.md` is linked from the README and counts
+  the eleven things that bite; the README has one tagline; stale phrases (`legacy`, `now purely`,
+  `since TypeScript 6`, a section that does not exist) are gone; `todo.jsonl` records the one open
+  item, and the session-start hook names the right CLAUDE.md section.
 - **The skills are cut to a compass, and each manual is a folder of topics.** `railroad`'s
   `reference.md` and `bun-route`'s are gone: each skill's `reference/` holds one topic a file
   (railroad: setup, signals, scopes, jsx, async, when-list, routes, realtime, testing,
