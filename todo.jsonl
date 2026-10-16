@@ -1,0 +1,1 @@
+{"n":1,"status":"open","severity":"low","area":"types","file":"package.json, CLAUDE.md","summary":"check:consumer compiles under TypeScript 5.9 as well as 7, for users still on 5.x","detail":"The tsc half of check:consumer, and the typescript dev dependency it is the only use of, go once 5.x users are gone. Until then, a change that 5.9 rejects is a break for them."}

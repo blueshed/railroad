@@ -44,7 +44,7 @@ proves railroad declares no global `JSX`. It also compiles
 the README's `tsconfig.json` plus the `"types": ["bun"]` its server step adds.
 Each compiles under TypeScript 7 (`bun check`) and 5.9 (`tsc`, the only
 use of the `typescript` dev dependency): users compile railroad's source with
-their own TypeScript. Drop the `tsc` half once 5.x users are gone.
+their own TypeScript. The `tsc` half goes once 5.x users are gone (todo #1).
 
 Bun only: `bun`, `bunx`, `bun run`. Coverage has no enforced threshold; don't
 let lines a change touches go uncovered. CI installs with `--frozen-lockfile`,
@@ -143,7 +143,7 @@ so after a dependency change run `bun install` and commit `bun.lock`.
   words (model, order of work, invariants, which file for which job); each
   reference file under ~600 (aim 200-400), leading with one complete example
   that runs; point to the types, never re-type them; history and rationale
-  go to `docs/`, not the skill.
+  go to `docs/why-railroad.md`, not the skill.
 - Skills carry `metadata: version:` in frontmatter. Leave the number alone; `/publish`
   stamps it.
 

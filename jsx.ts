@@ -7,7 +7,7 @@
  *   - tag: async function → placeholder now, content when it resolves — the
  *     component must resolve to a THUNK (`return () => <div>…</div>`) so its
  *     post-await effects get an owner scope; optional `fallback` prop (a
- *     thunk) renders until settlement. See the async-components section.
+ *     thunk) renders until settlement. See "Async components" below.
  *   - props: attributes, event handlers (onclick etc), ref — applied after the
  *     children are appended, so a <select>'s value finds its <option>s and a
  *     ref sees the element whole
@@ -94,7 +94,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // creation: refs fire once, manual addEventListener survives, and no adoption
 // pass is needed for real SVG work. The four tags shared with HTML (a, script,
 // style, title) can't be disambiguated bottom-up — they are created as HTML
-// and namespace-adopted on append to an SVG parent, the legacy path.
+// and namespace-adopted on append to an SVG parent.
 const SVG_TAGS = new Set([
   "animate", "animateMotion", "animateTransform", "circle", "clipPath",
   "defs", "desc", "ellipse", "feBlend", "feColorMatrix", "feComponentTransfer",

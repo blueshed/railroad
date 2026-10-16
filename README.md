@@ -11,13 +11,10 @@ DOM, no re-rendering, no hooks. Lists keep their rows by key, and the hash route
 its params as a signal, so going from `/users/1` to `/users/2` updates the page in place.
 
 Bun already serves an HTML file straight from disk, bundles the TSX its `<script>` tag names,
-reloads on save, builds one binary and runs headless browser tests. railroad is the small reactive layer Bun was missing: no compiler, no
-build config, no runtime dependencies. It's small enough to read in one sitting, by a person or
+reloads on save, builds one binary and runs headless browser tests. railroad is the small
+reactive layer Bun was missing: no compiler, no build config, no runtime dependencies. It's small enough to read in one sitting, by a person or
 an AI, and the mistakes people actually make fit on one page. It pairs with delta: an open delta
 document is a railroad signal, so live shared data drops straight into the page.
-
-In one line: **the smallest reactive layer for Bun: real DOM, pushed by signals, with delta's
-live documents plugging straight in.**
 
 ## Try it
 
@@ -139,6 +136,7 @@ a worker with no DOM and no JSX.
   mistakes that actually happen, and which page of
   [the manual](.claude/skills/railroad/reference/) to read for which job.
 - The contract: the comment at the top of each source file.
+- [Why railroad](docs/why-railroad.md): the reasons behind it.
 - [What changed](CHANGELOG.md).
 
 Both skills ship in the package. To use them with Claude Code, copy them in:

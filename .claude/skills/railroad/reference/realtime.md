@@ -67,5 +67,5 @@ Bun.serve({ routes: { "/": home, [ws.path]: ws.upgrade }, websocket: ws.websocke
 - Delta gives a changed row a fresh object, so `list()` keeps its default `equals`.
 - Never `openDoc()` inside an `effect()` body unless following a signal is the intent: the doc closes when the effect re-runs.
 - `applyOpsToCollection` (`@blueshed/delta/dom-ops`) is for vanilla DOM; with railroad, use `list()`. Pick one.
-- Backends (JSON file, SQLite, Postgres, memory, outside sources) share one client: the `delta-doc` skill, installed with delta, has them.
+- Where documents are kept (a JSON file, SQLite, Postgres on dzql, memory, an outside source) changes nothing here: one client. The `delta-doc` skill, installed with delta, has them.
 - Two copies of railroad break this silently: [one-copy](one-copy.md).
