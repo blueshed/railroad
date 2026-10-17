@@ -51,7 +51,7 @@ The contract is each source file's JSDoc header and its types: `signals.ts`, `js
 - [async](reference/async.md): async components and route handlers
 - [when-list](reference/when-list.md): conditional and keyed rendering
 - [routes](reference/routes.md): `routes`, `route`, `navigate`, keyed and wildcard routes, `onError`
-- [realtime](reference/realtime.md): patch streams and `@blueshed/delta`
+- [realtime](reference/realtime.md): patch streams, `@blueshed/delta`, and an island in an eta page
 - [testing](reference/testing.md): unit tests on happy-dom
 - [shared-logger](reference/shared-logger.md): `provide`/`inject`, the logger
 - [one-copy](reference/one-copy.md): a linked checkout breaks reactivity

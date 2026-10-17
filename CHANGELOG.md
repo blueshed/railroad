@@ -13,6 +13,9 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 ### Docs
 
+- **eta is named where railroad pairs**: the README's "What it pairs with" has it, and the
+  skill's `reference/realtime.md` has an island, railroad's `mount()` drawing one piece of a
+  page eta's server draws (eta's `island()`). The 0.16.0 note no longer calls eta private.
 - **The documents say what is built**: `docs/why-railroad.md` is linked from the README and counts
   the eleven things that bite; the README has one tagline; stale phrases (`legacy`, `now purely`,
   `since TypeScript 6`, a section that does not exist) are gone; `todo.jsonl` records the one open
@@ -154,7 +157,7 @@ All notable changes to `@blueshed/railroad`. The format follows
 - **The README explains a signal where it first uses one, and its skills
   copy works in a fresh project** (`mkdir -p .claude/skills` first; `cp`
   failed with "Not a directory"). It names paintbrush, which
-  `bun create blueshed` scaffolds, in place of the private eta.
+  `bun create blueshed` scaffolds, in place of eta.
 
 ## [0.15.1] - 2026-09-28
 
