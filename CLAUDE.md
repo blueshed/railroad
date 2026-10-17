@@ -29,7 +29,8 @@ bun run test:webview     # real-browser suite, by explicit path
 The release gate is `bun check && bun run check:consumer && bun test --coverage`.
 CI (`.github/workflows/`) also runs `bun run test:webview` on its own step,
 and a `floor` job runs `bun test` without the browser file on the Bun that
-`engines` names (1.3.14).
+`engines` names (1.3.14), and an `eta` job runs eta's `src/island.test.ts` with
+this checkout linked in place of npm's railroad.
 Where no browser is found (no `BUN_CHROME_PATH`, nothing on `PATH`) and `CI` is
 unset, the browser tests skip with a warning, so a green bare `bun test` is not
 proof they ran; in CI a missing browser fails them.

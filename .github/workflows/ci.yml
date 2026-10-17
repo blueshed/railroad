@@ -40,6 +40,43 @@ jobs:
       # on its own. In CI a missing browser fails it rather than skipping it.
       - run: bun test ./tests/webview.test.ts
 
+  # eta draws its islands with railroad's `signal` and `mount` (eta's src/island.ts). Run eta's
+  # island test, in a real browser, against this commit's railroad in place of the npm one, so a
+  # change here that breaks eta fails here, before a release. eta's bunfig.toml is removed: it
+  # gates eta's whole-run coverage, which one file cannot meet.
+  eta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: railroad
+
+      - uses: actions/checkout@v6
+        with:
+          repository: blueshed/eta
+          path: eta
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install eta, with this railroad in place of npm's
+        working-directory: eta
+        run: |
+          bun install --frozen-lockfile
+          rm -rf node_modules/@blueshed/railroad
+          ln -s "$GITHUB_WORKSPACE/railroad" node_modules/@blueshed/railroad
+          rm bunfig.toml
+
+      - name: Locate Chrome for Bun.WebView
+        run: |
+          chrome="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          if [ -z "$chrome" ]; then echo "No Chrome/Chromium found on runner" >&2; exit 1; fi
+          echo "BUN_CHROME_PATH=$chrome" >> "$GITHUB_ENV"
+
+      - run: bun test src/island.test.ts
+        working-directory: eta
+
   # package.json promises Bun 1.3.14 or later (engines). Run every test but the
   # browser's on that floor; `bun check` needs the TypeScript 7 of Bun 1.4, so it isn't run here.
   # (1.3.12 and 1.3.13 pass it too, but their `bun build --compile` binaries

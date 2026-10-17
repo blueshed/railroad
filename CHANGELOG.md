@@ -10,6 +10,9 @@ All notable changes to `@blueshed/railroad`. The format follows
 
 - `loggedRequest` reads the path with `new URL(req.url)` directly: a `Request` always has a
   URL that parses, so the fallback for one that doesn't is gone.
+- **CI runs eta's island test against railroad's own commit** (the `eta` job in
+  `.github/workflows/ci.yml`): eta's `src/island.test.ts`, in a real browser, with the checked-out
+  railroad linked in place of npm's, so a change that breaks eta's islands fails before a release.
 
 ### Docs
 
