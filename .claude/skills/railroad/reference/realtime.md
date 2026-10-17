@@ -69,3 +69,29 @@ Bun.serve({ routes: { "/": home, [ws.path]: ws.upgrade }, websocket: ws.websocke
 - `applyOpsToCollection` (`@blueshed/delta/dom-ops`) is for vanilla DOM; with railroad, use `list()`. Pick one.
 - Where documents are kept (a JSON file, SQLite, Postgres on dzql, memory, an outside source) changes nothing here: one client. The `delta-doc` skill, installed with delta, has them.
 - Two copies of railroad break this silently: [one-copy](one-copy.md).
+
+## eta: an island in a page the server draws
+
+```tsx
+// eta's examples/<app>/applets/zone-picker-applet.tsx
+import { registerApplet } from "../../../src/applets";
+import { island } from "../../../src/island";
+
+type ClockProps = { tz: string };
+
+const picker = island<ClockProps>((props, ctx, el) => {
+  const zones = [...el.querySelectorAll("option")].map((o) => o.value); // what the server drew
+  return (
+    <select onchange={(e) => ctx.send("clock", [{ op: "replace", path: "/tz", value: (e.target as HTMLSelectElement).value }])}>
+      {zones.map((tz) => <option value={tz} selected={props.map((p) => p.tz === tz)}>{tz}</option>)}
+    </select>
+  );
+});
+
+registerApplet("zone-picker", picker);
+```
+
+- [eta](https://github.com/blueshed/eta)'s server draws the page; its client morphs it, never inside a `[data-applet]`. An island draws that inside with `mount()`, disposed when eta removes the element.
+- Props are a signal, set by new `data-props` and by the document's patches through the optional `reduce(props, ops)`.
+- Read what the server drew inside `el` first: `render`'s result replaces it. Never bind `el`'s own attributes.
+- Write with `ctx.send(doc, ops)`, never by setting props. The rest is eta's `eta-app` skill.
